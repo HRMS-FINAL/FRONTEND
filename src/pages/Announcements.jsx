@@ -1,69 +1,119 @@
-import React, { useState } from 'react';
-import { 
-  Megaphone, Plus, Search, Filter, MoreVertical, 
-  Calendar, User, Tag, ChevronRight, Send, X, AlertCircle
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Megaphone, Plus, Search, Filter, MoreVertical,
+  Calendar, User, Tag, ChevronRight, Send, X, AlertCircle, Trash2
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+
+const API = 'http://localhost:8001/api';
+
+// Map any API record into the shape this UI uses
+const mapApi = (a) => ({
+  id:        a._id || a.id,
+  title:     a.title,
+  content:   a.description || a.content || '',
+  category:  a.category  || 'General',
+  priority:  a.priority  || 'Low',
+  author:    a.createdByName || a.author || 'HR',
+  date: a.publishDate
+    ? new Date(a.publishDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+    : (a.createdAt
+        ? new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+        : ''),
+  isNew: a.createdAt ? (Date.now() - new Date(a.createdAt).getTime()) < 1000 * 60 * 60 * 24 * 3 : false,
+});
 
 export default function Announcements({ onBack }) {
+  const { user } = useAuth() || {};
   const [showPostModal, setShowPostModal] = useState(false);
-  const [announcements, setAnnouncements] = useState([
-    {
-      id: 1,
-      title: 'Company Picnic 2024!',
-      content: 'We are excited to announce our annual company picnic will be held at Central Park on June 15th. Family and friends are welcome!',
-      category: 'Event',
-      author: 'HR Department',
-      date: 'May 02, 2024',
-      isNew: true,
-      priority: 'Low'
-    },
-    {
-      id: 2,
-      title: 'New Health Insurance Policy',
-      content: 'Please review the updated health insurance benefits for the upcoming fiscal year. Documentation is available in the portal.',
-      category: 'Benefits',
-      author: 'Finance Team',
-      date: 'May 01, 2024',
-      isNew: false,
-      priority: 'High'
-    },
-    {
-      id: 3,
-      title: 'Office Upgrade: New Coffee Machines',
-      content: 'By popular demand, we have installed high-end espresso machines in every pantry. Enjoy!',
-      category: 'Office',
-      author: 'Facility Management',
-      date: 'Apr 28, 2024',
-      isNew: false,
-      priority: 'Medium'
-    }
-  ]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const menuRef = useRef(null);
 
   const [newPost, setNewPost] = useState({ title: '', content: '', category: 'General', priority: 'Low' });
   const [postErrors, setPostErrors] = useState({});
 
-  const handlePost = (e) => {
+  // Load announcements from API on mount
+  const loadAnnouncements = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/announcements`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setAnnouncements(data.data.map(mapApi));
+      }
+    } catch (err) {
+      console.error('Failed to load announcements:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadAnnouncements(); }, []);
+
+  // Close three-dot menu on outside click
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null);
+    };
+    if (openMenuId !== null) document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [openMenuId]);
+
+  // Create
+  const handlePost = async (e) => {
     e.preventDefault();
     let errors = {};
-    if (!newPost.title.trim()) errors.title = 'Title is required';
+    if (!newPost.title.trim())   errors.title   = 'Title is required';
     if (!newPost.content.trim()) errors.content = 'Content cannot be empty';
-    
-    if (Object.keys(errors).length > 0) {
-      setPostErrors(errors);
-      return;
+    if (Object.keys(errors).length > 0) { setPostErrors(errors); return; }
+
+    try {
+      const res = await fetch(`${API}/announcements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title:    newPost.title.trim(),
+          content:  newPost.content.trim(),
+          category: newPost.category,
+          priority: newPost.priority,
+          author:   user?.name || 'HR',
+          createdByRole: user?.role || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setAnnouncements(prev => [mapApi(data.data), ...prev]);
+      } else {
+        loadAnnouncements();
+      }
+    } catch (err) {
+      console.error('Failed to post announcement:', err);
     }
 
-    const post = {
-      id: Date.now(),
-      ...newPost,
-      author: 'Alex Morrison',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-      isNew: true
-    };
-    setAnnouncements([post, ...announcements]);
     setShowPostModal(false);
     setNewPost({ title: '', content: '', category: 'General', priority: 'Low' });
     setPostErrors({});
+  };
+
+  // Delete
+  const handleDelete = async (id) => {
+    setOpenMenuId(null);
+    if (!window.confirm('Delete this announcement? This cannot be undone.')) return;
+    const prev = announcements;
+    setAnnouncements(prev.filter(a => a.id !== id));
+    try {
+      const res  = await fetch(`${API}/announcements/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        setAnnouncements(prev);
+        alert(data.message || 'Failed to delete announcement');
+      }
+    } catch (err) {
+      setAnnouncements(prev);
+      console.error('Failed to delete announcement:', err);
+    }
   };
 
   return (
@@ -96,16 +146,76 @@ export default function Announcements({ onBack }) {
           </div>
         </div>
 
+        {loading && announcements.length === 0 && (
+          <p style={{ color: '#718096', fontSize: '14px', padding: '20px 0' }}>Loading announcements...</p>
+        )}
+
+        {!loading && announcements.length === 0 && (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: '#718096' }}>
+            <Megaphone size={32} style={{ opacity: 0.4, marginBottom: 8 }} />
+            <p style={{ fontSize: '14px' }}>No announcements yet. Click <strong>Post Announcement</strong> to create one.</p>
+          </div>
+        )}
+
         <div className="announcement-grid">
           {announcements.map(item => (
-            <div className={`announcement-card ${item.priority.toLowerCase()}`} key={item.id}>
+            <div className={`announcement-card ${(item.priority || 'low').toLowerCase()}`} key={item.id}>
               <div className="a-card-header">
                 <div className="a-category-tag">
                   <Tag size={12} />
                   {item.category}
                 </div>
                 {item.isNew && <span className="a-new-badge">New</span>}
-                <button className="a-more-btn"><MoreVertical size={16} /></button>
+
+                <div style={{ position: 'relative', marginLeft: 'auto' }} ref={openMenuId === item.id ? menuRef : null}>
+                  <button
+                    className="a-more-btn"
+                    onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === item.id ? null : item.id); }}
+                    aria-label="More options"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+
+                  {openMenuId === item.id && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '110%',
+                        right: 0,
+                        background: '#fff',
+                        border: '1px solid #E2E8F0',
+                        borderRadius: '8px',
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
+                        minWidth: '140px',
+                        zIndex: 20,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#E53E3E',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#FFF5F5')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <h3 className="a-title">{item.title}</h3>
               <p className="a-content">{item.content}</p>
@@ -114,7 +224,7 @@ export default function Announcements({ onBack }) {
                   <div className="a-meta-item"><User size={13} /> {item.author}</div>
                   <div className="a-meta-item"><Calendar size={13} /> {item.date}</div>
                 </div>
-                <div className={`a-priority ${item.priority.toLowerCase()}`}>
+                <div className={`a-priority ${(item.priority || 'low').toLowerCase()}`}>
                   <AlertCircle size={12} /> {item.priority}
                 </div>
               </div>
@@ -133,20 +243,20 @@ export default function Announcements({ onBack }) {
             <form onSubmit={handlePost} className="ne-modal-body">
               <div className="ne-field">
                 <label className="ne-label">Title</label>
-                <input 
-                  className={`ne-input ${postErrors.title ? 'error' : ''}`} placeholder="e.g., Upcoming Holiday Schedule" 
+                <input
+                  className={`ne-input ${postErrors.title ? 'error' : ''}`} placeholder="e.g., Upcoming Holiday Schedule"
                   value={newPost.title} onChange={e => {
-                    setNewPost({...newPost, title: e.target.value});
-                    if (postErrors.title) setPostErrors(p => { const n = {...p}; delete n.title; return n; });
+                    setNewPost({ ...newPost, title: e.target.value });
+                    if (postErrors.title) setPostErrors(p => { const n = { ...p }; delete n.title; return n; });
                   }}
                 />
                 {postErrors.title && <span className="error-text" style={{ color: '#E53E3E', fontSize: '11px', marginTop: '4px' }}>{postErrors.title}</span>}
               </div>
               <div className="ne-field">
                 <label className="ne-label">Category</label>
-                <select 
-                  className="ne-input" value={newPost.category} 
-                  onChange={e => setNewPost({...newPost, category: e.target.value})}
+                <select
+                  className="ne-input" value={newPost.category}
+                  onChange={e => setNewPost({ ...newPost, category: e.target.value })}
                 >
                   <option>General</option>
                   <option>Event</option>
@@ -159,10 +269,10 @@ export default function Announcements({ onBack }) {
                 <label className="ne-label">Priority</label>
                 <div className="priority-toggle-group">
                   {['Low', 'Medium', 'High'].map(p => (
-                    <button 
-                      key={p} type="button" 
+                    <button
+                      key={p} type="button"
                       className={`p-toggle-btn ${newPost.priority === p ? 'active' : ''}`}
-                      onClick={() => setNewPost({...newPost, priority: p})}
+                      onClick={() => setNewPost({ ...newPost, priority: p })}
                     >
                       {p}
                     </button>
@@ -171,12 +281,12 @@ export default function Announcements({ onBack }) {
               </div>
               <div className="ne-field">
                 <label className="ne-label">Content</label>
-                <textarea 
-                  className={`ne-input ${postErrors.content ? 'error' : ''}`} style={{ height: '120px', resize: 'none' }} 
+                <textarea
+                  className={`ne-input ${postErrors.content ? 'error' : ''}`} style={{ height: '120px', resize: 'none' }}
                   placeholder="Share details about the announcement..."
                   value={newPost.content} onChange={e => {
-                    setNewPost({...newPost, content: e.target.value});
-                    if (postErrors.content) setPostErrors(p => { const n = {...p}; delete n.title; return n; });
+                    setNewPost({ ...newPost, content: e.target.value });
+                    if (postErrors.content) setPostErrors(p => { const n = { ...p }; delete n.content; return n; });
                   }}
                 ></textarea>
                 {postErrors.content && <span className="error-text" style={{ color: '#E53E3E', fontSize: '11px', marginTop: '4px' }}>{postErrors.content}</span>}

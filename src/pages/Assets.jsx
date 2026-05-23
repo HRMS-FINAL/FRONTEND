@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Laptop, Monitor, Mouse, Keyboard, CreditCard,
   Search, Filter, Plus, Edit2, Trash2, Cpu, X,
@@ -6,32 +6,22 @@ import {
 } from 'lucide-react';
 import { allEmployees } from '../data/mockData';
 
-// ─── Initial asset data (employee-centric) ───────────────────────────────────
-const initialAssets = [
-  { id: 'AST-001', assetName: 'MacBook Pro M2 14"',     type: 'Laptop',   employeeId: 'EMP-1001', serialNo: 'MBP-2023-001', issuedDate: '2023-01-15', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-002', assetName: 'Dell UltraSharp 27"',    type: 'Monitor',  employeeId: 'EMP-1001', serialNo: 'DEL-MON-027',  issuedDate: '2023-01-15', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-003', assetName: 'Logitech MX Master 3',   type: 'Mouse',    employeeId: 'EMP-1001', serialNo: 'LGT-MX3-003',  issuedDate: '2023-01-15', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-004', assetName: 'Keychron K2',             type: 'Keyboard', employeeId: 'EMP-1001', serialNo: 'KEY-K2-004',   issuedDate: '2023-01-15', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-005', assetName: 'Employee ID Card',        type: 'ID Card',  employeeId: 'EMP-1001', serialNo: 'IDC-1001',     issuedDate: '2023-01-12', condition: 'Good',   status: 'Assigned' },
+const API = 'http://localhost:8001/api';
 
-  { id: 'AST-006', assetName: 'MacBook Air M1',          type: 'Laptop',   employeeId: 'EMP-1002', serialNo: 'MBA-2023-006', issuedDate: '2023-02-10', condition: 'Fair',   status: 'Assigned' },
-  { id: 'AST-007', assetName: 'Magic Mouse',             type: 'Mouse',    employeeId: 'EMP-1002', serialNo: 'APL-MM-007',   issuedDate: '2023-02-10', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-008', assetName: 'Employee ID Card',        type: 'ID Card',  employeeId: 'EMP-1002', serialNo: 'IDC-1002',     issuedDate: '2023-02-05', condition: 'Good',   status: 'Assigned' },
+// Map API record into UI shape
+const mapApiAsset = (a) => ({
+  _id:        a._id,
+  id:         a.assetId || a._id,
+  assetName:  a.assetName || '',
+  type:       a.type      || 'Laptop',
+  employeeId: a.employeeId || '',
+  serialNo:   a.serialNo  || '',
+  issuedDate: a.issuedDate ? a.issuedDate.slice(0, 10) : '',
+  condition:  a.condition || 'Good',
+  status:     a.status    || 'Assigned',
+});
 
-  { id: 'AST-009', assetName: 'Lenovo ThinkPad X1',      type: 'Laptop',   employeeId: 'EMP-1003', serialNo: 'LNV-X1-009',   issuedDate: '2023-03-20', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-010', assetName: 'Employee ID Card',        type: 'ID Card',  employeeId: 'EMP-1003', serialNo: 'IDC-1003',     issuedDate: '2023-03-15', condition: 'Poor',   status: 'Assigned' },
-
-  { id: 'AST-011', assetName: 'HP EliteBook 840',        type: 'Laptop',   employeeId: 'EMP-1004', serialNo: 'HP-840-011',   issuedDate: '2023-04-01', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-012', assetName: 'Logitech G502',           type: 'Mouse',    employeeId: 'EMP-1004', serialNo: 'LGT-G502-012', issuedDate: '2023-04-01', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-013', assetName: 'Employee ID Card',        type: 'ID Card',  employeeId: 'EMP-1004', serialNo: 'IDC-1004',     issuedDate: '2023-03-30', condition: 'Good',   status: 'Assigned' },
-
-  { id: 'AST-014', assetName: 'Dell XPS 15',             type: 'Laptop',   employeeId: 'EMP-1005', serialNo: 'DLL-XPS-014',  issuedDate: '2023-05-10', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-015', assetName: 'LG 32" 4K Monitor',      type: 'Monitor',  employeeId: 'EMP-1005', serialNo: 'LG-4K-015',    issuedDate: '2023-05-10', condition: 'New',    status: 'Assigned' },
-  { id: 'AST-016', assetName: 'Anne Pro 2',              type: 'Keyboard', employeeId: 'EMP-1005', serialNo: 'ANP-2-016',    issuedDate: '2023-05-10', condition: 'Good',   status: 'Assigned' },
-  { id: 'AST-017', assetName: 'Employee ID Card',        type: 'ID Card',  employeeId: 'EMP-1005', serialNo: 'IDC-1005',     issuedDate: '2023-05-08', condition: 'Good',   status: 'Assigned' },
-];
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Helpers
 const ASSET_TYPES = ['Laptop', 'Monitor', 'Mouse', 'Keyboard', 'ID Card', 'PC', 'Mobile with SIM'];
 
 const typeIcon = (type, size = 16) => {
@@ -93,7 +83,7 @@ const drawerStyles = {
     alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0,
   },
   headerTitle: { fontWeight: 700, fontSize: 15, color: 'var(--text-main)', lineHeight: 1.2 },
-  headerSub: { fontSize: 12, color: 'var(--text-muted)', marginTop: 2 },
+  headerSub:   { fontSize: 12, color: 'var(--text-muted)', marginTop: 2 },
   closeBtn: {
     width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-mid)',
     background: 'var(--bg-main)', cursor: 'pointer', color: 'var(--text-muted)',
@@ -113,22 +103,6 @@ const drawerStyles = {
   stepDot: {
     width: 20, height: 20, borderRadius: '50%', background: 'var(--primary)',
     color: '#fff', fontSize: 10, fontWeight: 700,
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  stepCard: {
-    background: 'var(--bg-main)', border: '1px solid var(--border-color)',
-    borderRadius: 12, padding: '16px', marginBottom: 16,
-  },
-  stepHeader: {
-    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14,
-  },
-  stepTitle: {
-    display: 'flex', alignItems: 'center', gap: 6,
-    fontSize: 12, fontWeight: 700, color: 'var(--text-main)',
-    textTransform: 'uppercase', letterSpacing: '.06em',
-  },
-  stepBadge: {
-    width: 20, height: 20, borderRadius: '50%', fontSize: 10, fontWeight: 700,
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   input: {
@@ -166,7 +140,7 @@ const drawerStyles = {
     padding: '8px 12px', borderRadius: 8, border: '1px solid #FECACA',
   },
   fieldErr: { fontSize: 11, color: 'var(--red)', marginTop: 4 },
-  divider: { height: 1, background: 'var(--border-color)', margin: '4px 0 16px' },
+  divider:  { height: 1, background: 'var(--border-color)', margin: '4px 0 16px' },
   fieldGroup: { marginBottom: 14 },
   label: {
     display: 'block', fontSize: 12, fontWeight: 600,
@@ -191,29 +165,36 @@ const drawerStyles = {
   },
 };
 
-const genAssetId = (list) => {
-  const max = list.reduce((m, a) => {
-    const n = parseInt(a.id.replace('AST-', ''), 10);
-    return n > m ? n : m;
-  }, 0);
-  return `AST-${String(max + 1).padStart(3, '0')}`;
-};
+// Add / Edit Asset Drawer
+function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
+  const isEdit = mode === 'edit';
 
-// ─── Add-Asset Drawer ─────────────────────────────────────────────────────────
-function AddAssetModal({ onClose, onSave, existingAssets }) {
-  const [empIdInput, setEmpIdInput] = useState('');
+  const [empIdInput, setEmpIdInput] = useState(initialAsset?.employeeId || '');
   const [foundEmp, setFoundEmp] = useState(null);
   const [empError, setEmpError] = useState('');
   const [searched, setSearched] = useState(false);
+
   const [form, setForm] = useState({
-    assetName: '',
-    type: 'Laptop',
-    serialNo: '',
-    issuedDate: new Date().toISOString().split('T')[0],
-    condition: 'Good',
-    status: 'Assigned',
+    assetName:  initialAsset?.assetName  || '',
+    type:       initialAsset?.type       || 'Laptop',
+    serialNo:   initialAsset?.serialNo   || '',
+    issuedDate: initialAsset?.issuedDate || new Date().toISOString().split('T')[0],
+    condition:  initialAsset?.condition  || 'Good',
+    status:     initialAsset?.status     || 'Assigned',
   });
   const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  // When editing, pre-resolve the employee from existing employeeId
+  useEffect(() => {
+    if (isEdit && initialAsset?.employeeId) {
+      const emp = allEmployees.find(
+        (e) => e.employeeId?.toUpperCase() === initialAsset.employeeId.toUpperCase()
+            || `EMP-${e.id}` === initialAsset.employeeId.toUpperCase()
+      );
+      if (emp) { setFoundEmp(emp); setSearched(true); }
+    }
+  }, [isEdit, initialAsset]);
 
   const handleSearch = () => {
     const trimmed = empIdInput.trim().toUpperCase();
@@ -233,33 +214,64 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
   const validate = () => {
     const e = {};
     if (!foundEmp) e.emp = 'Please look up a valid employee first.';
-    if (!form.assetName.trim()) e.assetName = 'Asset name is required.';
-    if (!form.serialNo.trim()) e.serialNo = 'Serial / Asset number is required.';
-    if (!form.issuedDate) e.issuedDate = 'Issue date is required.';
+    if (!form.assetName.trim())  e.assetName  = 'Asset name is required.';
+    if (!form.serialNo.trim())   e.serialNo   = 'Serial / Asset number is required.';
+    if (!form.issuedDate)        e.issuedDate = 'Issue date is required.';
     return e;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    onSave({ id: genAssetId(existingAssets), employeeId: foundEmp.employeeId, ...form });
-    onClose();
+
+    const payload = {
+      assetName:    form.assetName.trim(),
+      type:         form.type,
+      employeeId:   foundEmp.employeeId,
+      employeeName: foundEmp.name || '',
+      serialNo:     form.serialNo.trim(),
+      issuedDate:   form.issuedDate,
+      condition:    form.condition,
+      status:       form.status,
+    };
+
+    setSubmitting(true);
+    try {
+      const url    = isEdit ? `${API}/assets/${initialAsset._id || initialAsset.id}` : `${API}/assets`;
+      const method = isEdit ? 'PUT' : 'POST';
+      const res    = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        onSave(mapApiAsset(data.data), isEdit ? 'edit' : 'add');
+        onClose();
+      } else {
+        alert(data.message || 'Failed to save asset');
+      }
+    } catch (err) {
+      console.error('Save asset failed:', err);
+      alert('Network error while saving asset');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    /* Backdrop — click outside to close */
     <div style={drawerStyles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={drawerStyles.panel}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div style={drawerStyles.header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={drawerStyles.headerIconWrap}>
               <Package size={18} />
             </div>
             <div>
-              <div style={drawerStyles.headerTitle}>Add New Asset</div>
-              <div style={drawerStyles.headerSub}>Assign equipment to an employee</div>
+              <div style={drawerStyles.headerTitle}>{isEdit ? 'Edit Asset' : 'Add New Asset'}</div>
+              <div style={drawerStyles.headerSub}>{isEdit ? 'Update equipment details' : 'Assign equipment to an employee'}</div>
             </div>
           </div>
           <button onClick={onClose} style={drawerStyles.closeBtn} title="Close">
@@ -267,10 +279,10 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
           </button>
         </div>
 
-        {/* ── Scrollable Body ── */}
+        {/* Body */}
         <div style={drawerStyles.body}>
 
-          {/* ── Step 1: Employee Lookup ── */}
+          {/* Step 1: Employee Lookup */}
           <section style={drawerStyles.section}>
             <div style={drawerStyles.sectionTitle}>
               <span style={drawerStyles.stepDot}>1</span>
@@ -302,12 +314,11 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
               </button>
             </div>
 
-            {/* Found employee card */}
             {searched && foundEmp && (
               <div style={drawerStyles.empCard}>
                 <div style={{
                   width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                  background: foundEmp.color + '22', color: foundEmp.color,
+                  background: (foundEmp.color || '#A0AEC0') + '22', color: foundEmp.color || '#4A5568',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 700, fontSize: 14,
                 }}>
@@ -325,7 +336,6 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
               </div>
             )}
 
-            {/* Error */}
             {searched && empError && (
               <div style={drawerStyles.errBox}>
                 <AlertCircle size={13} /> {empError}
@@ -336,10 +346,9 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
             )}
           </section>
 
-          {/* ── Divider ── */}
           <div style={drawerStyles.divider} />
 
-          {/* ── Step 2: Asset Details ── */}
+          {/* Step 2: Asset Details */}
           <section style={drawerStyles.section}>
             <div style={drawerStyles.sectionTitle}>
               <span style={{
@@ -457,11 +466,11 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
           </section>
         </div>
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         <div style={drawerStyles.footer}>
-          <button onClick={onClose} style={drawerStyles.cancelBtn}>Cancel</button>
-          <button onClick={handleSubmit} style={drawerStyles.saveBtn}>
-            <Plus size={15} /> Add Asset
+          <button onClick={onClose} style={drawerStyles.cancelBtn} disabled={submitting}>Cancel</button>
+          <button onClick={handleSubmit} style={drawerStyles.saveBtn} disabled={submitting}>
+            {isEdit ? <><CheckCircle2 size={15} /> Save Changes</> : <><Plus size={15} /> Add Asset</>}
           </button>
         </div>
       </div>
@@ -469,32 +478,53 @@ function AddAssetModal({ onClose, onSave, existingAssets }) {
   );
 }
 
-// ─── Main Assets Page ─────────────────────────────────────────────────────────
+// Main Assets Page
 export default function Assets() {
-  const [assets, setAssets] = useState(initialAssets);
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All');
   const [showModal, setShowModal] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
 
-  // Build employee map
+  // Load assets from API on mount
+  const loadAssets = async () => {
+    setLoading(true);
+    try {
+      const res  = await fetch(`${API}/assets`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setAssets(data.data.map(mapApiAsset));
+      } else {
+        setAssets([]);
+      }
+    } catch (err) {
+      console.error('Failed to load assets:', err);
+      setAssets([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { loadAssets(); }, []);
+
+  // Build employee lookup map
   const empMap = useMemo(() => {
     const m = {};
     allEmployees.forEach((e) => { m[e.employeeId] = e; });
     return m;
   }, []);
 
-  // Filter assets
+  // Filter
   const filtered = useMemo(() => {
     return assets.filter((a) => {
       const emp = empMap[a.employeeId];
       const empName = emp?.name?.toLowerCase() || '';
       const q = searchTerm.toLowerCase();
       const matchesSearch =
-        a.assetName.toLowerCase().includes(q) ||
-        a.id.toLowerCase().includes(q) ||
-        a.employeeId.toLowerCase().includes(q) ||
-        a.serialNo.toLowerCase().includes(q) ||
+        (a.assetName || '').toLowerCase().includes(q) ||
+        (a.id || '').toLowerCase().includes(q) ||
+        (a.employeeId || '').toLowerCase().includes(q) ||
+        (a.serialNo || '').toLowerCase().includes(q) ||
         empName.includes(q);
       const matchesType = filterType === 'All' || a.type === filterType;
       return matchesSearch && matchesType;
@@ -505,8 +535,9 @@ export default function Assets() {
   const grouped = useMemo(() => {
     const map = {};
     filtered.forEach((a) => {
-      if (!map[a.employeeId]) map[a.employeeId] = [];
-      map[a.employeeId].push(a);
+      const key = a.employeeId || 'Unassigned';
+      if (!map[key]) map[key] = [];
+      map[key].push(a);
     });
     return Object.entries(map);
   }, [filtered]);
@@ -516,12 +547,43 @@ export default function Assets() {
     const total = assets.length;
     const byType = {};
     ASSET_TYPES.forEach((t) => { byType[t] = assets.filter((a) => a.type === t).length; });
-    const empCount = new Set(assets.map((a) => a.employeeId)).size;
+    const empCount = new Set(assets.map((a) => a.employeeId).filter(Boolean)).size;
     return { total, byType, empCount };
   }, [assets]);
 
-  const handleDelete = (id) => setAssets((prev) => prev.filter((a) => a.id !== id));
-  const handleSave = (asset) => setAssets((prev) => [...prev, asset]);
+  // Delete via API
+  const handleDelete = async (asset) => {
+    if (!window.confirm(`Delete asset "${asset.assetName}"? This cannot be undone.`)) return;
+    const prev = assets;
+    setAssets(prev.filter((a) => (a._id || a.id) !== (asset._id || asset.id)));
+    try {
+      const res  = await fetch(`${API}/assets/${asset._id || asset.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        setAssets(prev);
+        alert(data.message || 'Failed to delete asset');
+      }
+    } catch (err) {
+      setAssets(prev);
+      console.error('Failed to delete asset:', err);
+      alert('Network error while deleting asset');
+    }
+  };
+
+  // Handle save from modal (add or edit)
+  const handleSave = (savedAsset, mode) => {
+    if (mode === 'edit') {
+      setAssets((prev) => prev.map((a) =>
+        (a._id || a.id) === (savedAsset._id || savedAsset.id) ? savedAsset : a
+      ));
+    } else {
+      setAssets((prev) => [savedAsset, ...prev]);
+    }
+  };
+
+  const openAddModal  = () => { setEditingAsset(null);   setShowModal(true); };
+  const openEditModal = (a) => { setEditingAsset(a);     setShowModal(true); };
+  const closeModal    = () => { setShowModal(false);     setEditingAsset(null); };
 
   const formatDate = (d) => {
     if (!d) return '—';
@@ -540,7 +602,7 @@ export default function Assets() {
 
   return (
     <div className="emp-list-page">
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="emp-list-header">
         <div className="ne-breadcrumb">
           <span className="ne-breadcrumb-link">Dashboard</span>
@@ -552,13 +614,13 @@ export default function Assets() {
             <h1 className="ne-page-title">Company Assets</h1>
             <p className="ne-page-sub">Track IT equipment and ID cards assigned to employees.</p>
           </div>
-          <button className="ne-btn-primary" onClick={() => setShowModal(true)}>
+          <button className="ne-btn-primary" onClick={openAddModal}>
             <Plus size={16} /> Add Asset
           </button>
         </div>
       </div>
 
-      {/* ── Stat Cards ── */}
+      {/* Stat Cards */}
       <div style={styles.statsRow}>
         <div style={styles.statCard}>
           <div style={{ ...styles.statIcon, background: '#EBF4FD', color: '#4299E1' }}><Package size={20} /></div>
@@ -588,7 +650,7 @@ export default function Assets() {
         })}
       </div>
 
-      {/* ── Table Card ── */}
+      {/* Table Card */}
       <div className="card" style={{ marginTop: 24 }}>
         {/* Toolbar */}
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -596,7 +658,7 @@ export default function Assets() {
             <Search size={16} className="search-icon" />
             <input
               type="text"
-              placeholder="Search by name, asset ID, employee ID, serial no…"
+              placeholder="Search by name, asset ID, employee ID, serial no..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -615,23 +677,28 @@ export default function Assets() {
           </div>
         </div>
 
-        {/* Employee-grouped rows */}
+        {/* Rows */}
         <div style={{ overflowX: 'auto' }}>
-          {grouped.length === 0 ? (
+          {loading && assets.length === 0 ? (
+            <div style={{ padding: '60px 24px', textAlign: 'center', color: 'var(--text-light)' }}>
+              <Package size={32} style={{ marginBottom: 12, opacity: .3 }} />
+              <div style={{ fontSize: 14 }}>Loading assets...</div>
+            </div>
+          ) : grouped.length === 0 ? (
             <div style={{ padding: '60px 24px', textAlign: 'center', color: 'var(--text-light)' }}>
               <Package size={40} style={{ marginBottom: 12, opacity: .3 }} />
               <div style={{ fontSize: 15, fontWeight: 600 }}>No assets found</div>
-              <div style={{ fontSize: 13 }}>Try adjusting your search or filters.</div>
+              <div style={{ fontSize: 13 }}>Try adjusting your search or click <strong>Add Asset</strong>.</div>
             </div>
           ) : (
             grouped.map(([empId, empAssets]) => {
-              const emp = empMap[empId] || { name: empId, role: '—', dept: '—', initials: empId.slice(0, 2), color: '#A0AEC0' };
+              const emp = empMap[empId] || { name: empId, role: '—', dept: '—', initials: (empId || 'NA').slice(0, 2), color: '#A0AEC0' };
               return (
                 <div key={empId} style={styles.empGroup}>
                   {/* Employee header row */}
                   <div style={styles.empGroupHeader}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 40, height: 40, borderRadius: 12, background: emp.color + '22', color: emp.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 12, background: (emp.color || '#A0AEC0') + '22', color: emp.color || '#4A5568', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
                         {emp.initials}
                       </div>
                       <div>
@@ -645,7 +712,7 @@ export default function Assets() {
                     </div>
                   </div>
 
-                  {/* Asset rows for this employee */}
+                  {/* Asset rows */}
                   <table className="emp-table" style={{ marginBottom: 0 }}>
                     <thead>
                       <tr>
@@ -663,7 +730,7 @@ export default function Assets() {
                         const tc = typeColor(asset.type);
                         const cs = conditionStyle(asset.condition);
                         return (
-                          <tr key={asset.id}>
+                          <tr key={asset._id || asset.id}>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <div style={{ width: 34, height: 34, borderRadius: 8, background: tc.bg, color: tc.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -702,8 +769,22 @@ export default function Assets() {
                             </td>
                             <td>
                               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                                <button className="emp-table-btn" style={{ padding: 6 }} title="Edit"><Edit2 size={13} /></button>
-                                <button className="emp-table-btn" style={{ padding: 6, color: '#FC8181' }} title="Delete" onClick={() => handleDelete(asset.id)}><Trash2 size={13} /></button>
+                                <button
+                                  className="emp-table-btn"
+                                  style={{ padding: 6 }}
+                                  title="Edit"
+                                  onClick={() => openEditModal(asset)}
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  className="emp-table-btn"
+                                  style={{ padding: 6, color: '#FC8181' }}
+                                  title="Delete"
+                                  onClick={() => handleDelete(asset)}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -718,19 +799,20 @@ export default function Assets() {
         </div>
       </div>
 
-      {/* ── Modal ── */}
+      {/* Modal (add or edit) */}
       {showModal && (
-        <AddAssetModal
-          onClose={() => setShowModal(false)}
+        <AssetModal
+          onClose={closeModal}
           onSave={handleSave}
-          existingAssets={assets}
+          mode={editingAsset ? 'edit' : 'add'}
+          initialAsset={editingAsset}
         />
       )}
     </div>
   );
 }
 
-// ─── Inline styles ────────────────────────────────────────────────────────────
+// Inline styles
 const styles = {
   statsRow: {
     display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 24,
@@ -758,4 +840,3 @@ const styles = {
     position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, fontSize: 12, fontWeight: 600,
   },
 };
-
