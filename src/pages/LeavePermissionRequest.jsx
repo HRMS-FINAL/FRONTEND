@@ -1,0 +1,391 @@
+import React, { useState } from 'react';
+import { ChevronRight, ClipboardList, AlertCircle, Search, Check, X, Clock, Inbox } from 'lucide-react';
+import { useNotification } from '../context/NotificationContext';
+
+export default function LeavePermissionRequest({ onBack }) {
+  const { showNotification } = useNotification();
+  const [activeTab, setActiveTab] = useState('leave-requests'); // 'leave-requests' or 'permission-requests'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [actionModal, setActionModal] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
+
+  const [requests, setRequests] = useState([
+    { id: 101, name: 'Liam Foster', role: 'Frontend Developer', dept: 'Engineering', type: 'Sick Leave', duration: '2 Days', date: 'May 19 - May 20, 2024', requestedAt: 'May 18, 2024 at 2:00 PM', status: 'Pending', managerStatus: 'Pending', avatar: 'LF', color: '#4299E1', reason: 'Medical appointment and recovery.' },
+    { id: 102, name: 'Ryan Patel', role: 'Product Manager', dept: 'Sales', type: 'Casual Leave', duration: '1 Day', date: 'May 19, 2024', requestedAt: 'May 18, 2024 at 9:30 AM', status: 'Pending', managerStatus: 'Approved', avatar: 'RP', color: '#4CAA17', reason: 'Personal family matters.' },
+    { id: 103, name: 'Emma Davis', role: 'QA Engineer', dept: 'Engineering', type: 'Permission (2h)', duration: '2 Hours', date: 'May 19, 2024 (10:00 AM)', requestedAt: 'May 19, 2024 at 8:15 AM', status: 'Pending', managerStatus: 'Pending', avatar: 'ED', color: '#ECC94B', reason: 'Dentist consultation.' },
+    { id: 104, name: 'Alex Thompson', role: 'Software Architect', dept: 'Engineering', type: 'Late Arrival', duration: '30 Mins', date: 'May 19, 2024', requestedAt: 'May 19, 2024 at 8:45 AM', status: 'Pending', managerStatus: 'Approved', avatar: 'AT', color: '#FC8181', reason: 'Delayed train schedule.' },
+    { id: 105, name: 'Sarah Jenkins', role: 'UX Designer', dept: 'Design', type: 'Sick Leave', duration: '1 Day', date: 'May 20, 2024', requestedAt: 'May 19, 2024 at 1:00 PM', status: 'Pending', managerStatus: 'Pending', avatar: 'SJ', color: '#9F7AEA', reason: 'Fever and cold.' }
+  ]);
+
+  const handleManagerAction = (id, newManagerStatus) => {
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: newManagerStatus } : r));
+    showNotification(`Manager status updated to ${newManagerStatus}!`, "success");
+  };
+
+  const initiateAction = (id, newStatus) => {
+    const targetReq = requests.find(r => r.id === id);
+    if (targetReq && targetReq.managerStatus !== 'Approved') {
+      showNotification("Cannot process request until Manager approves!", "error");
+      return;
+    }
+    setActionModal({ id, status: newStatus });
+    setActionMessage('');
+  };
+
+  const confirmAction = () => {
+    if (!actionModal) return;
+    const { id, status } = actionModal;
+    const finalMessage = actionMessage.trim() || `Your request has been ${status.toLowerCase()}.`;
+    
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, status, message: finalMessage } : r));
+    showNotification(`Request successfully ${status.toLowerCase() === 'approved' ? 'approved' : 'rejected'}!`, "success");
+    setActionModal(null);
+  };
+
+  const leaveReqCount = requests.filter(r => r.status === 'Pending' && r.type.toLowerCase().includes('leave')).length;
+  const permissionReqCount = requests.filter(r => r.status === 'Pending' && !r.type.toLowerCase().includes('leave')).length;
+
+  const displayRecords = React.useMemo(() => {
+    return requests.filter(item => {
+      // 1. Check tab match
+      const isLeave = item.type.toLowerCase().includes('leave');
+      if (activeTab === 'leave-requests' && !isLeave) return false;
+      if (activeTab === 'permission-requests' && isLeave) return false;
+
+      // 2. Check search query
+      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.role.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+
+      // 3. Check inline filter type
+      if (filterType) {
+        if (!item.type.toLowerCase().includes(filterType.toLowerCase())) return false;
+      }
+
+      return true;
+    });
+  }, [requests, activeTab, searchQuery, filterType]);
+
+  const filterTabs = ['permission', 'leave'];
+
+  return (
+    <div className="emp-list-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div className="emp-list-header">
+        <div className="ne-breadcrumb">
+          <span className="ne-breadcrumb-link" onClick={onBack}>Dashboard</span>
+          <ChevronRight size={13} />
+          <span>Attendance</span>
+          <ChevronRight size={13} />
+          <span>Leave & Permission Request</span>
+        </div>
+        <div className="emp-list-title-row">
+          <div>
+            <h1 className="ne-page-title">Leave & Permission Requests</h1>
+            <p className="ne-page-sub">Manage and track employee leave and permission requests.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="stats-row" style={{ marginTop: '20px' }}>
+        {/* Leave Requests Card */}
+        <div 
+          className={`stat-card attendance-stat-card ${activeTab === 'leave-requests' ? 'active-filter' : ''}`}
+          onClick={() => setActiveTab('leave-requests')}
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="stat-card-top">
+            <div className="stat-icon-wrap" style={{ background: '#4299E115' }}>
+              <ClipboardList size={18} color="#4299E1" />
+            </div>
+            <div className="stat-trend-badge down" style={{ fontSize: '10.5px', padding: '2px 8px', background: '#FC8181', color: 'white', fontWeight: '800' }}>
+              {leaveReqCount} Pending
+            </div>
+          </div>
+          <div>
+            <div className="stat-value">{leaveReqCount}</div>
+            <div className="stat-label">Leave Requests</div>
+          </div>
+        </div>
+
+        {/* Permission Requests Card */}
+        <div 
+          className={`stat-card attendance-stat-card ${activeTab === 'permission-requests' ? 'active-filter' : ''}`}
+          onClick={() => setActiveTab('permission-requests')}
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="stat-card-top">
+            <div className="stat-icon-wrap" style={{ background: '#ECC94B15' }}>
+              <AlertCircle size={18} color="#ECC94B" />
+            </div>
+            <div className="stat-trend-badge down" style={{ fontSize: '10.5px', padding: '2px 8px', background: '#FC8181', color: 'white', fontWeight: '800' }}>
+              {permissionReqCount} Pending
+            </div>
+          </div>
+          <div>
+            <div className="stat-value">{permissionReqCount}</div>
+            <div className="stat-label">Permission Requests</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="emp-table-card" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
+              {activeTab === 'leave-requests' ? 'Pending Leave Requests' : 'Pending Permission Requests'}
+            </h3>
+            <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: 'var(--text-light)' }}>
+              Action pending items to approve or reject requests.
+            </p>
+          </div>
+        </div>
+
+        {/* Filters & Search Row */}
+        <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="topbar-search" style={{ flex: 1, maxWidth: '280px' }}>
+            <Search size={14} />
+            <input 
+              placeholder="Search name, role or reason..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-main)', padding: '3px', borderRadius: '8px' }}>
+            {filterTabs.map(tab => (
+              <button
+                key={tab}
+                onClick={() => setFilterType(prev => prev === tab ? '' : tab)}
+                style={{
+                  border: 'none',
+                  background: filterType === tab ? 'white' : 'transparent',
+                  color: filterType === tab ? 'var(--primary)' : 'var(--text-muted)',
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  boxShadow: filterType === tab ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                  textTransform: 'capitalize'
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
+          <table className="emp-table">
+            <thead>
+              <tr>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Employee</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Type</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Duration</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Date Range</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '25%' }}>Reason</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Manager Status</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayRecords.map(rec => (
+                <tr key={rec.id}>
+                  <td>
+                    <div className="emp-table-user">
+                      <div className="emp-table-avatar" style={{ background: rec.color + '15', color: rec.color, width: '32px', height: '32px', fontSize: '11px', fontWeight: 'bold' }}>
+                        {rec.avatar}
+                      </div>
+                      <div>
+                        <div className="emp-table-name">{rec.name}</div>
+                        <div className="emp-table-role" style={{ fontSize: '11px', color: 'var(--text-light)', marginTop: '2px' }}>
+                          {rec.role} • {rec.dept}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><div className="emp-table-email" style={{ fontWeight: 700, fontSize: '11.5px' }}>{rec.type}</div></td>
+                  <td>
+                    <div style={{ fontWeight: 700, fontSize: '11.5px', color: 'var(--text-main)' }}>{rec.duration}</div>
+                    {rec.type && rec.type.toLowerCase().includes('permission') && rec.date && rec.date.includes('(') && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-light)', marginTop: '4px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Clock size={11} /> {rec.date.match(/\(([^)]+)\)/)?.[1]}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <div style={{ fontWeight: 600, fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {rec.type && rec.type.toLowerCase().includes('permission')
+                        ? rec.date.split('(')[0].trim()
+                        : rec.date}
+                    </div>
+                    {rec.requestedAt && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-light)', marginTop: '4px', fontWeight: 500, display: 'flex', alignItems: 'flex-start', gap: '4px', maxWidth: '130px' }}>
+                        <Inbox size={11} style={{ marginTop: '2px', flexShrink: 0 }} /> 
+                        <span style={{ lineHeight: '1.3' }}>Requested: {rec.requestedAt.replace('2024', '\n2024')}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <div style={{ fontSize: '11px', color: 'var(--text-main)', lineHeight: '1.4', fontWeight: 500, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      {rec.reason}
+                    </div>
+                  </td>
+                  <td>
+                    {rec.managerStatus === 'Approved' ? (
+                      <span style={{ 
+                        fontWeight: 800, 
+                        fontSize: '10px', 
+                        padding: '4px 8px', 
+                        borderRadius: '6px', 
+                        background: '#F1F9EE', 
+                        color: '#4CAA17',
+                        border: '1px solid #C2E7B0',
+                        display: 'inline-block'
+                      }}>
+                        Approved
+                      </span>
+                    ) : (
+                      <button 
+                        onClick={() => handleManagerAction(rec.id, 'Approved')}
+                        className="dash-emp-status late"
+                        style={{ 
+                          cursor: 'pointer', 
+                          fontWeight: 800, 
+                          fontSize: '10px', 
+                          border: '1px dashed #D69E2E',
+                          background: '#FEFCBF', 
+                          color: '#B7791F',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          display: 'inline-block',
+                          outline: 'none'
+                        }}
+                        title="Click to approve as Manager"
+                      >
+                        Pending (Click to Approve)
+                      </button>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    {rec.status !== 'Pending' ? (
+                      <div style={{ 
+                        padding: '8px 12px', 
+                        borderRadius: '8px', 
+                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE', 
+                        color: rec.status === 'Rejected' ? '#C53030' : '#2F855A',
+                        border: rec.status === 'Rejected' ? '1px solid #FED7D7' : '1px solid #C2E7B0',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        textAlign: 'left',
+                        gap: '4px',
+                        minWidth: '180px'
+                      }}>
+                        <div style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase' }}>
+                          {rec.status}
+                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: 500, lineHeight: '1.4' }}>
+                          {rec.message}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                        <button 
+                          className="req-btn reject" 
+                          disabled={rec.managerStatus !== 'Approved'}
+                          onClick={() => initiateAction(rec.id, 'Rejected')} 
+                          style={{ 
+                            padding: '6px 10px', 
+                            fontSize: '11px', 
+                            fontWeight: 700, 
+                            borderRadius: '6px', 
+                            border: (rec.managerStatus !== 'Approved') ? '1px solid #E2E8F0' : '1px solid #FED7D7', 
+                            background: (rec.managerStatus !== 'Approved') ? '#F7FAFC' : '#FFF5F5', 
+                            color: (rec.managerStatus !== 'Approved') ? '#A0AEC0' : '#FC8181', 
+                            cursor: (rec.managerStatus !== 'Approved') ? 'not-allowed' : 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '3px' 
+                          }}
+                          title={(rec.managerStatus !== 'Approved') ? "Disabled until Manager approves" : "Reject request"}
+                        >
+                          <X size={12} /> Reject
+                        </button>
+                        <button 
+                          className="req-btn approve" 
+                          disabled={rec.managerStatus !== 'Approved'}
+                          onClick={() => initiateAction(rec.id, 'Approved')} 
+                          style={{ 
+                            padding: '6px 10px', 
+                            fontSize: '11px', 
+                            fontWeight: 700, 
+                            borderRadius: '6px', 
+                            border: (rec.managerStatus !== 'Approved') ? '1px solid #E2E8F0' : '1px solid #C2E7B0', 
+                            background: (rec.managerStatus !== 'Approved') ? '#F7FAFC' : '#F1F9EE', 
+                            color: (rec.managerStatus !== 'Approved') ? '#A0AEC0' : '#4CAA17', 
+                            cursor: (rec.managerStatus !== 'Approved') ? 'not-allowed' : 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '3px' 
+                          }}
+                          title={(rec.managerStatus !== 'Approved') ? "Disabled until Manager approves" : "Approve request"}
+                        >
+                          <Check size={12} /> Approve
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {displayRecords.length === 0 && (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-light)' }}>
+                    No matching records found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Action Modal */}
+      {actionModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: '12px', width: '100%', maxWidth: '400px', padding: '24px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {actionModal.status === 'Approved' ? <Check color="#4CAA17" /> : <X color="#FC8181" />}
+              {actionModal.status === 'Approved' ? 'Approve Request' : 'Reject Request'}
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'var(--text-light)' }}>
+              Write a message to the employee explaining your decision.
+            </p>
+            <textarea 
+              value={actionMessage}
+              onChange={e => setActionMessage(e.target.value)}
+              placeholder="Enter your message here..."
+              style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', resize: 'none', fontSize: '13px', marginBottom: '20px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button 
+                onClick={() => setActionModal(null)}
+                style={{ padding: '8px 16px', borderRadius: '6px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmAction}
+                style={{ padding: '8px 16px', borderRadius: '6px', background: actionModal.status === 'Approved' ? '#4CAA17' : '#FC8181', border: 'none', color: 'white', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Confirm {actionModal.status}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
