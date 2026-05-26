@@ -4933,21 +4933,35 @@
   margin-bottom: 24px;
 }
 
+/* Trust badges below the login card — centred horizontally and wrap on
+   narrow screens so the two pills always line up symmetrically beneath
+   the card regardless of viewport width. */
 .auth-features {
   position: absolute;
+  left: 50%;
   bottom: 40px;
+  transform: translateX(-50%);
   display: flex;
-  gap: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 0 16px;
 }
 
 .auth-feature-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--text-light);
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  line-height: 1;
 }
+.auth-feature-item svg { flex-shrink: 0; }
 
 .pass-toggle-btn {
   position: absolute;

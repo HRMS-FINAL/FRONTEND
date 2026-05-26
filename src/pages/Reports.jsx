@@ -9,7 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
 } from 'recharts';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 const API = 'http://localhost:8001/api';
@@ -126,16 +126,29 @@ export default function Reports({ onBack }) {
   // ── Table rows ────────────────────────────────────────────────
   const tableRows = reportId === 'attendance'
     ? (attendanceData?.rows || [])
-    : employeeData.filter(e => e.isActive !== false && e.status !== 'Terminated').map(e => ({
-        employeeId:   e.employeeId || e._id,
-        employeeName: e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
-        avatar:       ((e.firstName?.[0] || '') + (e.lastName?.[0] || '')).toUpperCase() || (e.name?.slice(0,2).toUpperCase() || '??'),
-        color:        e.color || '#4299E1',
-        department:   typeof e.department  === 'object' ? e.department?.name  : e.department  || '—',
-        designation:  typeof e.designation === 'object' ? e.designation?.title: e.designation || '—',
-        manager:      e.assignedTo || '—',
-        status:       e.status || 'Active',
-      }));
+    : employeeData.filter(e => e.isActive !== false && e.status !== 'Terminated').map(e => {
+        // Reject raw ObjectId strings — fall through to the denormalised
+        // departmentName / designationTitle sidecar fields, then to '—'.
+        const isHexId = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s);
+        const pickTitle = (val, sidecar) => {
+          if (val && typeof val === 'object') {
+            const t = val.title || val.name || '';
+            return isHexId(t) ? (sidecar || '—') : (t || sidecar || '—');
+          }
+          if (typeof val === 'string' && val && !isHexId(val)) return val;
+          return sidecar || '—';
+        };
+        return {
+          employeeId:   e.employeeId || e._id,
+          employeeName: e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
+          avatar:       ((e.firstName?.[0] || '') + (e.lastName?.[0] || '')).toUpperCase() || (e.name?.slice(0,2).toUpperCase() || '??'),
+          color:        e.color || '#4299E1',
+          department:   pickTitle(e.department,  e.departmentName),
+          designation:  pickTitle(e.designation, e.designationTitle),
+          manager:      e.assignedTo || '—',
+          status:       e.status || 'Active',
+        };
+      });
 
   // ── Export PDF ────────────────────────────────────────────────
   const exportToPDF = () => {
@@ -152,14 +165,14 @@ export default function Reports({ onBack }) {
         r.employeeId, r.employeeName, r.department, r.designation,
         r.present, r.late, r.leavedays, r.absent, r.lop, r.status
       ]);
-      doc.autoTable({
+      autoTable(doc, {
         startY: 38,
         head: [['ID', 'Name', 'Dept', 'Designation', 'Present', 'Late', 'Leave', 'Absent', 'LOP', 'Status']],
         body: rows,
       });
     } else {
       const rows = tableRows.map(r => [r.employeeId, r.employeeName, r.department, r.designation, r.manager, r.status]);
-      doc.autoTable({
+      autoTable(doc, {
         startY: 38,
         head: [['ID', 'Name', 'Dept', 'Designation', 'Manager', 'Status']],
         body: rows,
@@ -247,6 +260,34 @@ export default function Reports({ onBack }) {
             <div style={{ padding: '14px 14px 8px', borderTop: '1px solid var(--border-color)', marginTop: '8px' }}>
               <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '10px' }}>Date Range</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px' }}>Quick Select</label>
+                  <select
+                    className="ne-input"
+                    style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }}
+                    value={`${new Date(startDate).getFullYear()}-${String(new Date(startDate).getMonth() + 1).padStart(2,'0')}`}
+                    onChange={e => {
+                      const [y, m] = e.target.value.split('-').map(Number);
+                      const first = new Date(y, m - 1, 1);
+                      const last  = new Date(y, m, 0);
+                      const toISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                      setStartDate(toISO(first));
+                      setEndDate(toISO(last));
+                    }}
+                  >
+                    {(() => {
+                      const opts = [];
+                      const now = new Date();
+                      for (let i = 0; i < 12; i++) {
+                        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                        const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}`;
+                        const lbl = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+                        opts.push(<option key={val} value={val}>{lbl}</option>);
+                      }
+                      return opts;
+                    })()}
+                  </select>
+                </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px' }}>From Date</label>
                   <input type="date" className="ne-input" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />

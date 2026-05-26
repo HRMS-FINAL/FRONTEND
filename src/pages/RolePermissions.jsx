@@ -12,16 +12,15 @@ const ROLE_ICONS_FN = [
 ];
 
 export default function RolePermissions({ onBack }) {
-  const { showNotification } = useNotification();
-  const [selectedRole, setSelectedRole] = useState('hr_admin');
+  const { showNotification, confirmDialog } = useNotification();
+  const [selectedRole, setSelectedRole] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newRole, setNewRole] = useState({ name: '', description: '', color: '#4CAA17' });
 
-  const [roles, setRoles] = useState([
-    { id: 'hr_admin', name: 'HR Manager', icon: <Zap size={18} />,      color: '#4CAA17', members: 3 },
-    { id: 'manager',  name: 'Manager',    icon: <UserCheck size={18} />, color: '#9F7AEA', members: 12 },
-    { id: 'employee', name: 'Employee',   icon: <User size={18} />,      color: '#A0AEC0', members: 1261 },
-  ]);
+  // Roles start empty — the /api/access-management call below populates
+  // them. The backend auto-seeds HR/Manager/Employee on first request and
+  // returns live member counts derived from the real employees list.
+  const [roles, setRoles] = useState([]);
 
   const dashboardModules = [
     { id: 'dashboard',    name: 'Dashboard & Analytics', icon: <LayoutDashboard size={18} /> },
@@ -33,49 +32,162 @@ export default function RolePermissions({ onBack }) {
     { id: 'live_tracking',name: 'Live Tracking',         icon: <Activity size={18} /> },
   ];
 
-  const [permissions, setPermissions] = useState({
-    hr_admin: Object.fromEntries(dashboardModules.map(m => [m.id, { view: true,  create: true,             edit: true,  delete: true  }])),
-    manager:  Object.fromEntries(dashboardModules.map(m => [m.id, { view: true,  create: m.id==='employees', edit: false, delete: false }])),
-    employee: Object.fromEntries(dashboardModules.map(m => [m.id, { view: m.id==='dashboard', create: false, edit: false, delete: false }])),
-  });
+  // Permission matrix gets populated per-role-id by the API loader below.
+  const [permissions, setPermissions] = useState({});
+  // Snapshot of what's on the server, used for Discard + dirty-checking.
+  const [serverPermissions, setServerPermissions] = useState({});
+  const [saving, setSaving] = useState(false);
 
-  // Silently load custom roles from API on mount
+  // Build a fresh "all false" permission map for one role.
+  const emptyPermMap = () => Object.fromEntries(
+    dashboardModules.map(m => [m.id, { view: false, create: false, edit: false, delete: false }])
+  );
+  // Merge whatever shape the API returned into our canonical { module: { view, create, edit, delete } }
+  // shape. The Mongo schema stores exactly this shape, but old rows may be
+  // missing a module key entirely.
+  const normalisePerms = (apiPerms) => {
+    const base = emptyPermMap();
+    if (apiPerms && typeof apiPerms === 'object') {
+      for (const m of dashboardModules) {
+        const fromApi = apiPerms[m.id] || {};
+        base[m.id] = {
+          view:   !!fromApi.view,
+          create: !!fromApi.create,
+          edit:   !!fromApi.edit,
+          delete: !!fromApi.delete,
+        };
+      }
+    }
+    return base;
+  };
+
+  // Load all roles from API on mount (and every 30s) — the backend
+  // auto-seeds HR/Manager/Employee and returns live member counts.
   useEffect(() => {
-    fetch(`${API}/access-management`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.data && data.data.length > 0) {
-          const defaultIds = ['hr_admin', 'manager', 'employee'];
-          const extras = data.data
-            .filter(r => !defaultIds.includes(r._id))
-            .map((r, i) => ({
-              id:      r._id,
-              name:    r.name,
-              icon:    ROLE_ICONS_FN[(i + 3) % ROLE_ICONS_FN.length],
-              color:   r.color || '#4CAA17',
-              members: r.members || 0,
-            }));
-          if (extras.length > 0) {
-            setRoles(prev => [...prev, ...extras]);
-            const extraPerms = {};
-            extras.forEach(r => {
-              extraPerms[r.id] = Object.fromEntries(dashboardModules.map(m => [m.id, { view: false, create: false, edit: false, delete: false }]));
+    let cancelled = false;
+    const load = () => {
+      fetch(`${API}/access-management`)
+        .then(r => r.json())
+        .then(data => {
+          if (cancelled || !data.success || !Array.isArray(data.data)) return;
+          const apiRoles = data.data.map((r, i) => ({
+            id:      r._id,
+            name:    r.name,
+            icon:    ROLE_ICONS_FN[i % ROLE_ICONS_FN.length],
+            color:   r.color || '#4CAA17',
+            members: r.members || 0,
+          }));
+          setRoles(apiRoles);
+
+          // Build the canonical permission map from the API's actual rows.
+          const freshPerms = {};
+          data.data.forEach(r => {
+            freshPerms[r._id] = normalisePerms(r.permissions);
+          });
+          setServerPermissions(freshPerms);
+          // Only overwrite local `permissions` for roles that are NOT
+          // currently being edited (i.e. roles whose local map still
+          // matches the previous server state). This way a 30s tick
+          // doesn't blow away unsaved checkbox edits.
+          setPermissions(prev => {
+            const next = { ...prev };
+            apiRoles.forEach(r => {
+              const dirty = JSON.stringify(prev[r.id]) !== JSON.stringify(serverPermissions[r.id]);
+              if (!prev[r.id] || !dirty) {
+                next[r.id] = freshPerms[r.id];
+              }
             });
-            setPermissions(prev => ({ ...prev, ...extraPerms }));
-          }
-        }
-      })
-      .catch(() => {});
+            return next;
+          });
+          // Auto-select first role if nothing is selected yet OR if the
+          // previously-selected role no longer exists (was deleted).
+          setSelectedRole(prev => {
+            if (apiRoles.length === 0) return '';
+            if (prev && apiRoles.find(r => r.id === prev)) return prev;
+            return apiRoles[0].id;
+          });
+        })
+        .catch(() => {});
+    };
+    load();
+    const tick = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(tick); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleAction = (roleId, modId, action) => {
+    if (!roleId) return;
     setPermissions(prev => ({
       ...prev,
       [roleId]: {
-        ...prev[roleId],
-        [modId]: { ...prev[roleId][modId], [action]: !prev[roleId][modId][action] }
-      }
+        ...(prev[roleId] || emptyPermMap()),
+        [modId]: {
+          ...(prev[roleId]?.[modId] || { view: false, create: false, edit: false, delete: false }),
+          [action]: !(prev[roleId]?.[modId]?.[action]),
+        },
+      },
     }));
+  };
+
+  // PUT the current permission matrix back to the API for the active role.
+  const handleSavePermissions = async () => {
+    if (!selectedRole) {
+      showNotification('Pick a role first.', 'error');
+      return;
+    }
+    const matrix = permissions[selectedRole];
+    if (!matrix) {
+      showNotification('Nothing to save for this role yet.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/access-management/${selectedRole}/permissions`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ permissions: matrix }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not save permissions', 'error');
+        return;
+      }
+      // Update the snapshot so the next 30s tick doesn't fight us.
+      setServerPermissions(prev => ({ ...prev, [selectedRole]: matrix }));
+      showNotification(`${activeRole?.name || 'Role'} permissions saved.`, 'success');
+    } catch (err) {
+      showNotification('Network error: ' + (err?.message || 'unknown'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Revert local edits to whatever the server last returned.
+  const handleDiscard = () => {
+    if (!selectedRole) return;
+    const snap = serverPermissions[selectedRole];
+    if (snap) {
+      setPermissions(prev => ({ ...prev, [selectedRole]: snap }));
+      showNotification('Discarded unsaved changes.', 'info');
+    }
+  };
+
+  // Soft-delete a role.
+  const handleDeleteRole = async (role) => {
+    if (!role?.id) return;
+    if (!(await confirmDialog({ title: "Confirm", message: `Delete role "${role.name}"?`, confirmText: "Delete", tone: "danger" }))) return;
+    try {
+      const res = await fetch(`${API}/access-management/${role.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not delete role', 'error');
+        return;
+      }
+      setRoles(prev => prev.filter(r => r.id !== role.id));
+      showNotification(`Role "${role.name}" deleted.`, 'success');
+    } catch (err) {
+      showNotification('Network error: ' + (err?.message || 'unknown'), 'error');
+    }
   };
 
   const handleCreateRole = async (e) => {
@@ -106,7 +218,11 @@ export default function RolePermissions({ onBack }) {
     } catch { /* silent */ }
   };
 
-  const activeRole = roles.find(r => r.id === selectedRole);
+  // Loose fallback so we never crash on the first render (before API loads)
+  // or when the selected role's id is stale.
+  const activeRole = roles.find(r => r.id === selectedRole)
+    || roles[0]
+    || { id: '', name: '—', color: '#cbd5e1', icon: null, members: 0 };
 
   return (
     <div className="dash-roles-page">
@@ -160,8 +276,20 @@ export default function RolePermissions({ onBack }) {
               </div>
             </div>
             <div className="perm-card-actions">
-              <button className="ne-btn-secondary">Discard</button>
-              <button className="ne-btn-primary" onClick={() => showNotification("Permissions updated!", "success")}>Save Changes</button>
+              <button
+                className="ne-btn-secondary"
+                onClick={handleDiscard}
+                disabled={saving}
+              >
+                Discard
+              </button>
+              <button
+                className="ne-btn-primary"
+                onClick={handleSavePermissions}
+                disabled={saving || !selectedRole}
+              >
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
           </div>
 
@@ -228,30 +356,12 @@ export default function RolePermissions({ onBack }) {
                   <div className="ne-field">
                     <label className="ne-label">Description</label>
                     <textarea
-                      className="ne-input" style={{ height: '120px', padding: '12px', resize: 'none' }}
+                      className="ne-input"
+                      rows={3}
                       placeholder="What can users with this role do?"
-                      value={newRole.description} onChange={e => setNewRole({...newRole, description: e.target.value})}
+                      value={newRole.description}
+                      onChange={e => setNewRole({ ...newRole, description: e.target.value })}
                     />
-                  </div>
-                </div>
-                <div style={{ marginBottom: '32px' }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '16px', color: 'var(--text-main)' }}>Visual Identity</h4>
-                  <div className="ne-field">
-                    <label className="ne-label">Role Color</label>
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
-                      {['#4CAA17','#4299E1','#9F7AEA','#ECC94B','#F687B3','#ED8936','#38B2AC','#FC8181'].map(c => (
-                        <div
-                          key={c}
-                          onClick={() => setNewRole({...newRole, color: c})}
-                          style={{
-                            width: '28px', height: '28px', borderRadius: '50%', background: c,
-                            cursor: 'pointer',
-                            border: newRole.color === c ? '3px solid white' : 'none',
-                            boxShadow: newRole.color === c ? '0 0 0 2px ' + c : '0 2px 4px rgba(0,0,0,0.1)',
-                          }}
-                        />
-                      ))}
-                    </div>
                   </div>
                 </div>
               </div>

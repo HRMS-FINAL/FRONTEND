@@ -1,40 +1,94 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronRight, Fuel, Car, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
+// Mobile-app petrol/travel allowance requests arrive via HRMS backend proxy
+// at /api/allowances (server-side talks to the mobile backend using
+// MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data source
+// flipped from hardcoded mock arrays to real fetches.
+const API = 'http://localhost:8001/api';
+const LS_KEY = 'tesco_hrms_allowance_cache';
+
+/** Read last-fetched petrol+travel arrays from localStorage so the page
+ *  populates instantly on refresh instead of being blank during the
+ *  ~30 s mobile-backend cold-start. */
+function readCache() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return { petrol: [], travel: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      petrol: Array.isArray(parsed?.petrol) ? parsed.petrol : [],
+      travel: Array.isArray(parsed?.travel) ? parsed.travel : [],
+    };
+  } catch { return { petrol: [], travel: [] }; }
+}
+
 export default function Allowance({ onBack }) {
   const { showNotification } = useNotification();
-  
+
   // State to toggle between Petrol Allowance ('petrol') and Travel Allowance ('travel')
   const [allowanceType, setAllowanceType] = useState('petrol');
-  
-  // Mock Petrol Requests State
-  const [petrolRequests, setPetrolRequests] = useState([
-    { id: 'REQ-101', empName: 'Liam Foster', from: 'Main Office', to: 'Client Tech Corp', distance: 15, amount: 225, status: 'Pending', date: '2026-05-19' },
-    { id: 'REQ-102', empName: 'Zoe Martinez', from: 'Home', to: 'Design Summit', distance: 40, amount: 600, status: 'Pending', date: '2026-05-20' },
-    { id: 'REQ-103', empName: 'Ryan Patel', from: 'Factory', to: 'Warehouse B', distance: 8, amount: 120, status: 'Approved', date: '2026-05-15' },
-  ]);
 
-  // Mock Travel Requests State
-  const [travelRequests, setTravelRequests] = useState([
-    { id: 'TRV-201', empName: 'Ethan Brown', from: 'City Center', to: 'Branch Office', distance: 45, amount: 450, status: 'Pending', date: '2026-05-21' },
-    { id: 'TRV-202', empName: 'Priya Sharma', from: 'Airport', to: 'Hotel HQ', distance: 12, amount: 120, status: 'Pending', date: '2026-05-22' },
-    { id: 'TRV-203', empName: 'Alex Morrison', from: 'Main Office', to: 'Expo Center', distance: 25, amount: 250, status: 'Approved', date: '2026-05-18' },
-  ]);
+  // Seed both arrays from cache so neither tab is blank on refresh.
+  const cached = readCache();
+  const [petrolRequests, setPetrolRequests] = useState(cached.petrol);
+  const [travelRequests, setTravelRequests] = useState(cached.travel);
+  const [loading,        setLoading]        = useState(true);
 
-  const handleAction = (id, action, type) => {
-    if (type === 'petrol') {
-      setPetrolRequests(prev => prev.map(req => {
-        if (req.id === id) return { ...req, status: action === 'approve' ? 'Approved' : 'Rejected' };
-        return req;
-      }));
-    } else {
-      setTravelRequests(prev => prev.map(req => {
-        if (req.id === id) return { ...req, status: action === 'approve' ? 'Approved' : 'Rejected' };
-        return req;
-      }));
+  // Load + poll: refetch every 30s so newly-submitted mobile requests show
+  // up without a page refresh. The /api/allowances response is already
+  // split into petrol/travel arrays in the exact shape this UI expects
+  // ({ id, empName, from, to, distance, amount, status, date, _id }).
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res  = await fetch(`${API}/allowances?limit=300`);
+        const data = await res.json();
+        if (cancelled || !data) return;
+        if (Array.isArray(data.petrol)) setPetrolRequests(data.petrol);
+        if (Array.isArray(data.travel)) setTravelRequests(data.travel);
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify({
+            petrol: Array.isArray(data.petrol) ? data.petrol : [],
+            travel: Array.isArray(data.travel) ? data.travel : [],
+          }));
+        } catch {}
+      } catch { /* keep current data on screen */ }
+      finally { if (!cancelled) setLoading(false); }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  // Approve/Reject — optimistically flip locally, then PATCH the mobile
+  // backend through the HRMS proxy. The mobile backend fires an in-app
+  // notification to the employee on a real status transition.
+  const handleAction = async (id, action, type) => {
+    const newStatus = action === 'approve' ? 'Approved' : 'Rejected';
+    const setList   = type === 'petrol' ? setPetrolRequests : setTravelRequests;
+    const sourceArr = type === 'petrol' ? petrolRequests   : travelRequests;
+    const target    = sourceArr.find((r) => r.id === id);
+    setList(prev => prev.map(req => req.id === id ? { ...req, status: newStatus } : req));
+    try {
+      const res = await fetch(`${API}/allowances/${target?._id || id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          status:    newStatus.toLowerCase(),
+          reviewedBy:'HR',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      showNotification(`Request ${id} ${newStatus}!`, action === 'approve' ? 'success' : 'error');
+    } catch (err) {
+      // Roll back optimistic update if the server rejected it.
+      setList(prev => prev.map(req => req.id === id ? { ...req, status: target?.status || 'Pending' } : req));
+      showNotification(`Could not save: ${err.message}`, 'error');
     }
-    showNotification(`Request ${id} ${action === 'approve' ? 'Approved' : 'Rejected'}!`, action === 'approve' ? 'success' : 'error');
   };
 
   return (

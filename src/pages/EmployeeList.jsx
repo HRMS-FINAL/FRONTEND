@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronRight, FileText, Download, Table, Filter, X } from 'lucide-react';
+import { ChevronRight, FileText, Download, Table, Filter, X, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -9,7 +9,7 @@ import { useNotification } from '../context/NotificationContext';
 const API = 'http://localhost:8001/api';
 
 export default function EmployeeList({ onBack, employees, setEmployees, setSelectedEmployee, setActiveView }) {
-  const { showNotification } = useNotification();
+  const { showNotification, confirmDialog } = useNotification();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -99,6 +99,28 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
   const onViewDetails = (emp) => {
     setSelectedEmployee(emp);
     setActiveView('employee-details');
+  };
+
+  // Soft-delete an employee via DELETE /api/employees/:id. Optimistic update
+  // — row disappears immediately, rolls back if the API call fails.
+  const onDeleteEmp = async (emp) => {
+    const label = emp.name || emp.employeeId || 'this employee';
+    if (!(await confirmDialog({ title: "Confirm", message: `Remove ${label} from the directory? This cannot be undone from the UI.`, confirmText: "Delete", tone: "danger" }))) return;
+    const snapshot = employees;
+    setEmployees(prev => prev.filter(e => e.id !== emp.id));
+    try {
+      const res = await fetch(`${API}/employees/${emp.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setEmployees(snapshot);
+        showNotification(data?.message || 'Could not delete employee', 'error');
+        return;
+      }
+      showNotification(`${label} removed`, 'success');
+    } catch (err) {
+      setEmployees(snapshot);
+      showNotification('Network error: ' + (err?.message || 'unknown'), 'error');
+    }
   };
 
   // Extract unique departments and roles for filters
@@ -374,23 +396,41 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                 </td>
                 <td><div className="emp-table-email">{emp.email}</div></td>
                  <td>
-                   <div style={{ display: 'flex', gap: '8px' }}>
+                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                      <button className="emp-table-btn" onClick={() => onViewDetails(emp)}>Details</button>
-                     <button 
-                       className="emp-table-btn" 
-                       style={{ 
-                         background: 'rgba(76, 170, 23, 0.08)', 
-                         color: 'var(--primary)', 
+                     <button
+                       className="emp-table-btn"
+                       style={{
+                         background: 'rgba(76, 170, 23, 0.08)',
+                         color: 'var(--primary)',
                          border: '1px solid rgba(76, 170, 23, 0.2)',
                          padding: '6px 12px',
                          borderRadius: '6px',
                          fontSize: '11px',
                          fontWeight: '700',
-                         cursor: 'pointer'
-                       }} 
+                         cursor: 'pointer',
+                       }}
                        onClick={() => onEditProfile(emp)}
                      >
                        Edit
+                     </button>
+                     <button
+                       className="emp-table-btn"
+                       title="Delete employee"
+                       style={{
+                         background: 'rgba(220, 38, 38, 0.08)',
+                         color: '#dc2626',
+                         border: '1px solid rgba(220, 38, 38, 0.2)',
+                         padding: '6px 8px',
+                         borderRadius: '6px',
+                         cursor: 'pointer',
+                         display: 'inline-flex',
+                         alignItems: 'center',
+                         justifyContent: 'center',
+                       }}
+                       onClick={() => onDeleteEmp(emp)}
+                     >
+                       <Trash2 size={14} />
                      </button>
                    </div>
                  </td>
@@ -599,42 +639,11 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
       )}
 
       <style>{`
-        .edit-panel-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          background: rgba(0, 0, 0, 0.4);
-          backdrop-filter: blur(4px);
-          z-index: 999;
-          opacity: 0;
-          animation: editFadeIn 0.2s forwards ease-out;
-        }
-        .edit-panel {
-          position: fixed;
-          top: 0;
-          right: -480px;
-          width: 480px;
-          height: 100vh;
-          background: white;
-          box-shadow: -10px 0 30px rgba(0,0,0,0.15);
-          z-index: 1000;
-          display: flex;
-          flex-direction: column;
-          animation: editSlideIn 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes editFadeIn {
-          to { opacity: 1; }
-        }
-        @keyframes editSlideIn {
-          to { right: 0; }
-        }
-        .edit-form-group input:focus, .edit-form-group select:focus {
-          border-color: var(--primary) !important;
-          outline: none;
-          box-shadow: 0 0 0 3px rgba(76, 170, 23, 0.15) !important;
-        }
+        .edit-panel-overlay { position: fixed; top:0; left:0; width:100vw; height:100vh; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); z-index: 999; opacity: 0; animation: editFadeIn 0.2s forwards ease-out; }
+        .edit-panel { position: fixed; top:0; right:-480px; width:480px; height:100vh; background:white; box-shadow: -10px 0 30px rgba(0,0,0,0.15); z-index:1000; display:flex; flex-direction:column; animation: editSlideIn 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes editFadeIn { to { opacity: 1; } }
+        @keyframes editSlideIn { to { right: 0; } }
+        .edit-form-group input:focus, .edit-form-group select:focus { border-color: var(--primary) !important; outline: none; box-shadow: 0 0 0 3px rgba(76, 170, 23, 0.15) !important; }
       `}</style>
     </div>
   );

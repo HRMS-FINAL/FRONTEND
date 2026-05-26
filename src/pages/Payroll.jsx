@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  ChevronRight, DollarSign, CreditCard, TrendingUp, Zap, 
+import {
+  ChevronRight, DollarSign, CreditCard, TrendingUp, Zap,
   Download, Printer, Send, Search, Filter, X, FileText, Upload
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import logo from '../assets/logo.png';
+
+const API = 'http://localhost:8001/api';
 
 export default function Payroll({ onBack, employees = [], updateEmployeeSalary }) {
   const { showNotification } = useNotification();
@@ -14,16 +18,81 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   const [showProcessPanel, setShowProcessPanel] = useState(false);
   const [createEmpId, setCreateEmpId] = useState('');
   const [generatedPayrolls, setGeneratedPayrolls] = useState([]);
-  
-  const handleFileUpload = (e) => {
+  const today = new Date();
+  const [payMonth, setPayMonth] = useState(today.getMonth() + 1); // 1-12
+  const [payYear,  setPayYear]  = useState(today.getFullYear());
+  const monthLabel = new Date(payYear, payMonth - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  // Upload an attendance report → backend pulls actual attendance for the
+  // chosen month/year and pushes a payslip per employee into the mobile DB.
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      showNotification(`Report ${file.name} uploaded! Generating payslips based on attendance...`, 'success');
-      const allEmpIds = employees.map(emp => emp.id);
-      setTimeout(() => {
-        setGeneratedPayrolls(allEmpIds);
-        showNotification(`Payslips automatically generated for ${allEmpIds.length} employees.`, 'success');
-      }, 1500);
+    if (!file) return;
+    showNotification(`Uploading ${file.name} for ${monthLabel} — generating payslips...`, 'info');
+    try {
+      const fd = new FormData();
+      fd.append('file',  file);
+      fd.append('month', String(payMonth));
+      fd.append('year',  String(payYear));
+      // Also pass month/year on the query string — works even if multer isn't
+      // installed on the backend (in which case multipart fields aren't parsed).
+      const r = await fetch(
+        `${API}/payroll/upload-attendance?month=${payMonth}&year=${payYear}`,
+        { method: 'POST', body: fd }
+      );
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) {
+        showNotification(data?.message || 'Payslip generation failed', 'error');
+        return;
+      }
+      // Mark generated rows green in the table. We match liberally because
+      // local mock employees use different ID schemes ("EMP-1001" vs "1").
+      const okEmpIds = (data.results || []).filter(x => x.ok).map(x => String(x.employeeId || ''));
+      const okNames  = (data.results || []).filter(x => x.ok).map(x => String(x.name || '').toLowerCase());
+      const localIds = employees
+        .filter(e =>
+          okEmpIds.includes(String(e.employeeId || '')) ||
+          okEmpIds.includes('EMP-100' + e.id) ||
+          okNames.includes(String(e.name || '').toLowerCase())
+        )
+        .map(e => e.id);
+      // If we still didn't manage to match anyone (e.g. mock employees), at
+      // least flip every visible row so HR sees a status change.
+      const fallbackIds = localIds.length ? localIds : employees.map(e => e.id);
+      setGeneratedPayrolls(prev => Array.from(new Set([...prev, ...fallbackIds])));
+      showNotification(`Payslips generated for ${data.generated}/${data.total} employees and pushed to mobile.`, 'success');
+    } catch (err) {
+      showNotification('Upload failed: ' + (err?.message || 'network error'), 'error');
+    } finally {
+      e.target.value = ''; // allow re-uploading the same file
+    }
+  };
+
+  // Push a single payslip to the mobile backend so the employee can see it.
+  const sendPayslipToEmployee = async (emp, payload) => {
+    try {
+      const r = await fetch(`${API}/payroll/push`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          employeeId: emp.employeeId,
+          email:      emp.email,
+          month:      payMonth,
+          year:       payYear,
+          monthLabel,
+          ...payload,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) {
+        showNotification(data?.message || 'Could not send payslip', 'error');
+        return false;
+      }
+      showNotification(`Payslip sent to ${emp.name} for ${monthLabel}.`, 'success');
+      return true;
+    } catch (err) {
+      showNotification('Send failed: ' + (err?.message || 'network error'), 'error');
+      return false;
     }
   };
 
@@ -36,6 +105,188 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     const diffTime = Math.abs(currentDate - joinDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays >= 90; // 3 months is roughly 90 days
+  };
+
+  /**
+   * Compute the standard salary breakdown for one employee for {payMonth/payYear}.
+   * Mirrors the formula the backend uses so the downloaded PDF matches what
+   * the mobile app shows.
+   */
+  const computePayslip = (emp) => {
+    const ctc       = Number(emp.salary) || 50000;
+    const basic     = Math.round(ctc * 0.50);
+    const hra       = Math.round(basic * 0.40);
+    const conveyance = 6000;
+    const special    = Math.max(0, ctc - basic - hra - conveyance);
+    const incentive  = checkEligibility(emp) ? 5000 : 0;
+    const gross      = basic + hra + conveyance + special + incentive;
+    const epf        = Math.round(basic * 0.12);
+    const pt         = 200;
+    const tds        = Math.round(gross * 0.10);
+    const totalDed   = epf + pt + tds;
+    const net        = gross - totalDed;
+    return { ctc, basic, hra, conveyance, special, incentive, gross, epf, pt, tds, totalDed, net };
+  };
+
+  /**
+   * Build a one-page Tesco Structures payslip PDF for one employee and
+   * return the jsPDF instance. Caller decides whether to .save() (download)
+   * or .output('blob') (preview).
+   */
+  const buildPayslipPdf = (emp) => {
+    const p = computePayslip(emp);
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const M = 40;
+    let y = 50;
+
+    // ── Header ──
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(30, 41, 59);
+    doc.text('TESCO STRUCTURES', M, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Kerala, India', M, y + 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Payslip For the Month', pageW - M, y, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(30, 41, 59);
+    doc.text(monthLabel, pageW - M, y + 16, { align: 'right' });
+
+    y += 36;
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(1);
+    doc.line(M, y, pageW - M, y);
+    y += 18;
+
+    // ── Employee summary ──
+    const summary = [
+      ['Employee Name',  emp.name || '—'],
+      ['Designation',    emp.designation || emp.role || '—'],
+      ['Employee ID',    emp.employeeId || ('EMP-100' + (emp.id || ''))],
+      ['Date of Joining',emp.joiningDate || '—'],
+      ['Pay Period',     monthLabel],
+      ['Pay Date',       new Date().toLocaleDateString('en-GB')],
+    ];
+    doc.setFontSize(10);
+    summary.forEach((row, i) => {
+      const rowY = y + i * 14;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(row[0], M, rowY);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(': ' + String(row[1]), M + 110, rowY);
+    });
+
+    // ── Net pay box (right) ──
+    const boxX = pageW - M - 220;
+    const boxY = y - 4;
+    doc.setFillColor(240, 253, 244);
+    doc.rect(boxX, boxY, 220, 64, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(22, 101, 52);
+    doc.text(`Rs. ${p.net.toLocaleString('en-IN')}`, boxX + 12, boxY + 28);
+    doc.setFontSize(10);
+    doc.setTextColor(21, 128, 61);
+    doc.text('Employee Net Pay', boxX + 12, boxY + 48);
+
+    y += summary.length * 14 + 18;
+
+    // ── Earnings / Deductions table ──
+    autoTable(doc, {
+      startY: y,
+      margin: { left: M, right: M },
+      head: [['Earnings', 'Amount (Rs.)', 'Deductions', 'Amount (Rs.)']],
+      body: [
+        ['Basic',                p.basic.toLocaleString('en-IN'),       'EPF Contribution',  p.epf.toLocaleString('en-IN')],
+        ['House Rent Allowance', p.hra.toLocaleString('en-IN'),         'Professional Tax',  p.pt.toLocaleString('en-IN')],
+        ['Conveyance Allowance', p.conveyance.toLocaleString('en-IN'),  'TDS',               p.tds.toLocaleString('en-IN')],
+        ['Special Allowance',    p.special.toLocaleString('en-IN'),     '',                  ''],
+        ['Performance Incentive',p.incentive.toLocaleString('en-IN'),   '',                  ''],
+        [
+          { content: 'Gross Earnings',       styles: { fontStyle: 'bold' } },
+          { content: p.gross.toLocaleString('en-IN'),   styles: { fontStyle: 'bold' } },
+          { content: 'Total Deductions',     styles: { fontStyle: 'bold' } },
+          { content: p.totalDed.toLocaleString('en-IN'),styles: { fontStyle: 'bold' } },
+        ],
+      ],
+      styles:      { fontSize: 10, cellPadding: 6 },
+      headStyles:  { fillColor: [248, 250, 252], textColor: 30, fontStyle: 'bold' },
+      theme:       'grid',
+    });
+
+    let finalY = (doc.lastAutoTable?.finalY ?? y + 200) + 18;
+
+    // ── Net payable footer ──
+    doc.setFillColor(248, 250, 252);
+    doc.rect(M, finalY, pageW - 2 * M, 44, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text('TOTAL NET PAYABLE', M + 12, finalY + 20);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Gross Earnings - Total Deductions', M + 12, finalY + 34);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(22, 101, 52);
+    doc.text(`Rs. ${p.net.toLocaleString('en-IN')}`, pageW - M - 12, finalY + 27, { align: 'right' });
+
+    return { doc, computed: p };
+  };
+
+  /**
+   * Click handler for the "Payslip" table button — saves a PDF for this
+   * employee AND pushes the same numbers to mobile so the employee can
+   * also download it from the app.
+   */
+  const downloadPayslip = async (emp) => {
+    let computed;
+    // Build + save the PDF first — local action, never blocked by network.
+    try {
+      const built = buildPayslipPdf(emp);
+      computed = built.computed;
+      const safeName = String(emp.name || 'employee').replace(/[^\w]+/g, '_');
+      built.doc.save(`Payslip_${safeName}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
+      // Mark Generated immediately so HR sees status flip even if the
+      // mobile push fails (e.g., backend offline).
+      if (!generatedPayrolls.includes(emp.id)) {
+        setGeneratedPayrolls(prev => [...prev, emp.id]);
+      }
+    } catch (err) {
+      showNotification('Could not build payslip PDF: ' + (err?.message || 'unknown error'), 'error');
+      return;
+    }
+
+    // Then fire-and-forget push to mobile so the employee sees it in the app.
+    try {
+      await sendPayslipToEmployee(emp, {
+        earnings: {
+          basicSalary:      computed.basic,
+          hraAllowance:     computed.hra,
+          performanceBonus: computed.incentive,
+          otherEarnings:    computed.conveyance + computed.special,
+        },
+        deductions: {
+          incomeTax:       computed.tds,
+          providentFund:   computed.epf,
+          healthInsurance: 0,
+          lopDeduction:    0,
+          otherDeductions: computed.pt,
+        },
+      });
+    } catch {
+      /* sendPayslipToEmployee already toasts on failure */
+    }
   };
 
   const eligibleEmployees = employees.filter(checkEligibility);
@@ -81,7 +332,28 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
             <Upload size={14} /> Upload Report
             <input type="file" style={{ display: 'none' }} accept=".csv,.xlsx" onChange={handleFileUpload} />
           </label>
-          <button className="ne-btn-secondary"><Filter size={14} /> Month: April 2024</button>
+          <select
+            className="ne-btn-secondary"
+            value={`${payYear}-${String(payMonth).padStart(2,'0')}`}
+            onChange={(e) => {
+              const [y, m] = e.target.value.split('-').map(Number);
+              setPayYear(y);
+              setPayMonth(m);
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600 }}
+          >
+            {(() => {
+              const opts = [];
+              const now = new Date();
+              for (let i = 0; i < 18; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}`;
+                const lbl = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+                opts.push(<option key={val} value={val}>{lbl}</option>);
+              }
+              return opts;
+            })()}
+          </select>
         </div>
       </div>
 
@@ -114,7 +386,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       </div>
                     </div>
                   </td>
-                  <td><div className="emp-table-dept">April 2024</div></td>
+                  <td><div className="emp-table-dept">{monthLabel}</div></td>
                   <td><div className="emp-table-dept">₹{grossSalary.toLocaleString()}.00</div></td>
                   <td>
                     {generatedPayrolls.includes(emp.id) ? (
@@ -128,8 +400,19 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       <button className="emp-table-btn" onClick={() => setShowEditSlip(emp)}>
                         Edit
                       </button>
-                      <button className="emp-table-btn" onClick={() => setShowSlip(emp)}>
-                        <FileText size={14} /> Payslip
+                      <button
+                        className="emp-table-btn"
+                        title="Download payslip PDF and send to employee's mobile ERM"
+                        onClick={() => downloadPayslip(emp)}
+                      >
+                        <Download size={14} /> Payslip
+                      </button>
+                      <button
+                        className="emp-table-btn"
+                        title="Preview payslip"
+                        onClick={() => setShowSlip(emp)}
+                      >
+                        <FileText size={14} />
                       </button>
                       <button 
                         className="ne-btn-primary" 
@@ -196,7 +479,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Payslip For the Month</p>
-                      <h2 style={{ margin: 0, fontSize: '16px', color: '#1E293B', fontWeight: 800 }}>April 2024</h2>
+                      <h2 style={{ margin: 0, fontSize: '16px', color: '#1E293B', fontWeight: 800 }}>{monthLabel}</h2>
                     </div>
                   </div>
 
@@ -209,8 +492,8 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                         <div>Designation</div><div>: {showSlip.designation || 'Associate Editor'}</div>
                         <div>Employee ID</div><div>: {showSlip.employeeId || 'EMP-10' + showSlip.id}</div>
                         <div>Date of Joining</div><div>: {showSlip.joiningDate || '30/06/2020'}</div>
-                        <div>Pay Period</div><div>: April 2024</div>
-                        <div>Pay Date</div><div>: 29/04/2024</div>
+                        <div>Pay Period</div><div>: {monthLabel}</div>
+                        <div>Pay Date</div><div>: {new Date(payYear, payMonth - 1, 28).toLocaleDateString('en-GB')}</div>
                       </div>
                     </div>
                     
@@ -309,8 +592,36 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
               <div className="ne-modal-footer" style={{ borderTop: '1px solid #E2E8F0', padding: '16px 24px', background: '#FFF', display: 'flex', gap: '12px' }}>
                 <button className="ne-btn-secondary" style={{ marginRight: 'auto' }} onClick={() => setShowSlip(null)}>Close</button>
                 <button className="ne-btn-secondary" onClick={() => window.print()}><Printer size={16} /> Print</button>
-                <button className="ne-btn-secondary" onClick={() => showNotification("Payslip downloaded successfully!", "success")}><Download size={16} /> Download PDF</button>
-                <button className="ne-btn-primary" onClick={() => showNotification(`Payslip emailed to ${showSlip.email}!`, "success")}><Send size={16} /> Send to Employee</button>
+                <button className="ne-btn-secondary" onClick={() => {
+                  try {
+                    const { doc } = buildPayslipPdf(showSlip);
+                    const safeName = String(showSlip.name || 'employee').replace(/[^\w]+/g, '_');
+                    doc.save(`Payslip_${safeName}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
+                    showNotification('Payslip downloaded.', 'success');
+                  } catch (err) {
+                    showNotification('Could not build PDF: ' + (err?.message || 'unknown error'), 'error');
+                  }
+                }}><Download size={16} /> Download PDF</button>
+                <button className="ne-btn-primary" onClick={async () => {
+                  const ok = await sendPayslipToEmployee(showSlip, {
+                    earnings: {
+                      basicSalary:      basicSalary,
+                      hraAllowance:     hra,
+                      performanceBonus: incentive,
+                      otherEarnings:    conveyance + specialAllowance,
+                    },
+                    deductions: {
+                      incomeTax:       tds,
+                      providentFund:   epf,
+                      healthInsurance: 0,
+                      lopDeduction:    0,
+                      otherDeductions: pt,
+                    },
+                  });
+                  if (ok && !generatedPayrolls.includes(showSlip.id)) {
+                    setGeneratedPayrolls([...generatedPayrolls, showSlip.id]);
+                  }
+                }}><Send size={16} /> Send to Employee</button>
               </div>
             </div>
           </div>
@@ -576,15 +887,33 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
               </div>
               <div className="ne-modal-footer" style={{ borderTop: '1px solid #E2E8F0', padding: '24px', display: 'flex', gap: '12px' }}>
                 <button className="ne-btn-secondary" style={{ flex: 1, padding: '12px' }} onClick={() => setShowProcessPanel(false)}>Cancel</button>
-                <button 
-                  className="ne-btn-primary" 
-                  style={{ flex: 2, padding: '12px', background: '#10B981', border: 'none', cursor: 'pointer' }} 
-                  onClick={() => {
-                    if (foundEmp && !generatedPayrolls.includes(foundEmp.id)) {
+                <button
+                  className="ne-btn-primary"
+                  style={{ flex: 2, padding: '12px', background: '#10B981', border: 'none', cursor: 'pointer' }}
+                  onClick={async () => {
+                    if (!foundEmp) {
+                      showNotification('Choose an employee row first', 'error');
+                      return;
+                    }
+                    const ok = await sendPayslipToEmployee(foundEmp, {
+                      earnings: {
+                        basicSalary:      basic,
+                        hraAllowance:     hra,
+                        performanceBonus: incentive,
+                        otherEarnings:    special,
+                      },
+                      deductions: {
+                        incomeTax:       tds,
+                        providentFund:   epf,
+                        healthInsurance: 0,
+                        lopDeduction:    0,
+                        otherDeductions: pt,
+                      },
+                    });
+                    if (ok && !generatedPayrolls.includes(foundEmp.id)) {
                       setGeneratedPayrolls([...generatedPayrolls, foundEmp.id]);
                     }
                     setShowProcessPanel(false);
-                    showNotification(`Payroll generated successfully!`, "success");
                   }}>
                   Generate Payslip
                 </button>

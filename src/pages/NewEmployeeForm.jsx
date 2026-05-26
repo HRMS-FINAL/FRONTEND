@@ -4,31 +4,23 @@ import {
   Plus, RotateCcw, ArrowLeft, ChevronRight, AlertCircle, Users
 } from 'lucide-react';
 import { allEmployees } from '../data/mockData';
+import { MANAGERS, DESIGNATIONS, DEPARTMENTS } from '../data/companyData';
 
 const API = 'http://localhost:8001/api';
 
 export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, employees }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState(() => {
-    // Auto-generate next Emp ID
-    const baseList = employees && employees.length > 0 ? employees : allEmployees;
-    const ids = baseList.map(e => {
-      const parts = e.employeeId?.split('-');
-      return parts && parts.length > 1 ? parseInt(parts[1]) : 0;
-    }).filter(id => !isNaN(id));
-    
-    const maxId = ids.length > 0 ? Math.max(...ids) : 1000;
-    const nextId = `EMP-${maxId + 1}`;
-
-    return {
-      firstName: '', lastName: '', username: '', password: '',
-      email: '', phone: '', street: '', city: '', state: '', 
-      zipCode: '', country: '',
-      employeeId: nextId, department: '', role: '', designation: '', employmentType: '',
-      joiningDate: '', salary: '', assignedTo: '',
-      degree: '', university: '', fieldOfStudy: '', graduationYear: ''
-    };
+  const [form, setForm] = useState({
+    firstName: '', lastName: '', username: '', password: '',
+    email: '', phone: '', street: '', city: '', state: '',
+    zipCode: '', country: '',
+    // Personal info — required by HR
+    dob: '', gender: '', bloodGroup: '',
+    // HR types in the company's actual Emp ID (e.g. TSL-024). No auto-prefix.
+    employeeId: '', department: '', role: '', designation: '', employmentType: '',
+    joiningDate: '', salary: '', assignedTo: '',
+    degree: '', university: '', fieldOfStudy: '', graduationYear: ''
   });
 
   const steps = [
@@ -40,9 +32,11 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
 
   const [errors, setErrors] = useState({});
 
-  // API-loaded dropdown options (fall back to hardcoded if API unavailable)
-  const [deptOptions, setDeptOptions]   = useState(['Engineering','Design','Sales','Operations','HR']);
-  const [desgOptions, setDesgOptions]   = useState(['Ux designer','Back-end Developer','Front-end developer','Business Development Associate','Digital Marketing','SEO','Video Editor']);
+  // API-loaded dropdown options. Defaults come from the company catalogue
+  // so the form is usable even before the API call completes (e.g. during
+  // backend cold-start).
+  const [deptOptions, setDeptOptions] = useState(DEPARTMENTS);
+  const [desgOptions, setDesgOptions] = useState(DESIGNATIONS);
 
   useEffect(() => {
     fetch(`${API}/departments`)
@@ -54,6 +48,28 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
       .then(d => { if (d.success && d.data.length > 0) setDesgOptions(d.data.map(x => x.title)); })
       .catch(() => {});
   }, []);
+
+  // Managers shown in the "Assigned to" dropdown = the fixed HR roster
+  // PLUS anyone in the live employees list whose designation looks
+  // managerial (Head / Manager / Director / Lead). Deduped by name.
+  const managerOptions = React.useMemo(() => {
+    const liveManagers = (employees || [])
+      .map(e => {
+        const name = e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim();
+        const title = typeof e.designation === 'object'
+          ? (e.designation?.title || '')
+          : (e.designation || '');
+        return { name, title };
+      })
+      .filter(m => m.name && /head|manager|director|lead/i.test(m.title || ''));
+    const seen = new Set();
+    const merged = [];
+    [...MANAGERS, ...liveManagers].forEach(m => {
+      const key = m.name.toLowerCase().trim();
+      if (key && !seen.has(key)) { seen.add(key); merged.push(m); }
+    });
+    return merged;
+  }, [employees]);
 
   const validateStep = () => {
     let newErrors = {};
@@ -111,49 +127,86 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const handleSubmit = async () => {
-    if (validateStep()) {
-      setIsSubmitted(true);
-      // POST to backend
-      try {
-        await fetch(`${API}/employees`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            firstName:      form.firstName,
-            lastName:       form.lastName,
-            name:           `${form.firstName} ${form.lastName}`,
-            username:       form.username,
-            email:          form.email,
-            phone:          form.phone,
-            employeeId:     form.employeeId,
-            department:     form.department,
-            designation:    form.designation,
-            role:           form.role || form.designation || 'New Hire',
-            employmentType: form.employmentType,
-            joiningDate:    form.joiningDate,
-            salary:         form.salary,
-            assignedTo:     form.assignedTo,
-            address: {
-              street:  form.street,
-              city:    form.city,
-              state:   form.state,
-              zipCode: form.zipCode,
-              country: form.country,
-            },
-            education: {
-              degree:         form.degree,
-              university:     form.university,
-              fieldOfStudy:   form.fieldOfStudy,
-              graduationYear: form.graduationYear,
-            },
-            status:   'Active',
-            isActive: true,
-          }),
-        });
-      } catch { /* silent — UI already shows success */ }
-      // Re-fetch employee list in parent
-      if (onSubmit) onSubmit();
+    if (!validateStep()) return false;
+
+    // POST to backend. IMPORTANT: include the password the user typed —
+    // it was being dropped from the body before, which made every save
+    // either use the default 'password123' (best case) or fail validation
+    // (worst case) without the UI knowing. We now also check res.ok and
+    // surface server-side validation errors via alert so the user can fix
+    // them. Visual flow / success screen stays identical.
+    try {
+      const res = await fetch(`${API}/employees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName:      form.firstName,
+          lastName:       form.lastName,
+          name:           `${form.firstName} ${form.lastName}`,
+          username:       form.username,
+          password:       form.password,
+          email:          form.email,
+          phone:          form.phone,
+          employeeId:     form.employeeId,
+          department:     form.department,
+          designation:    form.designation,
+          role:           form.role || form.designation || 'New Hire',
+          employmentType: form.employmentType,
+          joiningDate:    form.joiningDate,
+          salary:         form.salary,
+          assignedTo:     form.assignedTo,
+          dob:            form.dob,
+          gender:         form.gender,
+          bloodGroup:     form.bloodGroup,
+          address: {
+            street:  form.street,
+            city:    form.city,
+            state:   form.state,
+            zipCode: form.zipCode,
+            country: form.country,
+          },
+          education: {
+            degree:         form.degree,
+            university:     form.university,
+            fieldOfStudy:   form.fieldOfStudy,
+            graduationYear: form.graduationYear,
+          },
+          status:   'Active',
+          isActive: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Validation or duplicate error — tell the user instead of pretending
+        // the save worked. Keeps the existing UI; just adds a single alert.
+        alert('Could not create employee:\n\n' + (data?.message || `HTTP ${res.status}`));
+        return false;       // don't flip to success screen, don't re-fetch
+      }
+      // The HRMS save worked, but the mobile sync may have failed silently
+      // (wrong / missing MOBILE_ADMIN_SECRET, mobile backend down, etc.).
+      // Tell the admin if so — otherwise the employee tries to log in on the
+      // mobile app, sees "Invalid credentials", and we're left guessing.
+      if (data?.mobileSync && data.mobileSync.ok === false) {
+        alert(
+          'Heads up — employee saved in HRMS, but the mobile sync failed:\n\n' +
+          (data.mobileSync.message || 'Unknown error') +
+          '\n\nThe employee will NOT be able to log into the mobile ERM app ' +
+          'until this is resolved. Open ' +
+          'http://localhost:8001/api/employees/mobile-sync-status ' +
+          'in your browser to diagnose.'
+        );
+        // Still flip to success — the HRMS row exists. Admin can re-edit
+        // later to retrigger the mirror once they fix the sync config.
+      }
+    } catch (err) {
+      alert('Network error creating employee: ' + (err?.message || 'unknown'));
+      return false;
     }
+
+    setIsSubmitted(true);
+    // Re-fetch employee list in parent so the new row appears immediately.
+    if (onSubmit) onSubmit();
+    return true;
   };
 
   return (
@@ -255,6 +308,44 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                   </div>
 
                   <div className="form-section-divider">
+                    <h3 className="form-section-title">Personal Information</h3>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="dob">Date of Birth</label>
+                    <input
+                      type="date" id="dob" className="form-input"
+                      value={form.dob} onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="gender">Gender</label>
+                    <select
+                      id="gender" className="form-input"
+                      value={form.gender} onChange={handleInputChange}
+                    >
+                      <option value="">Select gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="bloodGroup">Blood Group</label>
+                    <select
+                      id="bloodGroup" className="form-input"
+                      value={form.bloodGroup} onChange={handleInputChange}
+                    >
+                      <option value="">Select blood group</option>
+                      <option>A+</option><option>A-</option>
+                      <option>B+</option><option>B-</option>
+                      <option>AB+</option><option>AB-</option>
+                      <option>O+</option><option>O-</option>
+                    </select>
+                  </div>
+
+                  <div className="form-section-divider">
                     <h3 className="form-section-title">Address Information</h3>
                   </div>
 
@@ -290,17 +381,22 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="department"><span className="required">*</span> Department</label>
-                    <select id="department" className={`form-input ${errors.department ? 'error' : ''}`} value={form.department} onChange={handleInputChange}>
+                    <select
+                      id="department"
+                      className={`form-input ${errors.department ? 'error' : ''}`}
+                      value={form.department}
+                      onChange={handleInputChange}
+                      onFocus={(e) => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+                    >
                       <option value="">Select department</option>
                       {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="employeeId"><span className="required">*</span> Emp Id</label>
-                    <input 
-                      type="text" id="employeeId" className={`form-input ${errors.employeeId ? 'error' : ''}`} 
-                      placeholder="e.g. EMP001" value={form.employeeId} readOnly disabled 
-                      style={{ backgroundColor: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }}
+                    <input
+                      type="text" id="employeeId" className={`form-input ${errors.employeeId ? 'error' : ''}`}
+                      placeholder="e.g. TSL-024" value={form.employeeId} onChange={handleInputChange}
                     />
                     {errors.employeeId && <span className="error-text"><AlertCircle size={12} /> {errors.employeeId}</span>}
                   </div>
@@ -318,10 +414,18 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="assignedTo"><span className="required">*</span> Assigned to (Manager)</label>
-                    <select id="assignedTo" className={`form-input ${errors.assignedTo ? 'error' : ''}`} value={form.assignedTo} onChange={handleInputChange}>
+                    <select
+                      id="assignedTo"
+                      className={`form-input ${errors.assignedTo ? 'error' : ''}`}
+                      value={form.assignedTo}
+                      onChange={handleInputChange}
+                      onFocus={(e) => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+                    >
                       <option value="">Select Manager</option>
-                      {allEmployees.map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name} ({emp.role})</option>
+                      {managerOptions.map(m => (
+                        <option key={`${m.name}-${m.title}`} value={m.name}>
+                          {m.name}{m.title ? ` — ${m.title}` : ''}
+                        </option>
                       ))}
                     </select>
                     {errors.assignedTo && <span className="error-text"><AlertCircle size={12} /> {errors.assignedTo}</span>}
@@ -443,10 +547,14 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                 </div>
 
                 <div className="review-secondary-actions" style={{ maxWidth: '600px', margin: '12px auto 0', display: 'flex', justifyContent: 'center' }}>
-                  <button 
-                    className="btn-next" 
-                    style={{ justifyContent: 'center', height: '44px', minWidth: '200px' }} 
-                    onClick={() => setActiveView('employee-list')}
+                  <button
+                    className="btn-next"
+                    style={{ justifyContent: 'center', height: '44px', minWidth: '240px' }}
+                    onClick={async () => {
+                      // Save first; only navigate if the save actually succeeded.
+                      const ok = await handleSubmit();
+                      if (ok) setActiveView('employee-list');
+                    }}
                   >
                     <Users size={18} /> Go to Employee List
                   </button>
@@ -493,9 +601,11 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                     <ArrowLeft size={16} /> Previous
                   </button>
                 )}
-                <button className="btn-next" onClick={currentStep === 4 ? handleSubmit : nextStep}>
-                  {currentStep === 4 ? 'Submit' : 'Next'} <ChevronRight size={18} />
-                </button>
+                {currentStep < 4 && (
+                  <button className="btn-next" onClick={nextStep}>
+                    Next <ChevronRight size={18} />
+                  </button>
+                )}
               </div>
             </div>
           )}

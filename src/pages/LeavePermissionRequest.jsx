@@ -1,6 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronRight, ClipboardList, AlertCircle, Search, Check, X, Clock, Inbox } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+
+// Mobile-app leave & permission requests arrive via HRMS backend proxy at
+// /api/leave-requests (server-side talks to https://backend-emqy.onrender.com
+// using MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data
+// source switched from the hardcoded mock array to real fetches.
+const API = 'http://localhost:8001/api';
+const LS_KEY = 'tesco_hrms_leave_requests_cache';
+
+/** Read last-fetched requests from localStorage so the page populates
+ *  instantly on refresh instead of waiting for the ~30s mobile-backend
+ *  cold-start to complete. */
+function readCache() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
 
 export default function LeavePermissionRequest({ onBack }) {
   const { showNotification } = useNotification();
@@ -10,13 +29,30 @@ export default function LeavePermissionRequest({ onBack }) {
   const [actionModal, setActionModal] = useState(null);
   const [actionMessage, setActionMessage] = useState('');
 
-  const [requests, setRequests] = useState([
-    { id: 101, name: 'Liam Foster', role: 'Frontend Developer', dept: 'Engineering', type: 'Sick Leave', duration: '2 Days', date: 'May 19 - May 20, 2024', requestedAt: 'May 18, 2024 at 2:00 PM', status: 'Pending', managerStatus: 'Pending', avatar: 'LF', color: '#4299E1', reason: 'Medical appointment and recovery.' },
-    { id: 102, name: 'Ryan Patel', role: 'Product Manager', dept: 'Sales', type: 'Casual Leave', duration: '1 Day', date: 'May 19, 2024', requestedAt: 'May 18, 2024 at 9:30 AM', status: 'Pending', managerStatus: 'Approved', avatar: 'RP', color: '#4CAA17', reason: 'Personal family matters.' },
-    { id: 103, name: 'Emma Davis', role: 'QA Engineer', dept: 'Engineering', type: 'Permission (2h)', duration: '2 Hours', date: 'May 19, 2024 (10:00 AM)', requestedAt: 'May 19, 2024 at 8:15 AM', status: 'Pending', managerStatus: 'Pending', avatar: 'ED', color: '#ECC94B', reason: 'Dentist consultation.' },
-    { id: 104, name: 'Alex Thompson', role: 'Software Architect', dept: 'Engineering', type: 'Late Arrival', duration: '30 Mins', date: 'May 19, 2024', requestedAt: 'May 19, 2024 at 8:45 AM', status: 'Pending', managerStatus: 'Approved', avatar: 'AT', color: '#FC8181', reason: 'Delayed train schedule.' },
-    { id: 105, name: 'Sarah Jenkins', role: 'UX Designer', dept: 'Design', type: 'Sick Leave', duration: '1 Day', date: 'May 20, 2024', requestedAt: 'May 19, 2024 at 1:00 PM', status: 'Pending', managerStatus: 'Pending', avatar: 'SJ', color: '#9F7AEA', reason: 'Fever and cold.' }
-  ]);
+  // Seed from cache so the table is never blank on refresh.
+  const [requests, setRequests] = useState(() => readCache());
+  const [loading,  setLoading]  = useState(true);
+
+  // Load + poll: refetch every 30s so newly-filed mobile requests show up
+  // automatically. The shape returned by /api/leave-requests already matches
+  // the field names this UI expects (name/role/dept/type/duration/date/...).
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res  = await fetch(`${API}/leave-requests?limit=200`);
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.items)) {
+          setRequests(data.items);
+          try { localStorage.setItem(LS_KEY, JSON.stringify(data.items)); } catch {}
+        }
+      } catch { /* leave previous data on screen */ }
+      finally { if (!cancelled) setLoading(false); }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
 
   const handleManagerAction = (id, newManagerStatus) => {
     setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: newManagerStatus } : r));
@@ -33,13 +69,33 @@ export default function LeavePermissionRequest({ onBack }) {
     setActionMessage('');
   };
 
-  const confirmAction = () => {
+  // Confirm action — sends PATCH to HRMS backend, which forwards to mobile
+  // backend, which in turn notifies the employee in-app.
+  const confirmAction = async () => {
     if (!actionModal) return;
     const { id, status } = actionModal;
     const finalMessage = actionMessage.trim() || `Your request has been ${status.toLowerCase()}.`;
-    
+    const targetReq = requests.find(r => r.id === id);
+    // Optimistic UI update — flip status locally so the user sees instant feedback.
     setRequests(prev => prev.map(r => r.id === id ? { ...r, status, message: finalMessage } : r));
-    showNotification(`Request successfully ${status.toLowerCase() === 'approved' ? 'approved' : 'rejected'}!`, "success");
+    try {
+      const res = await fetch(`${API}/leave-requests/${targetReq?._id || id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          status:    status.toLowerCase(),
+          hrComment: finalMessage,
+          reviewedBy:'HR',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      showNotification(`Request successfully ${status.toLowerCase() === 'approved' ? 'approved' : 'rejected'}!`, "success");
+    } catch (err) {
+      // Roll back optimistic update if the server rejected it.
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: targetReq?.status || 'Pending' } : r));
+      showNotification(`Could not save: ${err.message}`, "error");
+    }
     setActionModal(null);
   };
 

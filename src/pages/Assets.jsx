@@ -166,8 +166,13 @@ const drawerStyles = {
 };
 
 // Add / Edit Asset Drawer
-function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
+function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employees = [] }) {
   const isEdit = mode === 'edit';
+
+  // Choose between live `employees` (prop) and the mock fallback so the
+  // dropdown always has something to show, even before the parent's API
+  // call resolves.
+  const empSource = (employees && employees.length > 0) ? employees : allEmployees;
 
   const [empIdInput, setEmpIdInput] = useState(initialAsset?.employeeId || '');
   const [foundEmp, setFoundEmp] = useState(null);
@@ -188,18 +193,30 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
   // When editing, pre-resolve the employee from existing employeeId
   useEffect(() => {
     if (isEdit && initialAsset?.employeeId) {
-      const emp = allEmployees.find(
+      const emp = empSource.find(
         (e) => e.employeeId?.toUpperCase() === initialAsset.employeeId.toUpperCase()
             || `EMP-${e.id}` === initialAsset.employeeId.toUpperCase()
       );
       if (emp) { setFoundEmp(emp); setSearched(true); }
     }
-  }, [isEdit, initialAsset]);
+  }, [isEdit, initialAsset, empSource]);
+
+  // Picking from the dropdown auto-resolves and skips the "Find" step.
+  const handlePickEmployee = (value) => {
+    setEmpIdInput(value);
+    setSearched(true);
+    if (!value) { setFoundEmp(null); setEmpError(''); return; }
+    const emp = empSource.find(
+      (e) => e.employeeId === value || `EMP-${e.id}` === value
+    );
+    if (emp) { setFoundEmp(emp); setEmpError(''); }
+    else      { setFoundEmp(null); setEmpError('No employee found with this ID.'); }
+  };
 
   const handleSearch = () => {
     const trimmed = empIdInput.trim().toUpperCase();
     setSearched(true);
-    const emp = allEmployees.find(
+    const emp = empSource.find(
       (e) => e.employeeId?.toUpperCase() === trimmed || `EMP-${e.id}` === trimmed
     );
     if (emp) { setFoundEmp(emp); setEmpError(''); }
@@ -249,11 +266,11 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
         onSave(mapApiAsset(data.data), isEdit ? 'edit' : 'add');
         onClose();
       } else {
-        alert(data.message || 'Failed to save asset');
+        showNotification(data.message || 'Failed to save asset', "error");
       }
     } catch (err) {
       console.error('Save asset failed:', err);
-      alert('Network error while saving asset');
+      showNotification('Network error while saving asset', "error");
     } finally {
       setSubmitting(false);
     }
@@ -292,26 +309,28 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1, position: 'relative' }}>
                 <Hash size={14} style={drawerStyles.inputIcon} />
-                <input
+                <select
                   style={{
                     ...drawerStyles.input,
                     paddingTop: 9, paddingBottom: 9, paddingRight: 12, paddingLeft: 34,
+                    appearance: 'auto',
                     ...(errors.emp && !foundEmp ? drawerStyles.inputErr : {}),
                   }}
-                  placeholder="e.g. EMP-1001"
                   value={empIdInput}
-                  onChange={(e) => {
-                    setEmpIdInput(e.target.value);
-                    setSearched(false);
-                    setFoundEmp(null);
-                    setEmpError('');
-                  }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
+                  onChange={(e) => handlePickEmployee(e.target.value)}
+                >
+                  <option value="">— Select Employee ID —</option>
+                  {empSource.map((e) => {
+                    const id   = e.employeeId || ('EMP-' + e.id);
+                    const name = e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim();
+                    return (
+                      <option key={id} value={id}>
+                        {id}{name ? ' — ' + name : ''}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
-              <button onClick={handleSearch} style={drawerStyles.findBtn}>
-                <Search size={14} /> Find
-              </button>
             </div>
 
             {searched && foundEmp && (
@@ -479,7 +498,7 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null }) {
 }
 
 // Main Assets Page
-export default function Assets() {
+export default function Assets({ employees = [] }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -553,7 +572,7 @@ export default function Assets() {
 
   // Delete via API
   const handleDelete = async (asset) => {
-    if (!window.confirm(`Delete asset "${asset.assetName}"? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: "Confirm", message: `Delete asset "${asset.assetName}"? This cannot be undone.`, confirmText: "Delete", tone: "danger" }))) return;
     const prev = assets;
     setAssets(prev.filter((a) => (a._id || a.id) !== (asset._id || asset.id)));
     try {
@@ -561,12 +580,12 @@ export default function Assets() {
       const data = await res.json();
       if (!data.success) {
         setAssets(prev);
-        alert(data.message || 'Failed to delete asset');
+        showNotification(data.message || 'Failed to delete asset', "error");
       }
     } catch (err) {
       setAssets(prev);
       console.error('Failed to delete asset:', err);
-      alert('Network error while deleting asset');
+      showNotification('Network error while deleting asset', "error");
     }
   };
 
@@ -806,37 +825,52 @@ export default function Assets() {
           onSave={handleSave}
           mode={editingAsset ? 'edit' : 'add'}
           initialAsset={editingAsset}
+          employees={employees}
         />
       )}
     </div>
   );
 }
 
+
 // Inline styles
 const styles = {
-  statsRow: {
-    display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 24,
-  },
+  statsRow: { display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 24 },
+  // Equal-size cards in a flex row. Each card uses its own flex layout so
+  // the coloured icon tile + number + label all sit on one line with
+  // consistent spacing — the previous version was missing statIcon /
+  // statNum / statLbl entirely, which is why ID Card's green tile was a
+  // different size to the other types' tiles.
   statCard: {
-    flex: '1 1 130px', background: 'var(--card-bg)', border: '1px solid var(--border-color)',
-    borderRadius: 14, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14,
-    boxShadow: '0 1px 4px rgba(0,0,0,.04)',
+    flex: '1 1 130px',
+    background: 'var(--card-bg)',
+    border: '1px solid var(--border-color)',
+    borderRadius: 12,
+    padding: '16px 20px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 76,
   },
   statIcon: {
-    width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  statNum: { fontWeight: 800, fontSize: 22, color: 'var(--text-main)', lineHeight: 1.1 },
-  statLbl: { fontSize: 11, color: 'var(--text-light)', fontWeight: 500, marginTop: 2 },
-
-  empGroup: {
-    borderBottom: '1px solid var(--border-color)',
+  statNum: {
+    fontSize: 22,
+    fontWeight: 800,
+    color: 'var(--text-main)',
+    lineHeight: 1.1,
   },
-  empGroupHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-    padding: '14px 20px', background: 'linear-gradient(90deg, #F8FAFC 0%, #FFFFFF 100%)',
-    borderBottom: '1px solid var(--border-color)',
-  },
-  th: {
-    position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, fontSize: 12, fontWeight: 600,
+  statLbl: {
+    fontSize: 12,
+    color: 'var(--text-light)',
+    fontWeight: 600,
+    marginTop: 2,
   },
 };

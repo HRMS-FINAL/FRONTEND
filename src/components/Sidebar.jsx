@@ -135,7 +135,7 @@ export default function Sidebar({
           <span className="nav-section-label">Support</span>
           <div className={`nav-item ${activeView === 'complain-register' ? 'active' : ''}`} onClick={() => handleNavClick('complain-register')}>
             <ClipboardList className="nav-icon" size={18} />
-            <span className="nav-text">Complain Register</span>
+            <span className="nav-text">Complaint Register</span>
           </div>
           <div className={`nav-item ${activeView === 'assets' ? 'active' : ''}`} onClick={() => handleNavClick('assets')}>
             <Monitor className="nav-icon" size={18} />

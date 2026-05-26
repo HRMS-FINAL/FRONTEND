@@ -776,3 +776,6 @@
   background: var(--primary);
   color: white;
 }
+
+/* Force Refresh button spinner */
+@keyframes lt-spin { to { transform: rotate(360deg); } }

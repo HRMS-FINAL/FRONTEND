@@ -1,24 +1,127 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import '../tracking.css';
 
-// ── Employee tracking data (simulated – Mumbai coordinates) ──────
-const EMPLOYEES = [
-  { id: 1, name: 'Liam Foster',   employeeId: 'EMP-1001', role: 'Sales Lead',       dept: 'Sales',       status: 'active',  lat: 19.0760, lng: 72.8777, site: 'HQ – Nariman Point',      lastSeen: 'Just now',   initials: 'LF', color: '#4299E1', battery: '85%', signal: 4, checkIn: '09:00 AM', workingHours: '7h 15m', distance: 42.5, allowanceRate: 15, route: [[19.0330, 72.8654], [19.0454, 72.8927], [19.0760, 72.8777]], visitedSites: [{name: 'Client Site A', status: 'Halted', time: '10:00 AM'}, {name: 'Mid-way Stop', status: 'Travelled', time: '11:30 AM'}, {name: 'HQ – Nariman Point', status: 'Halted', time: '01:15 PM'}] },
-  { id: 2, name: 'Zoe Martinez',  employeeId: 'EMP-1002', role: 'Sales Executive',  dept: 'Sales',       status: 'active',  lat: 19.0596, lng: 72.8295, site: 'Studio – Bandra',         lastSeen: '2 min ago',  initials: 'ZM', color: '#9F7AEA', battery: '92%', signal: 5, checkIn: '08:45 AM', workingHours: '8h 30m', distance: 28.2, allowanceRate: 15, route: [[19.0728, 72.8826], [19.0600, 72.8500], [19.0596, 72.8295]], visitedSites: [{name: 'Branch Office', status: 'Halted', time: '09:30 AM'}, {name: 'Client Meeting', status: 'Travelled', time: '12:00 PM'}, {name: 'Studio – Bandra', status: 'Halted', time: '03:45 PM'}] },
-  { id: 3, name: 'Ryan Patel',    employeeId: 'EMP-1003', role: 'Project Manager',  dept: 'Operations',  status: 'office',  lat: 19.0760, lng: 72.8777, site: 'HQ – Nariman Point',      lastSeen: 'Just now',   initials: 'RP', color: '#4CAA17', battery: '78%', signal: 5, checkIn: '09:15 AM', workingHours: '6h 45m', visitedSites: [{name: 'HQ – Nariman Point', status: 'Halted', time: '09:15 AM'}] },
-  { id: 4, name: 'Alex Thompson', employeeId: 'EMP-1004', role: 'Sales Associate',  dept: 'Sales',       status: 'idle',    lat: 19.0330, lng: 72.8654, site: 'Client Site – Worli',     lastSeen: '8 min ago',  initials: 'AT', color: '#ECC94B', battery: '45%', signal: 2, checkIn: '10:00 AM', workingHours: '5h 30m', distance: 15.8, allowanceRate: 15, route: [[19.0215, 72.8472], [19.0330, 72.8654]], visitedSites: [{name: 'Store 1', status: 'Travelled', time: '11:00 AM'}, {name: 'Client Site – Worli', status: 'Halted', time: '01:00 PM'}] },
-  { id: 5, name: 'Ethan Brown',   employeeId: 'EMP-1005', role: 'DevOps Engineer',  dept: 'Engineering', status: 'office',  lat: 19.0760, lng: 72.8777, site: 'HQ – Nariman Point',      lastSeen: 'Just now',   initials: 'EB', color: '#FC8181', battery: '95%', signal: 5, checkIn: '08:30 AM', workingHours: '9h 00m' },
-  { id: 6, name: 'Priya Sharma',  employeeId: 'EMP-1008', role: 'Sales Executive',  dept: 'Sales',       status: 'active',  lat: 19.0728, lng: 72.8826, site: 'Client Meet – CST',       lastSeen: '3 min ago',  initials: 'PS', color: '#38B2AC', battery: '60%', signal: 4, checkIn: '09:45 AM', workingHours: '6h 15m', distance: 34.0, allowanceRate: 15, route: [[19.1197, 72.9086], [19.0800, 72.9000], [19.0728, 72.8826]], visitedSites: [{name: 'Zone A', status: 'Halted', time: '10:15 AM'}, {name: 'Zone B', status: 'Travelled', time: '01:20 PM'}, {name: 'Client Meet – CST', status: 'Halted', time: '03:10 PM'}] },
-  { id: 7, name: 'Arjun Mehta',   employeeId: 'EMP-1029', role: 'Field Technician', dept: 'Operations',  status: 'offline', lat: 19.0454, lng: 72.8927, site: 'Warehouse – Kurla',       lastSeen: '45 min ago', initials: 'AM', color: '#ED8936', battery: '12%', signal: 1, checkIn: '08:15 AM', workingHours: '10h 30m' },
-  { id: 8, name: 'Sara Kapoor',   employeeId: 'EMP-1035', role: 'QA Engineer',      dept: 'Engineering', status: 'office',  lat: 19.0760, lng: 72.8777, site: 'HQ – Nariman Point',      lastSeen: 'Just now',   initials: 'SK', color: '#667eea', battery: '88%', signal: 5, checkIn: '08:50 AM', workingHours: '7h 40m' },
-];
+// Live tracking now starts empty — populated from the mobile backend's
+// /api/attendance/admin/all (per-employee lat/lng captured at check-in)
+// plus the location-ping collection. Hardcoded Mumbai demo data removed.
+const EMPLOYEES = [];
 
-const STATUS_COLOR = { active: '#4CAA17', idle: '#ECC94B', office: '#3b82f6', offline: '#A0AEC0' };
-const STATUS_LABEL = { active: 'Traveling', idle: 'Stationary', office: 'In Office', offline: 'Offline' };
+// Three-bucket model that HR cares about:
+//   active    — checked in, GPS on, but NOT at the office (field / travel)
+//   office    — checked in, GPS on, inside the office geofence
+//   offline   — GPS off mid-shift (idle) OR not checked in (offline)
+// The backend still emits four raw statuses (office / travelling / idle /
+// offline); we collapse `travelling` and legacy `active` into one Active
+// bucket here, and merge `idle` into Offline because — to a manager — a
+// person whose phone GPS is off looks the same as someone who's logged
+// out: invisible on the map.
+const STATUS_COLOR = {
+  active:     '#4CAA17',
+  travelling: '#4CAA17',   // alias of active
+  office:     '#3b82f6',
+  idle:       '#A0AEC0',   // GPS off → render as offline grey
+  offline:    '#A0AEC0',
+};
+const STATUS_LABEL = {
+  active:     'Active',
+  travelling: 'Active',
+  office:     'In Office',
+  idle:       'Offline (Location off)',
+  offline:    'Offline',
+};
+
+/** Collapse the backend's four raw statuses into the three HR buckets. */
+function bucketOf(status) {
+  if (status === 'office')                            return 'office';
+  if (status === 'travelling' || status === 'active') return 'active';
+  return 'offline';                                   // idle + offline + anything else
+}
+
+/**
+ * Speed threshold (m/s) above which the employee is presumed to be in a
+ * vehicle. ~3 m/s ≈ 10.8 km/h — comfortably above any walking pace, so
+ * pings ≥ this almost certainly mean bike / scooter / car.
+ */
+const VEHICLE_SPEED_MPS = 3;
+
+/** Inline-SVG bicycle for the moving-employee marker. */
+const BIKE_SVG = (color, px) => `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}"
+       viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="5.5" cy="17.5" r="3.5"/>
+    <circle cx="18.5" cy="17.5" r="3.5"/>
+    <path d="M15 6h3l-3 11.5"/>
+    <path d="M6 17.5l3-6 4 6 2.5-7"/>
+    <circle cx="15" cy="5" r="1"/>
+  </svg>`;
+
+/**
+ * Map marker with the employee's name baked in. We draw a coloured pin
+ * (status colour) PLUS a name pill that sits to the right of the pin so
+ * HR can scan the map and see who is where without clicking each marker.
+ * Selected employee gets a slightly larger pin + bolder label.
+ *
+ * When the employee's last ping carries a vehicle-speed sample (≥ ~3 m/s)
+ * the dot turns into a bicycle glyph so HR can spot "Aman is on a bike"
+ * at a glance instead of inspecting the popup.
+ */
+function makeNameMarker(emp, isSelected) {
+  const color   = STATUS_COLOR[emp.status] || '#9F7AEA';
+  const ring    = isSelected
+    ? `box-shadow: 0 0 0 4px ${color}33, 0 4px 14px rgba(0,0,0,0.25);`
+    : 'box-shadow: 0 3px 10px rgba(0,0,0,0.18);';
+  const size    = isSelected ? 36 : 30;
+  // `speed` is in m/s, sent by the mobile ping. When present and fast
+  // enough, render the bike glyph instead of the initials.
+  const moving  = typeof emp.speed === 'number' && emp.speed >= VEHICLE_SPEED_MPS;
+
+  const inner   = moving
+    ? BIKE_SVG('#fff', Math.round(size * 0.62))
+    : `<span style="color:#fff; font-weight:800; font-size:${isSelected ? 12 : 11}px;">${(emp.initials || '?').slice(0, 2)}</span>`;
+
+  const dot = `
+    <div style="
+      width:${size}px; height:${size}px; border-radius:50%;
+      background:${color}; border:3px solid #fff; ${ring}
+      display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    ">${inner}</div>`;
+
+  // Append a tiny speed pill when moving so the speed is visible at a
+  // glance: "Aman   24 km/h".
+  const speedKmh = moving ? Math.round(emp.speed * 3.6) : null;
+  const speedPill = moving
+    ? `<span style="
+         margin-left:4px; padding:2px 6px; border-radius:8px;
+         background:${color}; color:#fff; font-size:10px; font-weight:700;
+         line-height:1.1; white-space:nowrap;
+       ">${speedKmh} km/h</span>`
+    : '';
+
+  const label = `
+    <div style="
+      background:#fff; padding:4px 10px; border-radius:14px;
+      border:1px solid ${color}66;
+      font-size:11px; font-weight:700; color:#1a1a1a;
+      margin-left:6px; white-space:nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      max-width:180px; overflow:hidden; text-overflow:ellipsis;
+      display:inline-flex; align-items:center;
+    ">${(emp.name || '').replace(/</g, '&lt;')}${speedPill}</div>`;
+
+  return L.divIcon({
+    className: '',
+    html: `<div style="display:flex; align-items:center;">${dot}${label}</div>`,
+    iconSize:   [220, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor:[0, -(size / 2) - 4],
+  });
+}
 
 function makeStartIcon() {
   const svg = `
@@ -218,38 +321,102 @@ export default function LiveTracking() {
 
   const [filter, setFilter]     = useState('all');
   const [selected, setSelected] = useState(null);
-  const [tick, setTick]         = useState(0);
   const [search, setSearch]     = useState('');
   const [mapType, setMapType]   = useState('roadmap'); // roadmap, satellite, terrain
-  const employeesRef = useRef(EMPLOYEES.map(e => ({ ...e })));
+
+  // Live employees come from /api/live-tracking (HRMS proxy → mobile
+  // backend's /api/attendance/admin/live-locations). The mobile app pushes
+  // a GPS ping every 2 minutes while checked in, so we re-fetch every 30s
+  // here — the data is at most ~2 min old by design.
+  const [liveEmployees, setLiveEmployees] = useState([]);
+  const [office, setOffice] = useState({ lat: 13.0405, lng: 80.2105, radiusM: 200, name: 'Tesco Structures HQ' });
+  // Drives the spinner on the Force Refresh button so the click feels
+  // responsive and we can prevent rapid-fire double fetches.
+  const [refreshing, setRefreshing]   = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null); // Date | null
+  // Cancellation flag for in-flight fetches when the component unmounts —
+  // declared outside the loader so each refresh shares the same lifecycle.
+  const cancelledRef = useRef(false);
+  const inFlightRef  = useRef(false);
+
+  // Centralised loader — used by the auto-poll AND by the Force Refresh
+  // button. Returns a promise so the button can await the round-trip and
+  // flip its spinner off precisely when the data has landed.
+  const loadLive = useCallback(async () => {
+    if (inFlightRef.current) return;        // collapse double-clicks
+    inFlightRef.current = true;
+    setRefreshing(true);
+    try {
+      const r = await fetch('http://localhost:8001/api/live-tracking');
+      const d = await r.json().catch(() => ({}));
+      if (cancelledRef.current) return;
+      if (!d?.success || !Array.isArray(d.data)) return;
+      if (d.office) setOffice(d.office);
+      const rows = d.data
+        .filter(e => e.lat != null && e.lng != null)
+        .map(e => ({
+          id:         e._id,
+          name:       e.name,
+          employeeId: e.employeeId || '',
+          role:       e.role || '',
+          dept:       e.dept || '',
+          email:      e.email || '',
+          lat:        e.lat,
+          lng:        e.lng,
+          // m/s — drives the "show bike icon if moving fast enough" path
+          // in makeNameMarker. Backend returns null when no speed sample
+          // is available; the marker treats that as "stationary".
+          speed:      (typeof e.speed === 'number' && isFinite(e.speed)) ? e.speed : null,
+          site:       e.site || (e.status === 'office' ? 'Tesco Structures HQ' : '—'),
+          status:     e.status || 'offline',
+          lastSeen:   e.lastSeen
+                        ? new Date(e.lastSeen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                        : '—',
+          initials:   (e.name || '?').split(' ').map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '??',
+          // Colour from the collapsed bucket so the dot in the
+          // sidebar/map matches the header tile and filter tab the
+          // employee falls under.
+          color:      STATUS_COLOR[bucketOf(e.status)] || STATUS_COLOR.offline,
+        }));
+      setLiveEmployees(rows);
+      setLastUpdated(new Date());
+    } catch {
+      // Network error — keep whatever we had on screen, just flip the
+      // spinner back off so the button is usable again.
+    } finally {
+      inFlightRef.current = false;
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isLive) return;
-    const id = setInterval(() => {
-      employeesRef.current = employeesRef.current.map(e =>
-        e.dept === 'Sales' && e.status === 'active'
-          ? { ...e, lat: e.lat + (Math.random() - 0.5) * 0.0015, lng: e.lng + (Math.random() - 0.5) * 0.0015 }
-          : e
-      );
-      setTick(t => t + 1);
-    }, 5000); // Faster updates for the full page
-    return () => clearInterval(id);
-  }, [isLive]);
+    cancelledRef.current = false;
+    loadLive();
+    // Match the mobile ping cadence: the app sends one GPS sample every
+    // 2 minutes, so refreshing more often than that buys nothing but
+    // backend load. HR can always hit "Force Refresh" for an instant pull.
+    const id = setInterval(loadLive, 2 * 60 * 1000);
+    return () => { cancelledRef.current = true; clearInterval(id); };
+  }, [isLive, loadLive]);
 
-  const employees = employeesRef.current;
+  const employees = liveEmployees;
   const visible   = employees.filter(e => {
-    const matchesFilter = filter === 'all' || e.status === filter;
-    const matchesSearch = !search || 
-      e.name.toLowerCase().includes(search.toLowerCase()) || 
+    // All filtering happens at the bucket level so the three header tiles
+    // and three filter tabs always agree on what each label means.
+    const matchesFilter = filter === 'all' || bucketOf(e.status) === filter;
+    const matchesSearch = !search ||
+      e.name.toLowerCase().includes(search.toLowerCase()) ||
       e.employeeId.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
+  // Buckets the header + filter tabs are built from.
   const counts = {
-    total: employees.length,
-    active: employees.filter(e => e.status === 'active').length,
-    office: employees.filter(e => e.status === 'office').length,
-    offline: employees.filter(e => e.status === 'offline').length,
+    total:   employees.length,
+    active:  employees.filter(e => bucketOf(e.status) === 'active').length,
+    office:  employees.filter(e => bucketOf(e.status) === 'office').length,
+    offline: employees.filter(e => bucketOf(e.status) === 'offline').length,
   };
 
   return (
@@ -270,7 +437,7 @@ export default function LiveTracking() {
         <div className="header-right">
           <div className="tracking-summary">
             <div className="summary-item">
-              <span className="summary-val">{counts.active}</span>
+              <span className="summary-val" style={{ color: STATUS_COLOR.active }}>{counts.active}</span>
               <span className="summary-lbl">Active</span>
             </div>
             <div className="summary-divider" />
@@ -321,11 +488,21 @@ export default function LiveTracking() {
           
           <div className="panel-search" style={{ marginTop: '12px' }}>
             <Search size={18} className="search-icon" />
-            <input 
-              placeholder="Search by Name or ID..." 
+            <input
+              list="livetrack-employees"
+              placeholder="Search by Name or Emp ID..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              autoComplete="off"
             />
+            {/* Browser-native autocomplete dropdown — lists every employee
+                currently being tracked so HR can pick from a menu instead
+                of typing. */}
+            <datalist id="livetrack-employees">
+              {employees.map(e => (
+                <option key={e.id} value={e.employeeId || e.name}>{e.name}{e.employeeId ? ' — ' + e.employeeId : ''}</option>
+              ))}
+            </datalist>
           </div>
 
           <div className="panel-filters">
@@ -333,10 +510,13 @@ export default function LiveTracking() {
               All <span className="tab-count">{counts.total}</span>
             </button>
             <button className={`filter-tab ${filter === 'active' ? 'active' : ''}`} onClick={() => setFilter('active')}>
-              Traveling <span className="tab-count" style={{ background: STATUS_COLOR.active, color: 'white' }}>{counts.active}</span>
+              Active <span className="tab-count" style={{ background: STATUS_COLOR.active, color: 'white' }}>{counts.active}</span>
             </button>
             <button className={`filter-tab ${filter === 'office' ? 'active' : ''}`} onClick={() => setFilter('office')}>
-              Office <span className="tab-count" style={{ background: STATUS_COLOR.office, color: 'white' }}>{counts.office}</span>
+              In Office <span className="tab-count" style={{ background: STATUS_COLOR.office, color: 'white' }}>{counts.office}</span>
+            </button>
+            <button className={`filter-tab ${filter === 'offline' ? 'active' : ''}`} onClick={() => setFilter('offline')}>
+              Offline <span className="tab-count" style={{ background: STATUS_COLOR.offline, color: 'white' }}>{counts.offline}</span>
             </button>
           </div>
 
@@ -355,7 +535,11 @@ export default function LiveTracking() {
                   <div className="item-info">
                     <div className="item-name">{emp.name}</div>
                     <div className="item-meta">
-                      <span className="item-dept">{emp.dept}</span>
+                      {/* Designation (job title) under the name — replaces
+                          the raw department ObjectId that used to leak
+                          through. emp.role is the resolved designation
+                          title from the backend. */}
+                      <span className="item-dept">{emp.role || emp.dept || '—'}</span>
                       <span className="dot-sep" />
                       <span className="item-site"><MapPin size={10} style={{ marginRight: '2px', verticalAlign: 'middle' }} /> {emp.site}</span>
                       {emp.dept === 'Sales' && (
@@ -382,114 +566,104 @@ export default function LiveTracking() {
           </div>
           
           <div className="panel-footer">
-            <button className="refresh-btn" onClick={() => setTick(t => t + 1)} disabled={!isLive} style={!isLive ? { opacity: 0.5, cursor: 'not-allowed' } : {}}>
-              <RefreshCw size={14} /> Force Refresh
+            {/* Force Refresh re-fetches /api/live-tracking immediately
+                instead of waiting for the 30s auto-poll. The button is
+                disabled while a request is already in flight so a rapid
+                double-tap can't queue two parallel fetches; the icon spins
+                during the round-trip for visual feedback. */}
+            <button
+              className="refresh-btn"
+              onClick={() => loadLive()}
+              disabled={!isLive || refreshing}
+              style={(!isLive || refreshing) ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+              title={refreshing ? 'Refreshing…' : 'Fetch the latest pings now'}
+            >
+              <RefreshCw
+                size={14}
+                style={refreshing ? { animation: 'lt-spin 0.8s linear infinite' } : undefined}
+              />
+              {refreshing ? 'Refreshing…' : 'Force Refresh'}
             </button>
-            <div className="update-time">{isLive ? `Updated: ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Historical Data'}</div>
+            <div className="update-time">
+              {isLive
+                ? `Updated: ${(lastUpdated || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                : 'Historical Data'}
+            </div>
           </div>
         </div>
 
         {/* Map Container */}
         <div className="tracking-map-container">
           <MapContainer
-            center={[19.076, 72.8777]} zoom={13}
+            // Default-centre on the Tesco Structures office (Ashok Nagar
+            // Chennai) so the map opens looking at HQ instead of Mumbai.
+            center={[office.lat, office.lng]} zoom={13}
             style={{ width: '100%', height: '100%' }}
             zoomControl={true} attributionControl={false}
           >
             {/* Google Maps Tile Layers */}
             {mapType === 'roadmap' && (
-              <TileLayer 
+              <TileLayer
                 url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
                 subdomains={['mt0','mt1','mt2','mt3']}
               />
             )}
             {mapType === 'satellite' && (
-              <TileLayer 
+              <TileLayer
                 url="https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"
                 subdomains={['mt0','mt1','mt2','mt3']}
-              />
+ />
             )}
             {mapType === 'terrain' && (
-              <TileLayer 
+              <TileLayer
                 url="https://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"
                 subdomains={['mt0','mt1','mt2','mt3']}
               />
             )}
 
             <MapFlyTo target={selected} />
-            
-            {/* Draw route for selected salesperson */}
-            {selected && selected.route && (
-              <Polyline 
-                positions={[...selected.route, [selected.lat, selected.lng]]} 
-                pathOptions={{ color: !isLive ? 'red' : '#3b82f6', weight: 6, dashArray: '10, 15', lineCap: 'round', opacity: 0.8 }} 
-              />
-            )}
 
-            {/* Render selected route markers */}
-            {selected && selected.route && selected.route.length > 0 && (
-              <>
-                {selected.route.map((pos, idx) => {
-                  const siteInfo = selected.visitedSites ? selected.visitedSites[idx] : null;
-                  const popupText = siteInfo 
-                    ? `${siteInfo.name} - ${siteInfo.status} at ${siteInfo.time}` 
-                    : `Standby / Visited Point ${idx + 1}`;
-                  const isStart = idx === 0;
+            {/* Office pin — always shown so HR has a reference point. */}
+            <Marker position={[office.lat, office.lng]} icon={makeStartIcon()}>
+              <Popup>{office.name || 'Office'}</Popup>
+            </Marker>
 
-                  let icon;
-                  if (!isLive) {
-                    icon = makeIcon('red', false);
-                  } else if (isStart) {
-                    icon = makeStartIcon();
-                  } else {
-                    icon = makeIcon(selected.color, false);
-                  }
-
-                  return (
-                    <Marker key={`route-pt-${idx}`} position={pos} icon={icon}>
-                      <Popup>{isStart ? 'Start Point: ' : ''}{popupText}</Popup>
-                    </Marker>
-                  );
-                })}
-                
-                <Marker 
-                  position={[selected.lat, selected.lng]} 
-                  icon={!isLive ? makeIcon('red', true) : makePersonIcon(selected.color)}
-                  zIndexOffset={1000}
-                >
-                  <Popup>{selected.name} {!isLive ? '(End Point)' : '(Live)'}</Popup>
-                </Marker>
-              </>
-            )}
-
-            {visible.map(emp => {
-              // Only show the general marker if this employee is NOT the selected one with a route
-              // (to avoid overlapping with the person icon)
-              if (selected?.id === emp.id && emp.route) return null;
-              
-              return (
-                <Marker key={emp.id + '-' + tick} position={[emp.lat, emp.lng]}
-                  icon={makeIcon(!isLive ? 'red' : emp.color, selected?.id === emp.id)}
-                  eventHandlers={{ click: () => setSelected(emp) }}
-                />
-              );
-            })}
+            {/* One marker per visible employee, labelled with their name.
+                Markers persist as long as the employee is checked-in (the
+                backend filters out anyone who already checked out), so HR
+                can watch them move in real time without picking each row. */}
+            {visible.map((emp) => (
+              <Marker
+                key={emp.id}
+                position={[emp.lat, emp.lng]}
+                icon={makeNameMarker(emp, selected?.id === emp.id)}
+                eventHandlers={{ click: () => setSelected(emp) }}
+              >
+                <Popup>
+                  <div style={{ minWidth: 160 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: '#1a1a1a' }}>{emp.name}</div>
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                      {emp.role || '—'}{emp.employeeId ? ` · ${emp.employeeId}` : ''}
+                    </div>
+                    <div style={{
+                      display: 'inline-block', marginTop: 6,
+                      padding: '2px 8px', borderRadius: 10,
+                      background: STATUS_COLOR[emp.status] + '22',
+                      color: STATUS_COLOR[emp.status],
+                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: 0.4,
+                    }}>{STATUS_LABEL[emp.status] || emp.status}</div>
+                    <div style={{ fontSize: 11, color: '#777', marginTop: 6 }}>
+                      <MapPin size={10} style={{ verticalAlign: 'middle' }} /> {emp.site}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
+                      <Clock size={10} style={{ verticalAlign: 'middle' }} /> Last ping: {emp.lastSeen}
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
           </MapContainer>
-          
-          <EmployeeDetailOverlay emp={selected} onClose={() => setSelected(null)} />
-          
-          <div className="map-overlay-controls">
-             <div className="map-type-switcher">
-                <button className={`type-btn ${mapType === 'roadmap' ? 'active' : ''}`} onClick={() => setMapType('roadmap')}>Default</button>
-                <button className={`type-btn ${mapType === 'satellite' ? 'active' : ''}`} onClick={() => setMapType('satellite')}>Satellite</button>
-                <button className={`type-btn ${mapType === 'terrain' ? 'active' : ''}`} onClick={() => setMapType('terrain')}>Terrain</button>
-             </div>
-
-             <div className="map-badge-large" style={!isLive ? { background: '#EDF2F7', color: '#4A5568', border: '1px solid #CBD5E0' } : {}}>
-                {isLive && <span className="pulse-dot" />}
-                {counts.active} {isLive ? 'ACTIVE PERSONNEL ONSITE' : 'PERSONNEL LOGGED ONSITE'}
-             </div>
-          </div>
         </div>
       </div>
     </div>

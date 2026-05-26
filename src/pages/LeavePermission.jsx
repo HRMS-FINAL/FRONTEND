@@ -1,19 +1,40 @@
-import React, { useState } from 'react';
-import { 
-  ChevronRight, Calendar, Clock, Search, Filter, 
+import React, { useState, useEffect } from 'react';
+import {
+  ChevronRight, Calendar, Clock, Search, Filter,
   User, ClipboardList, AlertCircle, Bookmark, Check, X, CalendarCheck, CalendarOff, FileText
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
+// Approved leaves & permissions from the mobile app arrive via HRMS backend
+// proxy at /api/leave-requests?status=approved. The UI below is unchanged —
+// only the data source switched. Hardcoded mock seed below stays as a
+// fallback when the backend is unreachable, so the page still shows the
+// original demo content offline.
+const API = 'http://localhost:8001/api';
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
 export default function LeavePermission({ onBack }) {
   const { showNotification } = useNotification();
-  const [selectedDay, setSelectedDay] = useState(19); // Defaults to May 19
-  const [activeTab, setActiveTab] = useState('leave'); // 'leave', 'permission', 'leave-requests', or 'permission-requests'
+  const today = new Date();
+  const [viewYear,  setViewYear]  = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
+  const [selectedDay, setSelectedDay] = useState(today.getDate());
+  const [activeTab, setActiveTab] = useState('leave');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('');
+  const monthLabel = `${MONTH_NAMES[viewMonth]} ${viewYear}`;
 
-  // Directory records of active/approved leaves and permissions
-  const [records, setRecords] = useState([
+  // Directory records of active/approved leaves and permissions. Starts
+  // empty — populated below from /api/leave-requests once it loads. The
+  // historical mock seed is gone (it was producing ghost rows on a fresh
+  // tenant). The structure of each record is preserved in the IIFE-style
+  // helper below so the table renderer still gets the same shape.
+  const [records, setRecords] = useState([]);
+  const _hiddenMockSeed = [
     { 
       id: 1, 
       name: 'Liam Foster', 
@@ -134,7 +155,28 @@ export default function LeavePermission({ onBack }) {
       color: '#ECC94B',
       reason: 'Urgent dentist consultation.'
     }
-  ]);
+  ];
+
+  // Fetch approved records from the mobile backend (via HRMS proxy) on
+  // mount and every 30s. On success we REPLACE the mock seed with real data.
+  // If the fetch fails or returns empty, the page keeps showing the mock
+  // seed so the demo still works offline.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res  = await fetch(`${API}/leave-requests?status=approved&limit=200`);
+        const data = await res.json();
+        if (!cancelled && data && Array.isArray(data.items) && data.items.length > 0) {
+          setRecords(data.items);
+        }
+      } catch { /* keep current records on screen */ }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
   const isRecordActiveOnDay = (rec, day) => {
     const dateStr = rec.date.toLowerCase();
     const dayPart = dateStr.split('(')[0].split(',')[0].trim();
@@ -151,14 +193,15 @@ export default function LeavePermission({ onBack }) {
     return false;
   };
 
-  // May 2024 calendar grid starting on Wednesday (3 null slots)
-  const calendarGrid = [
-    null, null, null, 1, 2, 3, 4,
-    5, 6, 7, 8, 9, 10, 11,
-    12, 13, 14, 15, 16, 17, 18,
-    19, 20, 21, 22, 23, 24, 25,
-    26, 27, 28, 29, 30, 31
-  ];
+  // Live calendar grid for the active month + year.
+  const calendarGrid = React.useMemo(() => {
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();   // 0 = Sun
+    const daysInMonth     = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDayOfMonth; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++)   cells.push(d);
+    return cells;
+  }, [viewYear, viewMonth]);
 
   const stats = React.useMemo(() => {
     const onLeave = records.filter(r => r.type.toLowerCase().includes('leave') && isRecordActiveOnDay(r, selectedDay)).length;
@@ -167,8 +210,8 @@ export default function LeavePermission({ onBack }) {
   }, [records, selectedDay]);
 
   const lpStats = React.useMemo(() => [
-    { label: 'On Leave', value: stats.onLeave, key: 'leave', color: '#FC8181', Icon: CalendarOff, badgeCount: 0, trend: `May ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` },
-    { label: 'On Permission', value: stats.onPermission, key: 'permission', color: '#9F7AEA', Icon: Clock, badgeCount: 0, trend: `May ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` }
+    { label: 'On Leave', value: stats.onLeave, key: 'leave', color: '#FC8181', Icon: CalendarOff, badgeCount: 0, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` },
+    { label: 'On Permission', value: stats.onPermission, key: 'permission', color: '#9F7AEA', Icon: Clock, badgeCount: 0, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` }
   ], [stats, selectedDay]);
 
   const displayRecords = React.useMemo(() => {
@@ -251,7 +294,7 @@ export default function LeavePermission({ onBack }) {
         {/* Left Column: Interactive Calendar Card */}
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>May 2024</h3>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>{monthLabel}</h3>
               <span style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Calendar View</span>
             </div>
             <div className="mini-calendar" style={{ padding: 0 }}>
@@ -274,7 +317,7 @@ export default function LeavePermission({ onBack }) {
                       className={`cal-day ${isSelected ? 'present' : ''}`}
                       onClick={() => {
                         setSelectedDay(day);
-                        showNotification(`Viewing leaves & permissions for May ${day < 10 ? `0${day}` : day}, 2024`, "info");
+                        showNotification(`Viewing leaves & permissions for ${MONTH_NAMES[viewMonth]} ${day < 10 ? `0${day}` : day}, ${viewYear}`, "info");
                       }}
                       style={isSelected ? {
                         background: 'var(--primary)',

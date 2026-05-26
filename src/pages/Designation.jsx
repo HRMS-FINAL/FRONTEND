@@ -8,13 +8,8 @@ import { useNotification } from '../context/NotificationContext';
 const API    = 'http://localhost:8001/api';
 const COLORS = ['#4299E1','#9F7AEA','#4CAA17','#ECC94B','#F687B3','#ED8936','#38B2AC','#FC8181'];
 
-const MOCK_DESGS = [
-  { id: 1, title: 'Senior Software Engineer', dept: 'Engineering', count: 12, salaryRange: '$90k - $140k',  iconIdx: 0, color: '#4299E1' },
-  { id: 2, title: 'UX/UI Designer',           dept: 'Design',      count: 8,  salaryRange: '$80k - $120k',  iconIdx: 1, color: '#9F7AEA' },
-  { id: 3, title: 'Product Manager',           dept: 'Operations',  count: 5,  salaryRange: '$100k - $150k', iconIdx: 2, color: '#4CAA17' },
-  { id: 4, title: 'Data Analyst',              dept: 'Engineering', count: 7,  salaryRange: '$75k - $110k',  iconIdx: 3, color: '#ECC94B' },
-  { id: 5, title: 'HR Executive',              dept: 'HR',          count: 4,  salaryRange: '$60k - $90k',   iconIdx: 4, color: '#F687B3' },
-];
+// Hardcoded mock removed — list now comes from /api/designations only.
+const MOCK_DESGS = [];
 
 function DesgIcon({ idx }) {
   const icons = [<Zap size={18}/>, <Eye size={18}/>, <Briefcase size={18}/>, <BarChart2 size={18}/>, <Users size={18}/>];
@@ -36,11 +31,12 @@ function mapApiDesg(d, i) {
 }
 
 export default function Designation({ onBack }) {
-  const { showNotification } = useNotification();
+  const { showNotification, confirmDialog } = useNotification();
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal]     = useState(false);
   const [designations, setDesignations] = useState(MOCK_DESGS);
   const [newRole, setNewRole] = useState({ title: '', dept: 'Engineering', minSalary: '', maxSalary: '' });
+  const [editTarget, setEditTarget] = useState(null);  // current designation being edited
 
   // Silently load from API on mount
   useEffect(() => {
@@ -83,6 +79,59 @@ export default function Designation({ onBack }) {
         setDesignations(data.data.map(mapApiDesg));
       }
     } catch { /* silent */ }
+  };
+
+  const refresh = async () => {
+    try {
+      const res  = await fetch(`${API}/designations`);
+      const data = await res.json();
+      if (data.success) setDesignations((data.data || []).map(mapApiDesg));
+    } catch { /* silent */ }
+  };
+
+  const handleEdit = (d) => setEditTarget({ ...d, minSalary: '', maxSalary: '' });
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editTarget?.title?.trim()) return;
+    try {
+      const res = await fetch(`${API}/designations/${editTarget.id}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          title:     editTarget.title.trim(),
+          dept:      editTarget.dept,
+          minSalary: editTarget.minSalary || undefined,
+          maxSalary: editTarget.maxSalary || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not update designation', 'error');
+        return;
+      }
+      showNotification(`Updated "${editTarget.title}"`, 'success');
+      setEditTarget(null);
+      refresh();
+    } catch (err) {
+      showNotification('Network error: ' + err.message, 'error');
+    }
+  };
+
+  const handleDelete = async (d) => {
+    if (!(await confirmDialog({ title: "Confirm", message: `Delete designation "${d.title}"?`, confirmText: "Delete", tone: "danger" }))) return;
+    try {
+      const res = await fetch(`${API}/designations/${d.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not delete designation', 'error');
+        return;
+      }
+      showNotification(`Deleted "${d.title}"`, 'success');
+      setDesignations(prev => prev.filter(x => x.id !== d.id));
+    } catch (err) {
+      showNotification('Network error: ' + err.message, 'error');
+    }
   };
 
   const filtered = designations.filter(d =>
@@ -147,8 +196,8 @@ export default function Designation({ onBack }) {
                 <td><div className="emp-table-email">{d.salaryRange}</div></td>
                 <td>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="emp-table-btn" style={{ padding: '6px' }}><Edit2 size={14} /></button>
-                    <button className="emp-table-btn" style={{ padding: '6px', color: '#FC8181' }}><Trash2 size={14} /></button>
+                    <button className="emp-table-btn" style={{ padding: '6px' }} onClick={() => handleEdit(d)}><Edit2 size={14} /></button>
+                    <button className="emp-table-btn" style={{ padding: '6px', color: '#FC8181' }} onClick={() => handleDelete(d)}><Trash2 size={14} /></button>
                   </div>
                 </td>
               </tr>
@@ -156,6 +205,52 @@ export default function Designation({ onBack }) {
           </tbody>
         </table>
       </div>
+
+      {editTarget && (
+        <div className="drawer-overlay" onClick={() => setEditTarget(null)}>
+          <div className="drawer-card" onClick={e => e.stopPropagation()}>
+            <div className="drawer-header">
+              <h2 className="modal-title">Edit Designation</h2>
+              <button className="modal-close-btn" onClick={() => setEditTarget(null)}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 73px)' }}>
+              <div className="drawer-body">
+                <div className="ne-field" style={{ marginBottom: '20px' }}>
+                  <label className="ne-label">Job Title <span style={{ color: 'red' }}>*</span></label>
+                  <input
+                    className="ne-input"
+                    value={editTarget.title}
+                    onChange={e => setEditTarget({ ...editTarget, title: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="ne-field" style={{ marginBottom: '20px' }}>
+                  <label className="ne-label">Department</label>
+                  <input
+                    className="ne-input"
+                    value={editTarget.dept || ''}
+                    onChange={e => setEditTarget({ ...editTarget, dept: e.target.value })}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="ne-field">
+                    <label className="ne-label">Min Salary (k)</label>
+                    <input className="ne-input" type="number" value={editTarget.minSalary || ''} onChange={e => setEditTarget({ ...editTarget, minSalary: e.target.value })} />
+                  </div>
+                  <div className="ne-field">
+                    <label className="ne-label">Max Salary (k)</label>
+                    <input className="ne-input" type="number" value={editTarget.maxSalary || ''} onChange={e => setEditTarget({ ...editTarget, maxSalary: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" className="ne-btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
+                <button type="submit" className="ne-btn-primary"><Check size={16} /> Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="drawer-overlay" onClick={() => setShowModal(false)}>

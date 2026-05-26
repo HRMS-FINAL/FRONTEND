@@ -35,28 +35,85 @@ import './tracking.css';
 
 const API = 'http://localhost:8001/api';
 
+// localStorage keys used to remember which screen the user was on across
+// browser refreshes. (HRMS currently doesn't use a router, so without
+// these the page state resets to "dashboard" on every reload.)
+const LS_ACTIVE_VIEW = 'tesco_hrms_activeView';
+const LS_SELECTED_EMP = 'tesco_hrms_selectedEmployee';
+
+/** Read a JSON value from localStorage with a fallback. Safe on SSR / errors. */
+function readLS(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return JSON.parse(raw);
+  } catch { return fallback; }
+}
+
 function MainApp() {
-  const [activeView, setActiveView]   = useState('dashboard');
+  // activeView is now persisted to localStorage so refresh keeps the user
+  // on the same page (Allowance / Employee List / etc.). Default is
+  // 'dashboard' on a brand-new browser.
+  const [activeView, setActiveView] = useState(() => readLS(LS_ACTIVE_VIEW, 'dashboard'));
+  useEffect(() => {
+    try { localStorage.setItem(LS_ACTIVE_VIEW, JSON.stringify(activeView)); } catch {}
+  }, [activeView]);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hrOpen, setHrOpen]           = useState(false);
   const [doneReminders, setDoneReminders] = useState([3]);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
+
+  // selectedEmployee also persists so the Employee Details page works
+  // after refresh (otherwise the refresh would land on an empty profile).
+  const [selectedEmployee, setSelectedEmployee] = useState(() => readLS(LS_SELECTED_EMP, null));
+  useEffect(() => {
+    try { localStorage.setItem(LS_SELECTED_EMP, JSON.stringify(selectedEmployee)); } catch {}
+  }, [selectedEmployee]);
 
   // ── Employees — loaded from API ─────────────────────────────────
   const [employees, setEmployees] = useState([]);
 
-  const fetchEmployees = async () => {
+  /**
+   * fetch() with a long timeout (90s). When the backend is sleeping on
+   * Render free tier, the first request takes 20–60s to wake — the
+   * default fetch (no timeout) was just hanging and leaving the
+   * employee list empty.
+   */
+  const fetchWithTimeout = async (url, ms = 90_000) => {
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
     try {
-      const res  = await fetch(`${API}/employees?limit=200`);
+      return await fetch(url, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const fetchEmployees = async (attempt = 0) => {
+    try {
+      const res  = await fetchWithTimeout(`${API}/employees?limit=200`);
       const data = await res.json();
-      if (data.success) {
-        // Normalise API shape → local shape used by existing UI
+      if (data && data.success && Array.isArray(data.employees)) {
+        // Reject raw 24-char hex ObjectId leaks. The /api/employees route
+        // resolves dept/designation via lookup maps, but a deleted ref or
+        // an unindexed row can still surface a raw string. The
+        // departmentName / designationTitle sidecar fields (denormalised
+        // on the Employee schema) are the bullet-proof fallback.
+        const isHexId = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s);
+        const pickTitle = (val, sidecar) => {
+          if (val && typeof val === 'object') {
+            const t = val.title || val.name || '';
+            return isHexId(t) ? (sidecar || '') : t;
+          }
+          if (typeof val === 'string' && !isHexId(val)) return val;
+          return sidecar || '';
+        };
         const normalised = data.employees.map(e => ({
           ...e,
           id:       e._id,
           name:     e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
-          role:     typeof e.designation === 'object' ? e.designation?.title  : e.designation  || '',
-          dept:     typeof e.department  === 'object' ? e.department?.name    : e.department   || '',
+          role:     pickTitle(e.designation, e.designationTitle),
+          dept:     pickTitle(e.department,  e.departmentName),
           manager:  e.assignedTo || '',
           status:   e.status || 'Active',
           isActive: e.isActive !== false,
@@ -67,13 +124,26 @@ function MainApp() {
           joiningDate: e.joiningDate ? new Date(e.joiningDate).toISOString().split('T')[0] : '',
         }));
         setEmployees(normalised);
+        console.log(`[App] Loaded ${normalised.length} employees`);
+      } else {
+        console.warn('[App] Unexpected /employees response:', data);
       }
     } catch (err) {
-      console.error('[App] Failed to load employees:', err.message);
+      console.warn(`[App] employee fetch failed (attempt ${attempt + 1}): ${err.message}`);
+      // Cold-start may have aborted attempt 0 — retry once after 2s.
+      if (attempt === 0) {
+        setTimeout(() => fetchEmployees(1), 2_000);
+      }
     }
   };
 
-  useEffect(() => { fetchEmployees(); }, []);
+  // Initial load + refresh every 60s so newly-added employees show up
+  // without manual reload.
+  useEffect(() => {
+    fetchEmployees();
+    const t = setInterval(() => fetchEmployees(), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Called after NewEmployeeForm saves to DB — just re-fetch to stay in sync
   const addEmployee = () => { fetchEmployees(); };
@@ -128,6 +198,7 @@ function MainApp() {
             doneReminders={doneReminders}
             toggleReminder={toggleReminder}
             setActiveView={setActiveView}
+            employees={employees}
           />
         );
       case 'new-employee':     return <NewEmployeeForm {...props} employees={employees} onSubmit={addEmployee} />;
@@ -144,7 +215,7 @@ function MainApp() {
       case 'leave-permission-request': return <LeavePermissionRequest {...props} />;
       case 'reports':          return <Reports {...props} />;
       case 'live-tracking':    return <LiveTracking {...props} />;
-      case 'assets':           return <Assets {...props} />;
+      case 'assets':           return <Assets {...props} employees={employees} />;
       case 'complain-register': return <ComplainRegister {...props} />;
       case 'settings':         return <Settings {...props} />;
       case 'profile':          return <Profile {...props} />;

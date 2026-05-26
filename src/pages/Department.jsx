@@ -11,13 +11,8 @@ const COLORS = ['#4299E1','#9F7AEA','#4CAA17','#ECC94B','#F687B3','#ED8936','#38
 // Map index to icon name string — render icon in JSX using this
 const ICON_NAMES = ['Hash','Zap','TrendingUp','Settings','Users'];
 
-const MOCK_DEPTS = [
-  { id: 'eng', name: 'Engineering', count: 485, manager: 'Ethan Brown',  managerInitials: 'EB', color: '#4299E1', iconIdx: 0, status: 'Active' },
-  { id: 'des', name: 'Design',      count: 342, manager: 'Sarah Wilson', managerInitials: 'SW', color: '#9F7AEA', iconIdx: 1, status: 'Active' },
-  { id: 'sls', name: 'Sales',       count: 289, manager: 'James Wilson', managerInitials: 'JW', color: '#4CAA17', iconIdx: 2, status: 'Active' },
-  { id: 'ops', name: 'Operations',  count: 168, manager: 'Emma Davis',   managerInitials: 'ED', color: '#ECC94B', iconIdx: 3, status: 'Active' },
-  { id: 'hr',  name: 'HR',          count: 45,  manager: 'Priya Sharma', managerInitials: 'PS', color: '#F687B3', iconIdx: 4, status: 'Active' },
-];
+// Hardcoded mock removed — list comes from /api/departments only.
+const MOCK_DEPTS = [];
 
 function DeptIcon({ idx }) {
   const icons = [<Hash size={18}/>, <Zap size={18}/>, <TrendingUp size={18}/>, <Settings size={18}/>, <Users size={18}/>];
@@ -38,11 +33,13 @@ function mapApiDept(d, i) {
 }
 
 export default function Department({ onBack }) {
-  const { showNotification } = useNotification();
+  const { showNotification, confirmDialog } = useNotification();
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [departments, setDepartments] = useState(MOCK_DEPTS);
   const [newDept, setNewDept] = useState({ name: '', manager: '' });
+  const [editTarget, setEditTarget] = useState(null);
+  const [openMenu, setOpenMenu]     = useState(null);  // id whose 3-dot menu is open
 
   // Silently load from API on mount
   useEffect(() => {
@@ -86,6 +83,55 @@ export default function Department({ onBack }) {
         setDepartments(data.data.map(mapApiDept));
       }
     } catch { /* silent */ }
+  };
+
+  const refresh = async () => {
+    try {
+      const res  = await fetch(`${API}/departments`);
+      const data = await res.json();
+      if (data.success) setDepartments((data.data || []).map(mapApiDept));
+    } catch { /* silent */ }
+  };
+
+  const handleEdit = (d) => { setOpenMenu(null); setEditTarget({ ...d }); };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editTarget?.name?.trim()) return;
+    try {
+      const res = await fetch(`${API}/departments/${editTarget.id}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name: editTarget.name.trim(), manager: editTarget.manager || '' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not update department', 'error');
+        return;
+      }
+      showNotification(`Updated "${editTarget.name}"`, 'success');
+      setEditTarget(null);
+      refresh();
+    } catch (err) {
+      showNotification('Network error: ' + err.message, 'error');
+    }
+  };
+
+  const handleDelete = async (d) => {
+    setOpenMenu(null);
+    if (!(await confirmDialog({ title: "Confirm", message: `Delete department "${d.name}"?`, confirmText: "Delete", tone: "danger" }))) return;
+    try {
+      const res = await fetch(`${API}/departments/${d.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showNotification(data?.message || 'Could not delete department', 'error');
+        return;
+      }
+      showNotification(`Deleted "${d.name}"`, 'success');
+      setDepartments(prev => prev.filter(x => x.id !== d.id));
+    } catch (err) {
+      showNotification('Network error: ' + err.message, 'error');
+    }
   };
 
   const filteredDepts = departments.filter(dept =>
@@ -135,7 +181,7 @@ export default function Department({ onBack }) {
             </tr>
           </thead>
           <tbody>
-            {filteredDepts.map(dept => (
+            {filteredDepts.map((dept, idx) => (
               <tr key={dept.id}>
                 <td>
                   <div className="emp-table-user">
@@ -144,7 +190,14 @@ export default function Department({ onBack }) {
                     </div>
                     <div>
                       <div className="emp-table-name">{dept.name} Team</div>
-                      <div className="emp-table-id">DEPT-{String(dept.id).toUpperCase().slice(0,6)}</div>
+                      {/* Team ID is a clean sequential code (TES-TEAM-01,
+                          02, …) keyed on the row's position in the
+                          alphabetically-sorted dept list. Replaces the
+                          old `DEPT-<first-6-of-ObjectId>` which leaked
+                          raw Mongo hex into the UI. */}
+                      <div className="emp-table-id">
+                        TES-TEAM-{String(idx + 1).padStart(2, '0')}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -156,12 +209,75 @@ export default function Department({ onBack }) {
                 </td>
                 <td><div className="emp-table-dept" style={{ color: 'var(--text-main)', fontWeight: '600' }}>{dept.count} Staff</div></td>
                 <td><span className="dash-emp-status active">{dept.status}</span></td>
-                <td><button className="emp-table-btn"><MoreVertical size={16} /></button></td>
+                <td style={{ position: 'relative' }}>
+                  <button
+                    className="emp-table-btn"
+                    onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === dept.id ? null : dept.id); }}
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+                  {openMenu === dept.id && (
+                    <div
+                      onMouseLeave={() => setOpenMenu(null)}
+                      style={{
+                        position: 'absolute', right: '20px', top: '40px', zIndex: 30,
+                        background: '#fff', border: '1px solid var(--border-color)',
+                        borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                        minWidth: '140px', padding: '4px 0',
+                      }}
+                    >
+                      <button
+                        onClick={() => handleEdit(dept)}
+                        style={{ width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: 'var(--text-main)' }}
+                      >Edit</button>
+                      <button
+                        onClick={() => handleDelete(dept)}
+                        style={{ width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#FC8181' }}
+                      >Delete</button>
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editTarget && (
+        <div className="drawer-overlay" onClick={() => setEditTarget(null)}>
+          <div className="drawer-card" onClick={e => e.stopPropagation()}>
+            <div className="drawer-header">
+              <h2 className="modal-title">Edit Department</h2>
+              <button className="modal-close-btn" onClick={() => setEditTarget(null)}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 73px)' }}>
+              <div className="drawer-body">
+                <div className="ne-field">
+                  <label className="ne-label">Department Name <span style={{ color: 'red' }}>*</span></label>
+                  <input
+                    className="ne-input"
+                    value={editTarget.name}
+                    onChange={e => setEditTarget({ ...editTarget, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="ne-field" style={{ marginTop: '16px' }}>
+                  <label className="ne-label">Department Manager</label>
+                  <input
+                    className="ne-input"
+                    value={editTarget.manager || ''}
+                    onChange={e => setEditTarget({ ...editTarget, manager: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" className="ne-btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
+                <button type="submit" className="ne-btn-primary"><Check size={16} /> Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showAddModal && (
         <div className="drawer-overlay" onClick={() => setShowAddModal(false)}>

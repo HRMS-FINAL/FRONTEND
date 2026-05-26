@@ -51,10 +51,19 @@ function makeIcon(color, isSelected) {
 }
 
 // ── Auto-pan to selected employee ────────────────────────────────
+// Watches the target's identity (id) and coords; re-flies only when the
+// chosen employee changes OR they move > a few metres. Without this the
+// 2-minute poll would re-create the target object every refresh and the
+// map would replay the fly animation needlessly.
 function MapFlyTo({ target }) {
   const map = useMap();
+  const lastKey = useRef('');
   useEffect(() => {
-    if (target) map.flyTo([target.lat, target.lng], 14, { duration: 0.8 });
+    if (!target) { lastKey.current = ''; return; }
+    const key = `${target.id}|${target.lat?.toFixed(4)}|${target.lng?.toFixed(4)}`;
+    if (key === lastKey.current) return;
+    lastKey.current = key;
+    map.flyTo([target.lat, target.lng], 15, { duration: 0.8 });
   }, [target, map]);
   return null;
 }
@@ -72,34 +81,90 @@ function MapResizer({ sidebarOpen }) {
   return null;
 }
 
+/** Collapse the backend's raw status into HR's three buckets — keeps the
+    dashboard widget in sync with the full Live Tracking page. */
+function bucketOf(status) {
+  if (status === 'office')                            return 'office';
+  if (status === 'travelling' || status === 'active') return 'active';
+  return 'offline';
+}
+
 export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   const [selected, setSelected] = useState(null);
-  const [tick, setTick]         = useState(0);
   const [search, setSearch]     = useState('');
-  const [showSearch, setShowSearch] = useState(false);
-  const employeesRef = useRef(EMPLOYEES.map(e => ({ ...e })));
+  // Live data fetched from /api/live-tracking — same endpoint the full
+  // Live Tracking page uses, so counts/markers match exactly.
+  const [employees, setEmployees] = useState([]);
+  const [office,    setOffice]    = useState({ lat: 13.0405, lng: 80.2105, name: 'Tesco Structures HQ' });
 
-  // Simulate live drift every 8 s
-  useEffect(() => {
-    const id = setInterval(() => {
-      employeesRef.current = employeesRef.current.map(e =>
-        e.status === 'active'
-          ? { ...e, lat: e.lat + (Math.random() - 0.5) * 0.0012, lng: e.lng + (Math.random() - 0.5) * 0.0012 }
-          : e
-      );
-      setTick(t => t + 1);
-    }, 8000);
-    return () => clearInterval(id);
+  const loadLive = React.useCallback(async () => {
+    try {
+      const r = await fetch('http://localhost:8001/api/live-tracking');
+      const d = await r.json().catch(() => ({}));
+      if (!d?.success || !Array.isArray(d.data)) return;
+      if (d.office) setOffice(d.office);
+      const rows = d.data
+        .filter(e => e.lat != null && e.lng != null)
+        .map(e => ({
+          id:         e._id,
+          name:       e.name,
+          employeeId: e.employeeId || '',
+          role:       e.role || '',
+          dept:       e.dept || '',
+          lat:        e.lat,
+          lng:        e.lng,
+          status:     e.status || 'offline',
+          site:       e.site || '—',
+          lastSeen:   e.lastSeen
+                        ? new Date(e.lastSeen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                        : '—',
+          initials:   (e.name || '?').split(' ').map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '??',
+          color:      bucketOf(e.status) === 'office' ? '#3b82f6'
+                    : bucketOf(e.status) === 'active' ? '#4CAA17'
+                    :                                   '#A0AEC0',
+        }));
+      setEmployees(rows);
+    } catch { /* network — keep current */ }
   }, []);
 
-  const employees = employeesRef.current;
+  // Initial load + 2-minute auto-refresh (matches the mobile ping cadence).
+  useEffect(() => {
+    loadLive();
+    const id = setInterval(loadLive, 2 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [loadLive]);
+
+  // Filter on the search term — matches name OR employeeId.
   const filteredEmployees = employees.filter(e => {
     if (!search) return true;
     const term = search.toLowerCase();
-    return e.name.toLowerCase().includes(term) || e.employeeId.toLowerCase().includes(term);
+    return e.name.toLowerCase().includes(term) || (e.employeeId || '').toLowerCase().includes(term);
   });
 
-  const active    = filteredEmployees.filter(e => e.status === 'active').length;
+  // Counts use the three HR buckets so the badge numbers agree with the
+  // full Live Tracking page's header tiles.
+  const active   = employees.filter(e => bucketOf(e.status) === 'active').length;
+  const office_  = employees.filter(e => bucketOf(e.status) === 'office').length;
+  const offline_ = employees.filter(e => bucketOf(e.status) === 'offline').length;
+
+  // When the user types into the search box, automatically fly the map to
+  // the best match. The fly-to target is:
+  //   1. whatever the user explicitly clicked (`selected`), else
+  //   2. an exact employeeId / name hit, else
+  //   3. the first filtered row (if any).
+  // Without this, search only narrowed the marker list but the map kept
+  // pointing at the office centre — HR had to manually pan to find the
+  // person they just searched for.
+  const flyTarget = (() => {
+    if (selected) return selected;
+    if (!search.trim()) return null;
+    const term = search.trim().toLowerCase();
+    const exact = employees.find(
+      e => (e.employeeId || '').toLowerCase() === term
+        || (e.name        || '').toLowerCase() === term
+    );
+    return exact || filteredEmployees[0] || null;
+  })();
 
   return (
     <div className="card compact-map-card">
@@ -113,39 +178,51 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
               <Activity size={14} /> Full Dashboard
             </button>
           </div>
-          <div className="card-subtitle">Real-time onsite staff locations · Updates every 8s</div>
+          <div className="card-subtitle">
+            Real-time onsite staff locations · Updates every 2 min
+            {' · '}
+            <span style={{ color: STATUS_COLOR.active, fontWeight: 700 }}>{active} active</span>
+            {' · '}
+            <span style={{ color: '#3b82f6', fontWeight: 700 }}>{office_} in office</span>
+            {' · '}
+            <span style={{ color: STATUS_COLOR.offline, fontWeight: 700 }}>{offline_} offline</span>
+          </div>
         </div>
       </div>
 
       <div className="compact-map-wrap">
         <MapContainer
-          center={[19.076, 72.8777]}
-          zoom={11}
+          center={[office.lat, office.lng]}
+          zoom={12}
           style={{ width: '100%', height: '320px' }}
           zoomControl={false}
           attributionControl={false}
           scrollWheelZoom={false}
         >
           <MapResizer sidebarOpen={sidebarOpen} />
-          <TileLayer 
+          <TileLayer
             url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
             subdomains={['mt0','mt1','mt2','mt3']}
           />
-          <MapFlyTo target={selected} />
+          <MapFlyTo target={flyTarget} />
 
           {filteredEmployees.map(emp => (
             <Marker
-              key={emp.id + '-' + tick}
+              key={emp.id}
               position={[emp.lat, emp.lng]}
-              icon={makeIcon(emp.color, selected?.id === emp.id)}
+              icon={makeIcon(emp.color, (selected?.id || flyTarget?.id) === emp.id)}
               eventHandlers={{ click: () => setSelected(emp) }}
             >
               <Popup className="compact-info-popup" closeButton={false}>
                 <div className="cip-container">
                   <div className="cip-name">{emp.name}</div>
                   <div className="cip-checkin">
+                    <MapPin size={12} />
+                    <span>{emp.site}</span>
+                  </div>
+                  <div className="cip-checkin">
                     <Clock size={12} />
-                    <span>Checked in: 08:45 AM</span>
+                    <span>Last ping: {emp.lastSeen}</span>
                   </div>
                 </div>
               </Popup>
@@ -159,11 +236,23 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
 
         <div className="map-search-overlay">
           <Search size={14} />
-          <input 
-            placeholder="Search personnel..." 
+          <input
+            list="dash-track-employees"
+            placeholder="Search personnel..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            autoComplete="off"
           />
+          {/* Native autocomplete — lists EVERY checked-in employee
+              (the backend filters out anyone who's checked out), so HR
+              can pick from a menu instead of typing. */}
+          <datalist id="dash-track-employees">
+            {employees.map(e => (
+              <option key={e.id} value={e.employeeId || e.name}>
+                {e.name}{e.employeeId ? ' — ' + e.employeeId : ''}
+              </option>
+            ))}
+          </datalist>
         </div>
       </div>
 
@@ -258,131 +347,15 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   );
 }
 
-// ── Full-width standalone map (kept for future use) ───────────────
+// The legacy default export (a self-contained full-page tracking view)
+// is no longer used — pages/LiveTracking.jsx is the real live tracking
+// page now. The placeholder below keeps the existing import contract so
+// any leftover `import LiveTrackingMap from './LiveTrackingMap'` still
+// resolves to a renderable component.
 export default function LiveTrackingMap() {
-  const [filter, setFilter]     = useState('all');
-  const [selected, setSelected] = useState(null);
-  const [tick, setTick]         = useState(0);
-  const [search, setSearch]     = useState('');
-  const employeesRef = useRef(EMPLOYEES.map(e => ({ ...e })));
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      employeesRef.current = employeesRef.current.map(e =>
-        e.status === 'active'
-          ? { ...e, lat: e.lat + (Math.random() - 0.5) * 0.0012, lng: e.lng + (Math.random() - 0.5) * 0.0012 }
-          : e
-      );
-      setTick(t => t + 1);
-    }, 8000);
-    return () => clearInterval(id);
-  }, []);
-
-  const employees = employeesRef.current;
-  const visible   = employees.filter(e => {
-    const matchesFilter = filter === 'all' || e.status === filter;
-    const matchesSearch = !search || 
-      e.name.toLowerCase().includes(search.toLowerCase()) || 
-      e.employeeId.toLowerCase().includes(search.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
-  const counts    = {
-    active:  employees.filter(e => e.status === 'active').length,
-    idle:    employees.filter(e => e.status === 'idle').length,
-    offline: employees.filter(e => e.status === 'offline').length,
-  };
-
   return (
-    <div className="map-card">
-      <div className="map-card-header">
-        <div>
-          <div className="map-card-title"><span className="map-live-dot" /> Live Employee Tracking</div>
-          <div className="map-card-sub">Real-time onsite staff locations · updates every 8s</div>
-        </div>
-        <div className="map-header-actions" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <div className="map-search-bar">
-            <Search size={16} />
-            <input 
-              placeholder="Search by Name or Employee ID..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search && <CloseIcon size={16} onClick={() => setSearch('')} style={{ cursor: 'pointer' }} />}
-          </div>
-          <div className="map-filters">
-            {['all','active','idle','offline'].map(s => (
-              <button
-                key={s}
-                className={`map-filter-pill ${filter === s ? 'active' : ''}`}
-                style={filter === s && s !== 'all' ? { background: STATUS_COLOR[s] + '22', borderColor: STATUS_COLOR[s], color: STATUS_COLOR[s] } : {}}
-                onClick={() => setFilter(s)}
-              >
-                {s === 'all'
-                  ? `All  ${employees.length}`
-                  : <><span className="pill-dot" style={{ background: STATUS_COLOR[s] }} />{STATUS_LABEL[s]}  {counts[s]}</>}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="map-body">
-        <div className="map-container-wrap">
-          <MapContainer 
-            center={[19.0760, 72.8777]} 
-            zoom={12} 
-            scrollWheelZoom={false}
-            style={{ height: '100%', width: '100%' }}
-          >
-            <MapResizer sidebarOpen={sidebarOpen} />
-            <TileLayer 
-              url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-              subdomains={['mt0','mt1','mt2','mt3']}
-            />
-            <MapFlyTo target={selected} />
-            {visible.map(emp => (
-              <Marker key={emp.id + '-' + tick} position={[emp.lat, emp.lng]}
-                icon={makeIcon(emp.color, selected?.id === emp.id)}
-                eventHandlers={{ click: () => setSelected(emp) }}
-              >
-                <Popup className="map-popup" closeButton={false}>
-                  <div className="mp-inner">
-                    <div className="mp-avatar" style={{ background: emp.color }}>{emp.initials}</div>
-                    <div>
-                      <div className="mp-name">{emp.name}</div>
-                      <div className="mp-role">{emp.role}</div>
-                      <div className="mp-site">📍 {emp.site}</div>
-                      <div className="mp-status" style={{ color: STATUS_COLOR[emp.status] }}>
-                        ● {STATUS_LABEL[emp.status]} · {emp.lastSeen}
-                      </div>
-                    </div>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-          <div className="map-count-badge">
-            <span style={{ color: STATUS_COLOR.active }}>●</span> {counts.active} active now
-          </div>
-        </div>
-
-        <div className="map-emp-list">
-          <div className="map-list-title">Onsite Staff ({visible.length})</div>
-          <div className="map-list-scroll">
-            {visible.map(emp => (
-              <div key={emp.id} className={`map-emp-item ${selected?.id === emp.id ? 'selected' : ''}`}
-                onClick={() => setSelected(emp)}>
-                <div className="map-emp-avatar" style={{ background: emp.color + '22', color: emp.color }}>{emp.initials}</div>
-                <div className="map-emp-info">
-                  <div className="map-emp-name">{emp.name}</div>
-                  <div className="map-emp-site">📍 {emp.site}</div>
-                </div>
-                <div className="map-emp-status-dot" style={{ background: STATUS_COLOR[emp.status] }} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+    <div style={{ padding: 24, color: 'var(--text-light)', fontSize: 13 }}>
+      Live tracking moved to the dedicated page. Open <strong>Live Tracking</strong> from the sidebar.
     </div>
   );
 }

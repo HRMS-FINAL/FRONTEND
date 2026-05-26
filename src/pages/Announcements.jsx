@@ -5,13 +5,26 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const API = 'http://localhost:8001/api';
+const API    = 'http://localhost:8001/api';
+const LS_KEY = 'tesco_hrms_announcements_cache';
+
+/** Read last-fetched announcements from localStorage so the list shows
+ *  instantly on refresh instead of being blank for the ~30 s mobile-
+ *  backend cold-start. */
+function readCache() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
 
 // Map any API record into the shape this UI uses
 const mapApi = (a) => ({
   id:        a._id || a.id,
   title:     a.title,
-  content:   a.description || a.content || '',
+  content:   a.description || a.content || a.body || '',
   category:  a.category  || 'General',
   priority:  a.priority  || 'Low',
   author:    a.createdByName || a.author || 'HR',
@@ -26,7 +39,9 @@ const mapApi = (a) => ({
 export default function Announcements({ onBack }) {
   const { user } = useAuth() || {};
   const [showPostModal, setShowPostModal] = useState(false);
-  const [announcements, setAnnouncements] = useState([]);
+  // Seed announcements from cache so the list paints immediately on refresh
+  // instead of being blank during the mobile-backend cold-start.
+  const [announcements, setAnnouncements] = useState(() => readCache());
   const [loading, setLoading]   = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
@@ -34,14 +49,17 @@ export default function Announcements({ onBack }) {
   const [newPost, setNewPost] = useState({ title: '', content: '', category: 'General', priority: 'Low' });
   const [postErrors, setPostErrors] = useState({});
 
-  // Load announcements from API on mount
+  // Load announcements from API on mount. Cache the result to localStorage
+  // so subsequent refreshes pick up where the user left off.
   const loadAnnouncements = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API}/announcements`);
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
-        setAnnouncements(data.data.map(mapApi));
+        const mapped = data.data.map(mapApi);
+        setAnnouncements(mapped);
+        try { localStorage.setItem(LS_KEY, JSON.stringify(mapped)); } catch {}
       }
     } catch (err) {
       console.error('Failed to load announcements:', err);
@@ -100,7 +118,7 @@ export default function Announcements({ onBack }) {
   // Delete
   const handleDelete = async (id) => {
     setOpenMenuId(null);
-    if (!window.confirm('Delete this announcement? This cannot be undone.')) return;
+    if (!(await confirmDialog({ title: "Confirm", message: 'Delete this announcement? This cannot be undone.', confirmText: "Delete", tone: "danger" }))) return;
     const prev = announcements;
     setAnnouncements(prev.filter(a => a.id !== id));
     try {
@@ -108,7 +126,7 @@ export default function Announcements({ onBack }) {
       const data = await res.json();
       if (!data.success) {
         setAnnouncements(prev);
-        alert(data.message || 'Failed to delete announcement');
+        showNotification(data.message || 'Failed to delete announcement', "error");
       }
     } catch (err) {
       setAnnouncements(prev);

@@ -30,10 +30,10 @@ export const reminders = [
   { id: 5, text: 'Review new employee announcements', due: 'Due tomorrow', done: false },
 ];
 
-export const allEmployees = [
-  { "id": 1, "name": "Liam Foster",  "role": "Frontend Dev", "dept": "Engineering", "status": "Active", "initials": "LF", "color": "#4299E1", "email": "liam@tesco.com",  "manager": "Priya Sharma", "employeeId": "EMP-1001", "isActive": true },
-  { "id": 2, "name": "Zoe Martinez", "role": "UX Designer",  "dept": "Design",      "status": "Active", "initials": "ZM", "color": "#9F7AEA", "email": "zoe@tesco.com",   "manager": "Emma Davis",   "employeeId": "EMP-1002", "isActive": true },
-];
+// Hardcoded employee fallback removed. Pages that imported `allEmployees`
+// must use the real `employees` prop (fetched live from /api/employees).
+// Kept as an empty array export so existing imports don't crash.
+export const allEmployees = [];
 
 export const calendarData = {
   year: 2024, month: 3, // 0-indexed (April)
@@ -63,10 +63,7 @@ export const calendarData = {
   ]
 };
 
-export const notifications = [
-  { id: 1, type: 'announcement', title: 'New Office Policy', time: '10 min ago', read: false, icon: 'megaphone' },
-  { id: 2, type: 'payroll', title: 'Generate Q2 Payslips', time: '1 hour ago', read: false, icon: 'dollar' },
-  { id: 3, type: 'leave', title: 'Leave Request: Liam Foster', time: '3 hours ago', read: true, icon: 'calendar' },
-  { id: 4, type: 'permission', title: 'Permission: Zoe Martinez (2h)', time: '5 hours ago', read: false, icon: 'clock' },
-  { id: 5, type: 'announcement', title: 'Company Picnic Update', time: 'Yesterday', read: true, icon: 'megaphone' },
-];
+// Notifications are now sourced live from /api/notifications in Topbar.jsx.
+// This export is intentionally empty so any legacy importer fails fast
+// rather than rendering stale fake data.
+export const notifications = [];

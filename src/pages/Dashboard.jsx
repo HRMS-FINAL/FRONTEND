@@ -13,19 +13,40 @@ export default function Dashboard({
   calGrid, days, calStats,
   reminders, doneReminders, toggleReminder,
   setActiveView, sidebarOpen,
+  employees = [],
 }) {
   const [attendanceMonth, setAttendanceMonth] = useState('current');
   const [stats, setStats]   = useState(null);
+  const [attToday, setAttToday] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch real dashboard stats
+  // Fetch real dashboard stats + today's attendance. Re-fetch every 60s and
+  // whenever the tab regains focus so headcount/attendance reflect changes
+  // made elsewhere (a new employee added, someone just checked in, etc.).
   useEffect(() => {
-    fetch(`${API}/dashboard/stats`)
-      .then(r => r.json())
-      .then(d => { if (d.success) setStats(d.stats); })
-      .catch(err => console.error('[Dashboard] stats error:', err))
-      .finally(() => setLoading(false));
-  }, []);
+    let cancelled = false;
+    const load = () => {
+      fetch(`${API}/dashboard/stats`)
+        .then(r => r.json())
+        .then(d => { if (!cancelled && d.success) setStats(d.stats); })
+        .catch(err => console.error('[Dashboard] stats error:', err))
+        .finally(() => { if (!cancelled) setLoading(false); });
+      fetch(`${API}/dashboard/attendance-today`)
+        .then(r => r.json())
+        .then(d => { if (!cancelled && d.success) setAttToday(d.data); })
+        .catch(() => {});
+    };
+    load();
+    const tick = setInterval(load, 60_000);
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => { cancelled = true; clearInterval(tick); window.removeEventListener('focus', onFocus); };
+    // employees.length in the dep list re-runs this effect after the parent
+    // refetches employees (e.g. right after a delete in Employee List), so
+    // the dashboard counts update immediately instead of waiting for the
+    // 60-second tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees.length]);
 
   // Live calendar
   const today       = new Date();
@@ -127,7 +148,10 @@ export default function Dashboard({
               ))}
               {(attendanceMonth === 'current' ? liveCalGrid : calGrid).map((day, idx) => {
                 const isCurrent = attendanceMonth === 'current';
-                const mockStatus = !isCurrent ? (day % 7 === 0 ? 'absent' : day % 11 === 0 ? 'late' : 'present') : (days[day] || '');
+                // Empty calendar — no mock dots. Real per-day status will
+                // arrive from a future endpoint; for now we just show plain
+                // dates with "today" highlighted.
+                const mockStatus = '';
                 const isToday = isCurrent && day === todayDay;
                 return (
                   <div
@@ -144,12 +168,25 @@ export default function Dashboard({
           </div>
 
           <div className="cal-stats">
-            {calStats.map(s => (
-              <div className="cal-stat" key={s.lbl} style={{ background: s.bg }}>
-                <span className="cal-stat-num" style={{ color: s.color }}>{s.num}</span>
-                <span className="cal-stat-lbl">{s.lbl}</span>
-              </div>
-            ))}
+            {(() => {
+              // When today's live attendance is available, show those four
+              // boxes (Present / Late / Leave / Perm). Otherwise fall back
+              // to whatever `calStats` was passed in.
+              const live = attToday && attendanceMonth === 'current'
+                ? [
+                    { lbl: 'Present',  num: attToday.present    ?? 0, color: '#16a34a', bg: '#F0FDF4' },
+                    { lbl: 'Late',     num: attToday.late       ?? 0, color: '#d97706', bg: '#FFFBEB' },
+                    { lbl: 'Leave',    num: attToday.leave      ?? 0, color: '#dc2626', bg: '#FEF2F2' },
+                    { lbl: 'Perm',     num: attToday.permission ?? 0, color: '#6b7280', bg: '#F8FAFC' },
+                  ]
+                : calStats;
+              return live.map(s => (
+                <div className="cal-stat" key={s.lbl} style={{ background: s.bg }}>
+                  <span className="cal-stat-num" style={{ color: s.color }}>{s.num}</span>
+                  <span className="cal-stat-lbl">{s.lbl}</span>
+                </div>
+              ));
+            })()}
           </div>
         </div>
 
@@ -271,26 +308,19 @@ export default function Dashboard({
         <div className="card">
           <div className="card-header">
             <div className="card-title">Reminders</div>
-            <span className="card-action" style={{ color: 'var(--primary)' }}>
-              <ClipboardList size={14} color="var(--primary)" /> {reminders.length - doneReminders.length} pending
-            </span>
           </div>
-          <div className="reminder-list">
-            {reminders.map(r => {
-              const done = doneReminders.includes(r.id);
-              return (
-                <div className="reminder-item" key={r.id} onClick={() => toggleReminder(r.id)}>
-                  <div className={`reminder-check ${done ? 'done' : ''}`}>{done && <Check size={10} />}</div>
-                  <div>
-                    <div className="reminder-text" style={done ? { textDecoration: 'line-through', color: 'var(--text-light)' } : {}}>{r.text}</div>
-                    <div className="reminder-due">{r.due}</div>
-                  </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {(reminders || []).map((r) => (
+              <li key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border-color)", display: "flex", alignItems: "center", gap: 10 }}>
+                <input type="checkbox" checked={!!(doneReminders && doneReminders[r.id])} onChange={() => toggleReminder && toggleReminder(r.id)} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{r.text}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.due}</div>
                 </div>
-              );
-            })}
-          </div>
+              </li>
+            ))}
+          </ul>
         </div>
-
       </div>
     </div>
   );
