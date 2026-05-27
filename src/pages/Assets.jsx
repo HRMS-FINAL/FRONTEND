@@ -181,12 +181,21 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
 
   const [form, setForm] = useState({
     assetName:  initialAsset?.assetName  || '',
-    type:       initialAsset?.type       || 'Laptop',
+    // Asset types is a SET — when adding, HR can tick multiple
+    // checkboxes and we'll create one asset row per ticked type
+    // sharing the same serial root + issue date. When editing,
+    // only the asset's original type is selected (we update in place).
+    types:      isEdit
+                  ? [initialAsset?.type || 'Laptop']
+                  : ['Laptop'],
     serialNo:   initialAsset?.serialNo   || '',
     issuedDate: initialAsset?.issuedDate || new Date().toISOString().split('T')[0],
     condition:  initialAsset?.condition  || 'Good',
     status:     initialAsset?.status     || 'Assigned',
   });
+  // Local save-error string — replaces the undefined `showNotification`
+  // call that used to crash this modal whenever the API rejected a save.
+  const [saveError, setSaveError] = useState('');
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -230,47 +239,95 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
 
   const validate = () => {
     const e = {};
-    if (!foundEmp) e.emp = 'Please look up a valid employee first.';
-    if (!form.assetName.trim())  e.assetName  = 'Asset name is required.';
-    if (!form.serialNo.trim())   e.serialNo   = 'Serial / Asset number is required.';
-    if (!form.issuedDate)        e.issuedDate = 'Issue date is required.';
+    if (!foundEmp)                            e.emp        = 'Please look up a valid employee first.';
+    if (!form.assetName.trim())               e.assetName  = 'Asset name is required.';
+    if (!form.serialNo.trim())                e.serialNo   = 'Serial / Asset number is required.';
+    if (!form.issuedDate)                     e.issuedDate = 'Issue date is required.';
+    if (!form.types || form.types.length === 0) e.types    = 'Pick at least one asset type.';
     return e;
+  };
+
+  /**
+   * Toggle a single asset-type checkbox. On Edit mode we keep this single-
+   * select (you can't change one asset row into many), but on Add we let
+   * HR tick multiple and we'll POST one asset per ticked type below.
+   */
+  const toggleType = (t) => {
+    setErrors((cur) => ({ ...cur, types: '' }));
+    setForm((f) => {
+      if (isEdit) return { ...f, types: [t] };
+      const has = f.types.includes(t);
+      const next = has ? f.types.filter((x) => x !== t) : [...f.types, t];
+      return { ...f, types: next };
+    });
   };
 
   const handleSubmit = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-
-    const payload = {
-      assetName:    form.assetName.trim(),
-      type:         form.type,
-      employeeId:   foundEmp.employeeId,
-      employeeName: foundEmp.name || '',
-      serialNo:     form.serialNo.trim(),
-      issuedDate:   form.issuedDate,
-      condition:    form.condition,
-      status:       form.status,
-    };
+    setSaveError('');
 
     setSubmitting(true);
     try {
-      const url    = isEdit ? `${API}/assets/${initialAsset._id || initialAsset.id}` : `${API}/assets`;
-      const method = isEdit ? 'PUT' : 'POST';
-      const res    = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        onSave(mapApiAsset(data.data), isEdit ? 'edit' : 'add');
+      if (isEdit) {
+        // Edit a single row in place.
+        const payload = {
+          assetName:    form.assetName.trim(),
+          type:         form.types[0],
+          employeeId:   foundEmp.employeeId,
+          employeeName: foundEmp.name || '',
+          serialNo:     form.serialNo.trim(),
+          issuedDate:   form.issuedDate,
+          condition:    form.condition,
+          status:       form.status,
+        };
+        const res  = await fetch(`${API}/assets/${initialAsset._id || initialAsset.id}`, {
+          method:  'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data?.success || !data?.data) throw new Error(data?.message || 'Failed to save asset');
+        onSave(mapApiAsset(data.data), 'edit');
         onClose();
-      } else {
-        showNotification(data.message || 'Failed to save asset', "error");
+        return;
       }
+
+      // ADD mode — create one asset per ticked type. Serial number gets
+      // a type suffix when more than one row shares a base serial, so the
+      // unique-serial constraint can't trip the second POST.
+      const baseSerial = form.serialNo.trim();
+      const created = [];
+      for (const t of form.types) {
+        const suffix = form.types.length > 1
+          ? '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase()
+          : '';
+        const payload = {
+          assetName:    form.assetName.trim(),
+          type:         t,
+          employeeId:   foundEmp.employeeId,
+          employeeName: foundEmp.name || '',
+          serialNo:     baseSerial + suffix,
+          issuedDate:   form.issuedDate,
+          condition:    form.condition,
+          status:       form.status,
+        };
+        const res  = await fetch(`${API}/assets`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data?.success || !data?.data) throw new Error(data?.message || `Failed to save ${t}`);
+        created.push(mapApiAsset(data.data));
+      }
+      created.forEach((row) => onSave(row, 'add'));
+      onClose();
     } catch (err) {
       console.error('Save asset failed:', err);
-      showNotification('Network error while saving asset', "error");
+      // Surface the failure inline instead of crashing the modal with
+      // the old `showNotification is not defined` ReferenceError.
+      setSaveError(err?.message || 'Network error while saving asset');
     } finally {
       setSubmitting(false);
     }
@@ -379,32 +436,46 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
               <span style={{ color: foundEmp ? 'var(--text-main)' : 'var(--text-light)' }}>Asset Details</span>
             </div>
 
-            {/* Asset Type chips */}
+            {/* Asset Type checkboxes — HR can tick more than one and we
+                POST one asset row per ticked type in handleSubmit, so a
+                full kit (Laptop + Mouse + Keyboard + ID Card) can be
+                handed out in a single Save click. Edit mode falls back
+                to single-select since we update one row in place. */}
             <div style={drawerStyles.fieldGroup}>
-              <label style={drawerStyles.label}>Asset Type</label>
+              <label style={drawerStyles.label}>
+                Asset Type {isEdit ? '' : '(tick all that apply)'}
+              </label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                 {ASSET_TYPES.map((t) => {
-                  const active = form.type === t;
+                  const active = form.types.includes(t);
                   return (
-                    <button
+                    <label
                       key={t}
-                      onClick={() => handleChange('type', t)}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 11px', borderRadius: 8, fontSize: 12,
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '6px 11px', borderRadius: 8, fontSize: 12,
                         cursor: 'pointer', transition: 'all .15s',
                         border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border-mid)'}`,
                         background: active ? 'var(--primary-light)' : 'var(--bg-main)',
                         color: active ? 'var(--primary-dark)' : 'var(--text-muted)',
                         fontWeight: active ? 700 : 500,
                         boxShadow: active ? '0 0 0 3px rgba(67,160,71,0.1)' : 'none',
+                        userSelect: 'none',
                       }}
                     >
+                      <input
+                        type={isEdit ? 'radio' : 'checkbox'}
+                        name="asset-type"
+                        checked={active}
+                        onChange={() => toggleType(t)}
+                        style={{ accentColor: 'var(--primary)', margin: 0 }}
+                      />
                       {typeIcon(t, 12)} {t}
-                    </button>
+                    </label>
                   );
                 })}
               </div>
+              {errors.types && <div style={drawerStyles.fieldErr}>{errors.types}</div>}
             </div>
 
             {/* Asset Name */}
@@ -485,11 +556,29 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
           </section>
         </div>
 
+        {/* Save-error banner — shows the API's message inline when the
+            POST/PUT fails, instead of crashing the modal silently. */}
+        {saveError && (
+          <div style={{
+            background: '#FEF2F2', color: '#B91C1C',
+            border: '1px solid #FCA5A5',
+            borderRadius: 8, padding: '8px 12px',
+            margin: '0 20px 8px', fontSize: 12, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <AlertCircle size={14} /> {saveError}
+          </div>
+        )}
+
         {/* Footer */}
         <div style={drawerStyles.footer}>
           <button onClick={onClose} style={drawerStyles.cancelBtn} disabled={submitting}>Cancel</button>
           <button onClick={handleSubmit} style={drawerStyles.saveBtn} disabled={submitting}>
-            {isEdit ? <><CheckCircle2 size={15} /> Save Changes</> : <><Plus size={15} /> Add Asset</>}
+            {submitting
+              ? 'Saving…'
+              : isEdit
+                ? <><CheckCircle2 size={15} /> Save Changes</>
+                : <><Plus size={15} /> Add {form.types.length > 1 ? `${form.types.length} Assets` : 'Asset'}</>}
           </button>
         </div>
       </div>
@@ -731,10 +820,15 @@ export default function Assets({ employees = [] }) {
                     </div>
                   </div>
 
-                  {/* Asset rows */}
+                  {/* Asset rows — Emp ID + Employee Name now repeat on
+                      every row so the table reads as a flat asset list
+                      (HR's preference) rather than relying on the group
+                      header alone. */}
                   <table className="emp-table" style={{ marginBottom: 0 }}>
                     <thead>
                       <tr>
+                        <th style={styles.th}>Emp ID</th>
+                        <th style={styles.th}>Employee</th>
                         <th style={styles.th}>Asset</th>
                         <th style={styles.th}>Type</th>
                         <th style={styles.th}>Serial No.</th>
@@ -748,8 +842,34 @@ export default function Assets({ employees = [] }) {
                       {empAssets.map((asset) => {
                         const tc = typeColor(asset.type);
                         const cs = conditionStyle(asset.condition);
+                        // Prefer the asset row's own employeeId/Name (always
+                        // present on a saved Asset), fall back to whatever
+                        // the empMap lookup gave us at the group level.
+                        const rowEmpId   = asset.employeeId   || empId;
+                        const rowEmpName = asset.employeeName || emp.name;
                         return (
                           <tr key={asset._id || asset.id}>
+                            <td>
+                              <span style={{
+                                fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+                                color: '#4299E1', background: '#EBF4FD',
+                                padding: '3px 8px', borderRadius: 6,
+                              }}>{rowEmpId || '—'}</span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{
+                                  width: 26, height: 26, borderRadius: 6,
+                                  background: (emp.color || '#A0AEC0') + '22',
+                                  color: emp.color || '#4A5568',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontWeight: 700, fontSize: 10, flexShrink: 0,
+                                }}>{emp.initials}</div>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-main)' }}>
+                                  {rowEmpName || '—'}
+                                </span>
+                              </div>
+                            </td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <div style={{ width: 34, height: 34, borderRadius: 8, background: tc.bg, color: tc.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

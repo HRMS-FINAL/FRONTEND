@@ -1,16 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  User, Briefcase, BookOpen, Mail, Check, Eye, EyeOff, 
+import {
+  User, Briefcase, BookOpen, Mail, Check, Eye, EyeOff,
   Plus, RotateCcw, ArrowLeft, ChevronRight, AlertCircle, Users
 } from 'lucide-react';
 import { allEmployees } from '../data/mockData';
 import { MANAGERS, DESIGNATIONS, DEPARTMENTS } from '../data/companyData';
+import { useAuth } from '../context/AuthContext';
 
 const API = 'http://localhost:8001/api';
 
 export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, employees }) {
+  const { user, isAdmin } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
+  // Inline error banner — surfaces backend rejection messages (duplicate
+  // email, missing required field, view-only mode etc.) on the form
+  // itself instead of inside a native alert(). The native alert was the
+  // single biggest source of "I clicked save and nothing happened"
+  // confusion — users dismissed it without reading the message.
+  const [submitError, setSubmitError] = useState('');
+  const [submitting,  setSubmitting]  = useState(false);
   const [form, setForm] = useState({
     firstName: '', lastName: '', username: '', password: '',
     email: '', phone: '', street: '', city: '', state: '',
@@ -32,20 +41,33 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
 
   const [errors, setErrors] = useState({});
 
-  // API-loaded dropdown options. Defaults come from the company catalogue
-  // so the form is usable even before the API call completes (e.g. during
-  // backend cold-start).
+  // Dropdown options come straight from the HRMS master lists the admin
+  // manages in the Department + Designation pages. We seed with the
+  // hardcoded company catalogue only as a fallback for the brief window
+  // before the API call lands (cold-start); the API response always wins
+  // — even if empty — so the user's live edits to the master lists are
+  // reflected immediately in the New Employee form.
   const [deptOptions, setDeptOptions] = useState(DEPARTMENTS);
   const [desgOptions, setDesgOptions] = useState(DESIGNATIONS);
 
   useEffect(() => {
     fetch(`${API}/departments`)
       .then(r => r.json())
-      .then(d => { if (d.success && d.data.length > 0) setDeptOptions(d.data.map(x => x.name)); })
+      .then(d => {
+        if (d?.success && Array.isArray(d.data)) {
+          // Replace unconditionally — empty list means "no departments
+          // configured yet", and we should show that, not stale defaults.
+          setDeptOptions(d.data.map(x => x.name).filter(Boolean));
+        }
+      })
       .catch(() => {});
     fetch(`${API}/designations`)
       .then(r => r.json())
-      .then(d => { if (d.success && d.data.length > 0) setDesgOptions(d.data.map(x => x.title)); })
+      .then(d => {
+        if (d?.success && Array.isArray(d.data)) {
+          setDesgOptions(d.data.map(x => x.title).filter(Boolean));
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -127,80 +149,102 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const handleSubmit = async () => {
-    if (!validateStep()) return false;
+    setSubmitError('');
+    if (!validateStep()) {
+      setSubmitError('Some required fields are missing or invalid — scroll up to see the red labels.');
+      return false;
+    }
 
-    // POST to backend. IMPORTANT: include the password the user typed —
-    // it was being dropped from the body before, which made every save
-    // either use the default 'password123' (best case) or fail validation
-    // (worst case) without the UI knowing. We now also check res.ok and
-    // surface server-side validation errors via alert so the user can fix
-    // them. Visual flow / success screen stays identical.
+    // Hard short-circuit: if the signed-in user isn't on the admin
+    // allowlist, the backend write-gate will reject this POST with 403
+    // before it even reaches the Employee model. Tell the user upfront
+    // so they don't fill the form a second time hoping it'll work.
+    if (!isAdmin) {
+      setSubmitError(
+        'You are signed in as a view-only user (' + (user?.email || 'no email') + '). ' +
+        'Only HR admins can create employees. Sign out and sign back in with one of: ' +
+        'tescodigitals26@gmail.com, tescostructures@gmail.com, hr@tescostructures.in.'
+      );
+      return false;
+    }
+
+    const body = {
+      firstName:      form.firstName,
+      lastName:       form.lastName,
+      name:           `${form.firstName} ${form.lastName}`,
+      username:       form.username,
+      password:       form.password,
+      email:          form.email,
+      phone:          form.phone,
+      employeeId:     form.employeeId,
+      department:     form.department,
+      designation:    form.designation,
+      role:           form.role || form.designation || 'New Hire',
+      employmentType: form.employmentType,
+      joiningDate:    form.joiningDate,
+      salary:         form.salary,
+      assignedTo:     form.assignedTo,
+      dob:            form.dob,
+      gender:         form.gender,
+      bloodGroup:     form.bloodGroup,
+      address: {
+        street:  form.street,
+        city:    form.city,
+        state:   form.state,
+        zipCode: form.zipCode,
+        country: form.country,
+      },
+      education: {
+        degree:         form.degree,
+        university:     form.university,
+        fieldOfStudy:   form.fieldOfStudy,
+        graduationYear: form.graduationYear,
+      },
+      status:   'Active',
+      isActive: true,
+    };
+
+    setSubmitting(true);
+    console.log('[NewEmployee] POST /api/employees body:', body);
     try {
-      const res = await fetch(`${API}/employees`, {
-        method: 'POST',
+      const res  = await fetch(`${API}/employees`, {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName:      form.firstName,
-          lastName:       form.lastName,
-          name:           `${form.firstName} ${form.lastName}`,
-          username:       form.username,
-          password:       form.password,
-          email:          form.email,
-          phone:          form.phone,
-          employeeId:     form.employeeId,
-          department:     form.department,
-          designation:    form.designation,
-          role:           form.role || form.designation || 'New Hire',
-          employmentType: form.employmentType,
-          joiningDate:    form.joiningDate,
-          salary:         form.salary,
-          assignedTo:     form.assignedTo,
-          dob:            form.dob,
-          gender:         form.gender,
-          bloodGroup:     form.bloodGroup,
-          address: {
-            street:  form.street,
-            city:    form.city,
-            state:   form.state,
-            zipCode: form.zipCode,
-            country: form.country,
-          },
-          education: {
-            degree:         form.degree,
-            university:     form.university,
-            fieldOfStudy:   form.fieldOfStudy,
-            graduationYear: form.graduationYear,
-          },
-          status:   'Active',
-          isActive: true,
-        }),
+        body:    JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
+      console.log('[NewEmployee] response', res.status, data);
+
       if (!res.ok) {
-        // Validation or duplicate error — tell the user instead of pretending
-        // the save worked. Keeps the existing UI; just adds a single alert.
-        alert('Could not create employee:\n\n' + (data?.message || `HTTP ${res.status}`));
-        return false;       // don't flip to success screen, don't re-fetch
+        // Build a clear, actionable error message for the inline banner.
+        let msg = data?.message || `HTTP ${res.status}`;
+        if (res.status === 403 && data?.code === 'READ_ONLY') {
+          msg = 'View-only mode — your account does not have permission to create employees. Sign out and sign back in with an admin account.';
+        } else if (res.status === 400 && /already exists/i.test(msg)) {
+          msg = `${msg} (pick a different email / username / employeeId).`;
+        } else if (res.status === 400 && /Validation failed/i.test(msg)) {
+          msg = `Backend rejected the form: ${msg}`;
+        } else if (res.status >= 500) {
+          msg = `Server error (${res.status}): ${msg}. Check the HRMS backend logs.`;
+        }
+        setSubmitError(msg);
+        return false;
       }
-      // The HRMS save worked, but the mobile sync may have failed silently
-      // (wrong / missing MOBILE_ADMIN_SECRET, mobile backend down, etc.).
-      // Tell the admin if so — otherwise the employee tries to log in on the
-      // mobile app, sees "Invalid credentials", and we're left guessing.
+
+      // Optional mobile-sync diagnostic stays on console only — it never
+      // blocks the success path.
       if (data?.mobileSync && data.mobileSync.ok === false) {
-        alert(
-          'Heads up — employee saved in HRMS, but the mobile sync failed:\n\n' +
-          (data.mobileSync.message || 'Unknown error') +
-          '\n\nThe employee will NOT be able to log into the mobile ERM app ' +
-          'until this is resolved. Open ' +
-          'http://localhost:8001/api/employees/mobile-sync-status ' +
-          'in your browser to diagnose.'
-        );
-        // Still flip to success — the HRMS row exists. Admin can re-edit
-        // later to retrigger the mirror once they fix the sync config.
+        console.warn('[NewEmployee] mobile sync warning:', data.mobileSync.message);
       }
     } catch (err) {
-      alert('Network error creating employee: ' + (err?.message || 'unknown'));
+      console.error('[NewEmployee] network error:', err);
+      setSubmitError(
+        'Could not reach the HRMS backend at ' + API + '. ' +
+        'Is `npm start` running in the Backend folder? Error: ' + (err?.message || 'unknown')
+      );
       return false;
+    } finally {
+      setSubmitting(false);
     }
 
     setIsSubmitted(true);
@@ -546,17 +590,53 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                   </div>
                 </div>
 
+                {/* Inline error banner — sticks to the review screen until
+                    the next attempt succeeds. Replaces the dismissable
+                    native alert that users used to click through without
+                    reading. */}
+                {submitError && (
+                  <div style={{
+                    maxWidth: 600, margin: '12px auto 0', padding: '12px 16px',
+                    background: '#FEF2F2', border: '1px solid #FECACA',
+                    borderRadius: 8, color: '#991B1B', fontSize: 13,
+                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                  }}>
+                    <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <strong>Could not save:</strong> {submitError}
+                    </div>
+                  </div>
+                )}
+
+                {/* Show signed-in user + admin status so HR can see at a
+                    glance whether the submit will be allowed. */}
+                <div style={{
+                  maxWidth: 600, margin: '8px auto 0',
+                  fontSize: 11, color: isAdmin ? '#16A34A' : '#DC2626',
+                  textAlign: 'center', fontWeight: 600,
+                }}>
+                  Signed in as <strong>{user?.email || '—'}</strong>
+                  {isAdmin ? ' · Admin (can save)' : ' · View-only (cannot save)'}
+                </div>
+
                 <div className="review-secondary-actions" style={{ maxWidth: '600px', margin: '12px auto 0', display: 'flex', justifyContent: 'center' }}>
                   <button
                     className="btn-next"
-                    style={{ justifyContent: 'center', height: '44px', minWidth: '240px' }}
+                    disabled={submitting || !isAdmin}
+                    style={{
+                      justifyContent: 'center',
+                      height: '44px',
+                      minWidth: '240px',
+                      opacity: (submitting || !isAdmin) ? 0.6 : 1,
+                      cursor: (submitting || !isAdmin) ? 'not-allowed' : 'pointer',
+                    }}
                     onClick={async () => {
                       // Save first; only navigate if the save actually succeeded.
                       const ok = await handleSubmit();
                       if (ok) setActiveView('employee-list');
                     }}
                   >
-                    <Users size={18} /> Go to Employee List
+                    <Users size={18} /> {submitting ? 'Saving…' : 'Save & Go to Employee List'}
                   </button>
                 </div>
               </div>

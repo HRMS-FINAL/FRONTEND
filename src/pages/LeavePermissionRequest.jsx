@@ -257,7 +257,17 @@ export default function LeavePermissionRequest({ onBack }) {
                       <div>
                         <div className="emp-table-name">{rec.name}</div>
                         <div className="emp-table-role" style={{ fontSize: '11px', color: 'var(--text-light)', marginTop: '2px' }}>
-                          {rec.role} • {rec.dept}
+                          {/* Reject any 24-char hex ObjectId that may have
+                              leaked through from the mobile-backend
+                              populate. Show "—" if both fields are unsafe
+                              instead of leaking raw Mongo hex. */}
+                          {(() => {
+                            const isHex = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s.trim());
+                            const role  = isHex(rec.role) ? '' : (rec.role || '');
+                            const dept  = isHex(rec.dept) ? '' : (rec.dept || '');
+                            const parts = [role, dept].filter(Boolean);
+                            return parts.length ? parts.join(' • ') : '—';
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -291,46 +301,70 @@ export default function LeavePermissionRequest({ onBack }) {
                   </td>
                   <td>
                     {rec.managerStatus === 'Approved' ? (
-                      <span style={{ 
-                        fontWeight: 800, 
-                        fontSize: '10px', 
-                        padding: '4px 8px', 
-                        borderRadius: '6px', 
-                        background: '#F1F9EE', 
-                        color: '#4CAA17',
-                        border: '1px solid #C2E7B0',
-                        display: 'inline-block'
+                      <span style={{
+                        fontWeight: 800, fontSize: '10px',
+                        padding: '4px 8px', borderRadius: '6px',
+                        background: '#F1F9EE', color: '#4CAA17',
+                        border: '1px solid #C2E7B0', display: 'inline-block',
                       }}>
                         Approved
                       </span>
+                    ) : rec.managerStatus === 'Rejected' ? (
+                      <span style={{
+                        fontWeight: 800, fontSize: '10px',
+                        padding: '4px 8px', borderRadius: '6px',
+                        background: '#FFF5F5', color: '#C53030',
+                        border: '1px solid #FED7D7', display: 'inline-block',
+                      }}>
+                        Rejected
+                      </span>
                     ) : (
-                      <button 
-                        onClick={() => handleManagerAction(rec.id, 'Approved')}
-                        className="dash-emp-status late"
-                        style={{ 
-                          cursor: 'pointer', 
-                          fontWeight: 800, 
-                          fontSize: '10px', 
-                          border: '1px dashed #D69E2E',
-                          background: '#FEFCBF', 
-                          color: '#B7791F',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          display: 'inline-block',
-                          outline: 'none'
-                        }}
-                        title="Click to approve as Manager"
-                      >
-                        Pending (Click to Approve)
-                      </button>
+                      // Pending — manager hasn't acted yet. Two compact
+                      // buttons let them approve OR reject directly. HR's
+                      // action column stays gated on this outcome.
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          onClick={() => handleManagerAction(rec.id, 'Approved')}
+                          style={{
+                            cursor: 'pointer', fontWeight: 700, fontSize: '10px',
+                            border: '1px solid #C2E7B0',
+                            background: '#F1F9EE', color: '#4CAA17',
+                            padding: '4px 8px', borderRadius: '6px',
+                            display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          }}
+                          title="Approve as Manager"
+                        >
+                          <Check size={11} /> Approve
+                        </button>
+                        <button
+                          onClick={() => handleManagerAction(rec.id, 'Rejected')}
+                          style={{
+                            cursor: 'pointer', fontWeight: 700, fontSize: '10px',
+                            border: '1px solid #FED7D7',
+                            background: '#FFF5F5', color: '#FC8181',
+                            padding: '4px 8px', borderRadius: '6px',
+                            display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          }}
+                          title="Reject as Manager"
+                        >
+                          <X size={11} /> Reject
+                        </button>
+                      </div>
                     )}
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    {rec.status !== 'Pending' ? (
-                      <div style={{ 
-                        padding: '8px 12px', 
-                        borderRadius: '8px', 
-                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE', 
+                    {rec.managerStatus === 'Rejected' ? (
+                      // Manager rejected → HR has nothing to do. Show an
+                      // empty placeholder so the table doesn't collapse
+                      // and HR clearly sees there's no action available.
+                      <span style={{ color: 'var(--text-muted)', fontSize: '11px', fontStyle: 'italic' }}>
+                        —
+                      </span>
+                    ) : rec.status !== 'Pending' ? (
+                      <div style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE',
                         color: rec.status === 'Rejected' ? '#C53030' : '#2F855A',
                         border: rec.status === 'Rejected' ? '1px solid #FED7D7' : '1px solid #C2E7B0',
                         display: 'flex',
@@ -338,7 +372,7 @@ export default function LeavePermissionRequest({ onBack }) {
                         alignItems: 'flex-start',
                         textAlign: 'left',
                         gap: '4px',
-                        minWidth: '180px'
+                        minWidth: '180px',
                       }}>
                         <div style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase' }}>
                           {rec.status}
@@ -347,51 +381,52 @@ export default function LeavePermissionRequest({ onBack }) {
                           {rec.message}
                         </div>
                       </div>
-                    ) : (
+                    ) : rec.managerStatus === 'Approved' ? (
+                      // Manager approved → HR can now Approve or Reject.
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <button 
-                          className="req-btn reject" 
-                          disabled={rec.managerStatus !== 'Approved'}
-                          onClick={() => initiateAction(rec.id, 'Rejected')} 
-                          style={{ 
-                            padding: '6px 10px', 
-                            fontSize: '11px', 
-                            fontWeight: 700, 
-                            borderRadius: '6px', 
-                            border: (rec.managerStatus !== 'Approved') ? '1px solid #E2E8F0' : '1px solid #FED7D7', 
-                            background: (rec.managerStatus !== 'Approved') ? '#F7FAFC' : '#FFF5F5', 
-                            color: (rec.managerStatus !== 'Approved') ? '#A0AEC0' : '#FC8181', 
-                            cursor: (rec.managerStatus !== 'Approved') ? 'not-allowed' : 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '3px' 
+                        <button
+                          className="req-btn reject"
+                          onClick={() => initiateAction(rec.id, 'Rejected')}
+                          style={{
+                            padding: '6px 10px', fontSize: '11px', fontWeight: 700,
+                            borderRadius: '6px',
+                            border: '1px solid #FED7D7',
+                            background: '#FFF5F5', color: '#FC8181',
+                            cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '3px',
                           }}
-                          title={(rec.managerStatus !== 'Approved') ? "Disabled until Manager approves" : "Reject request"}
+                          title="Reject request"
                         >
                           <X size={12} /> Reject
                         </button>
-                        <button 
-                          className="req-btn approve" 
-                          disabled={rec.managerStatus !== 'Approved'}
-                          onClick={() => initiateAction(rec.id, 'Approved')} 
-                          style={{ 
-                            padding: '6px 10px', 
-                            fontSize: '11px', 
-                            fontWeight: 700, 
-                            borderRadius: '6px', 
-                            border: (rec.managerStatus !== 'Approved') ? '1px solid #E2E8F0' : '1px solid #C2E7B0', 
-                            background: (rec.managerStatus !== 'Approved') ? '#F7FAFC' : '#F1F9EE', 
-                            color: (rec.managerStatus !== 'Approved') ? '#A0AEC0' : '#4CAA17', 
-                            cursor: (rec.managerStatus !== 'Approved') ? 'not-allowed' : 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '3px' 
+                        <button
+                          className="req-btn approve"
+                          onClick={() => initiateAction(rec.id, 'Approved')}
+                          style={{
+                            padding: '6px 10px', fontSize: '11px', fontWeight: 700,
+                            borderRadius: '6px',
+                            border: '1px solid #C2E7B0',
+                            background: '#F1F9EE', color: '#4CAA17',
+                            cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '3px',
                           }}
-                          title={(rec.managerStatus !== 'Approved') ? "Disabled until Manager approves" : "Approve request"}
+                          title="Approve request"
                         >
                           <Check size={12} /> Approve
                         </button>
                       </div>
+                    ) : (
+                      // Manager hasn't acted yet → show a clear "awaiting"
+                      // hint instead of disabled buttons that confused HR.
+                      <span style={{
+                        fontSize: '11px', fontStyle: 'italic',
+                        color: 'var(--text-light)',
+                        padding: '6px 10px',
+                        background: '#F7FAFC',
+                        borderRadius: '6px',
+                      }}>
+                        Awaiting Manager
+                      </span>
                     )}
                   </td>
                 </tr>

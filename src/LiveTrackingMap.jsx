@@ -95,7 +95,7 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // Live data fetched from /api/live-tracking — same endpoint the full
   // Live Tracking page uses, so counts/markers match exactly.
   const [employees, setEmployees] = useState([]);
-  const [office,    setOffice]    = useState({ lat: 13.0405, lng: 80.2105, name: 'Tesco Structures HQ' });
+  const [office,    setOffice]    = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
 
   const loadLive = React.useCallback(async () => {
     try {

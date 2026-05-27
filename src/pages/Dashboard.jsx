@@ -304,23 +304,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Reminders */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">Reminders</div>
-          </div>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {(reminders || []).map((r) => (
-              <li key={r.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border-color)", display: "flex", alignItems: "center", gap: 10 }}>
-                <input type="checkbox" checked={!!(doneReminders && doneReminders[r.id])} onChange={() => toggleReminder && toggleReminder(r.id)} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{r.text}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.due}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* Reminders widget removed per HR — the dashboard is now
+            focused purely on metrics + quick actions. */}
       </div>
     </div>
   );

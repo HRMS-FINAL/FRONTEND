@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Fuel, Car, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ChevronRight, Fuel, Car, CheckCircle, XCircle, Clock, MapPin } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+import RouteMapModal, { prefetchDailyRoute } from '../components/RouteMapModal';
 
 // Mobile-app petrol/travel allowance requests arrive via HRMS backend proxy
 // at /api/allowances (server-side talks to the mobile backend using
@@ -35,6 +36,15 @@ export default function Allowance({ onBack }) {
   const [petrolRequests, setPetrolRequests] = useState(cached.petrol);
   const [travelRequests, setTravelRequests] = useState(cached.travel);
   const [loading,        setLoading]        = useState(true);
+
+  // Route-map modal: opens when HR clicks "View Route" on any row. The
+  // modal hits /api/attendance/daily-route?employeeId=...&date=... and
+  // overlays the LocationPings polyline + the employee-marked from/to
+  // pins on a Google-tiles Leaflet map, so HR can visually validate
+  // whether the claimed km matches the path actually walked.
+  const [routeRow, setRouteRow] = useState(null);   // the request being viewed
+  const openRoute  = (req) => setRouteRow(req);
+  const closeRoute = ()    => setRouteRow(null);
 
   // Load + poll: refetch every 30s so newly-submitted mobile requests show
   // up without a page refresh. The /api/allowances response is already
@@ -179,6 +189,7 @@ export default function Allowance({ onBack }) {
                     <th>Route (From ➝ To)</th>
                     <th>Distance</th>
                     <th>Claim Amount</th>
+                    <th>Route Map</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -191,18 +202,45 @@ export default function Allowance({ onBack }) {
                       </td>
                       <td>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {req.from} 
-                          <ChevronRight size={12} color="var(--text-light)" /> 
+                          {req.from}
+                          <ChevronRight size={12} color="var(--text-light)" />
                           {req.to}
                         </div>
                       </td>
-                      <td><div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{req.distance} km</div></td>
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{req.distance} km</div>
+                        {req.distanceSource === 'gps' && (
+                          <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: 700 }}>· from GPS</div>
+                        )}
+                      </td>
                       <td><div style={{ fontSize: '14px', fontWeight: 800, color: '#4CAA17' }}>₹{req.amount}</div></td>
+                      <td>
+                        <button
+                          onClick={() => openRoute(req)}
+                          onMouseEnter={() => {
+                            const eid = req.employeeId || req.empId;
+                            if (eid && req.date) prefetchDailyRoute(eid, req.date);
+                          }}
+                          onFocus={() => {
+                            const eid = req.employeeId || req.empId;
+                            if (eid && req.date) prefetchDailyRoute(eid, req.date);
+                          }}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '6px 12px', borderRadius: 6,
+                            background: '#ECFDF5', color: '#047857',
+                            border: '1px solid #A7F3D0',
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          <MapPin size={12} /> View Route
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {petrolRequests.length === 0 && (
                     <tr>
-                      <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -225,7 +263,9 @@ export default function Allowance({ onBack }) {
                     <th>Request ID</th>
                     <th>Employee</th>
                     <th>Route (From ➝ To)</th>
+                    <th>Distance</th>
                     <th>Claim Amount</th>
+                    <th>Route Map</th>
                     <th>MANAGER STATUS</th>
                     <th>STATUS</th>
                   </tr>
@@ -240,12 +280,40 @@ export default function Allowance({ onBack }) {
                       </td>
                       <td>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {req.from} 
-                          <ChevronRight size={12} color="var(--text-light)" /> 
+                          {req.from}
+                          <ChevronRight size={12} color="var(--text-light)" />
                           {req.to}
                         </div>
                       </td>
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{req.distance} km</div>
+                        {req.distanceSource === 'gps' && (
+                          <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: 700 }}>· from GPS</div>
+                        )}
+                      </td>
                       <td><div style={{ fontSize: '14px', fontWeight: 800, color: '#4299E1' }}>₹{req.amount}</div></td>
+                      <td>
+                        <button
+                          onClick={() => openRoute(req)}
+                          onMouseEnter={() => {
+                            const eid = req.employeeId || req.empId;
+                            if (eid && req.date) prefetchDailyRoute(eid, req.date);
+                          }}
+                          onFocus={() => {
+                            const eid = req.employeeId || req.empId;
+                            if (eid && req.date) prefetchDailyRoute(eid, req.date);
+                          }}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '6px 12px', borderRadius: 6,
+                            background: '#EFF6FF', color: '#1D4ED8',
+                            border: '1px solid #BFDBFE',
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          <MapPin size={12} /> View Route
+                        </button>
+                      </td>
                       <td>
                         {req.status === 'Pending' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}><Clock size={12} /> Pending</span>}
                         {req.status === 'Approved' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}><CheckCircle size={12} /> Approved</span>}
@@ -278,7 +346,7 @@ export default function Allowance({ onBack }) {
                   ))}
                   {travelRequests.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -288,6 +356,27 @@ export default function Allowance({ onBack }) {
         )}
 
       </div>
+
+      {/* Route-map modal — shows the polyline of every LocationPing on the
+          request date alongside the from/to pins the employee marked. HR
+          can eyeball whether the claimed km matches the actual path. */}
+      <RouteMapModal
+        open={!!routeRow}
+        onClose={closeRoute}
+        employeeId={routeRow?.employeeId || routeRow?.empId || ''}
+        employeeName={routeRow?.empName}
+        date={routeRow?.date}
+        claim={routeRow ? {
+          fromLocation:   routeRow.from,
+          toLocation:     routeRow.to,
+          fromLat:        routeRow.fromLat,
+          fromLng:        routeRow.fromLng,
+          toLat:          routeRow.toLat,
+          toLng:          routeRow.toLng,
+          distance:       routeRow.distance,
+          distanceSource: routeRow.distanceSource,
+        } : null}
+      />
     </div>
   );
 }

@@ -58,6 +58,24 @@
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
 }
 
+/* When a <select> opens, browsers pick the drop direction based on space
+   available below. `scroll-margin-bottom` makes the browser scroll the
+   form upward when the user focuses a select that's near the bottom of
+   the viewport, leaving ~360px of clear space below — which is enough
+   for the dropdown list to render downwards every time. */
+select.form-input {
+  scroll-margin-bottom: 360px;
+  /* Single-line height = native control, so the browser sees it as a
+     combobox and uses its standard down-opening menu. */
+  size: 1;
+}
+
+/* Pad the step-content so the last select on each step has whitespace
+   beneath it for the dropdown to open into. */
+.stepper-page .step-content {
+  padding-bottom: 360px;
+}
+
 .password-toggle {
   position: absolute;
   right: 12px;

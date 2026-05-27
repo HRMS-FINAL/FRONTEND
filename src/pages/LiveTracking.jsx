@@ -329,7 +329,7 @@ export default function LiveTracking() {
   // a GPS ping every 2 minutes while checked in, so we re-fetch every 30s
   // here — the data is at most ~2 min old by design.
   const [liveEmployees, setLiveEmployees] = useState([]);
-  const [office, setOffice] = useState({ lat: 13.0405, lng: 80.2105, radiusM: 200, name: 'Tesco Structures HQ' });
+  const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, radiusM: 200, name: 'Tesco Structures HQ' });
   // Drives the spinner on the Force Refresh button so the click feels
   // responsive and we can prevent rapid-fire double fetches.
   const [refreshing, setRefreshing]   = useState(false);
@@ -367,6 +367,10 @@ export default function LiveTracking() {
           // in makeNameMarker. Backend returns null when no speed sample
           // is available; the marker treats that as "stationary".
           speed:      (typeof e.speed === 'number' && isFinite(e.speed)) ? e.speed : null,
+          // Today's GPS trail for travelling employees. Backend only
+          // attaches `route` when status === 'travelling' and there are
+          // at least 2 pings, otherwise null. Each point is { lat, lng, t }.
+          route:      Array.isArray(e.route) && e.route.length >= 2 ? e.route : null,
           site:       e.site || (e.status === 'office' ? 'Tesco Structures HQ' : '—'),
           status:     e.status || 'offline',
           lastSeen:   e.lastSeen
@@ -623,15 +627,29 @@ export default function LiveTracking() {
 
             <MapFlyTo target={selected} />
 
-            {/* Office pin — always shown so HR has a reference point. */}
+            {/* Office pin */}
             <Marker position={[office.lat, office.lng]} icon={makeStartIcon()}>
               <Popup>{office.name || 'Office'}</Popup>
             </Marker>
 
-            {/* One marker per visible employee, labelled with their name.
-                Markers persist as long as the employee is checked-in (the
-                backend filters out anyone who already checked out), so HR
-                can watch them move in real time without picking each row. */}
+            {/* Travel polylines for travelling employees */}
+            {visible
+              .filter((emp) => Array.isArray(emp.route) && emp.route.length >= 2)
+              .map((emp) => (
+                <Polyline
+                  key={`trail-${emp.id}`}
+                  positions={emp.route.map((p) => [p.lat, p.lng])}
+                  pathOptions={{
+                    color:     STATUS_COLOR[bucketOf(emp.status)] || '#9F7AEA',
+                    weight:    selected?.id === emp.id ? 5 : 3,
+                    opacity:   selected?.id === emp.id ? 0.95 : 0.65,
+                    dashArray: '6 8',
+                    lineCap:   'round',
+                  }}
+                />
+              ))}
+
+            {/* Employee markers — one per visible row, labelled with name */}
             {visible.map((emp) => (
               <Marker
                 key={emp.id}

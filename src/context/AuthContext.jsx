@@ -18,12 +18,29 @@ const KEY_USER       = 'hrms_user';
 const KEY_TOKEN      = 'hrms_token';
 const LEGACY_KEY_USER = 'hrm_user';
 
+/**
+ * Admin allowlist — kept in sync with the backend's HRMS_ADMIN_EMAILS.
+ * The server is the source of truth (it returns `isAdmin` on every login
+ * response), but we mirror the list client-side so the UI can also hide
+ * write controls instantly without needing a re-fetch.
+ */
+const ADMIN_EMAILS = [
+  'tescodigitals26@gmail.com',
+  'tescostructures@gmail.com',
+  'hr@tescostructures.in',
+];
+const isAdminEmail = (e) =>
+  !!e && ADMIN_EMAILS.includes(String(e).trim().toLowerCase());
+
 function persistAuth(userData, token) {
   try {
     localStorage.setItem(KEY_USER, JSON.stringify(userData));
     localStorage.setItem(LEGACY_KEY_USER, JSON.stringify(userData));
     if (token) localStorage.setItem(KEY_TOKEN, token);
   } catch {/* storage full / disabled — non-fatal */}
+  // Install the global fetch interceptor every time auth changes so the
+  // `x-admin-email` header is up-to-date.
+  installFetchInterceptor(userData?.email || '');
 }
 function clearAuth() {
   try {
@@ -31,6 +48,29 @@ function clearAuth() {
     localStorage.removeItem(KEY_TOKEN);
     localStorage.removeItem(LEGACY_KEY_USER);
   } catch {/* */}
+  installFetchInterceptor('');
+}
+
+/**
+ * Wrap window.fetch so every API call from the HRMS frontend carries the
+ * signed-in user's email in `x-admin-email`. The backend uses that header
+ * to decide whether to accept a POST / PUT / PATCH / DELETE. Idempotent:
+ * calling this multiple times re-wires the wrapper with the latest email
+ * rather than stacking layers.
+ */
+let _interceptedFetch = null;
+function installFetchInterceptor(email) {
+  if (typeof window === 'undefined') return;
+  if (!_interceptedFetch) {
+    _interceptedFetch = window.fetch.bind(window);
+  }
+  window.fetch = (input, init = {}) => {
+    const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined) || {});
+    if (email && !headers.has('x-admin-email')) {
+      headers.set('x-admin-email', email);
+    }
+    return _interceptedFetch(input, { ...init, headers });
+  };
 }
 function readStoredUser() {
   try {
@@ -47,7 +87,15 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const storedUser = readStoredUser();
-    if (storedUser) setUser(storedUser);
+    if (storedUser) {
+      // Recompute isAdmin from the email in case the allowlist changed
+      // since the user signed in — that way we never trust a stale flag.
+      storedUser.isAdmin = isAdminEmail(storedUser.email);
+      setUser(storedUser);
+      // Re-install the fetch interceptor with the persisted email so the
+      // very first API call after a page refresh carries x-admin-email.
+      installFetchInterceptor(storedUser.email || '');
+    }
     setLoading(false);
   }, []);
 
@@ -129,13 +177,17 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
       if (data.success && data.user) {
+        const emailLc = (data.user.email || email).trim().toLowerCase();
         const userData = {
-          name:   data.user.name  || email,
-          email:  data.user.email || email,
-          role:   data.user.role  || 'employee',
-          phone:  data.user.phone || '',
-          avatar: (data.user.name || email).split(' ').map(n => n[0]).join('').toUpperCase(),
-          token:  data.token,
+          name:    data.user.name  || email,
+          email:   emailLc,
+          role:    data.user.role  || 'employee',
+          phone:   data.user.phone || '',
+          avatar:  (data.user.name || email).split(' ').map(n => n[0]).join('').toUpperCase(),
+          token:   data.token,
+          // Server-side flag wins; client-side allowlist is the fallback
+          // for back-compat with older backends that don't stamp it.
+          isAdmin: typeof data.user.isAdmin === 'boolean' ? data.user.isAdmin : isAdminEmail(emailLc),
         };
         setUser(userData);
         persistAuth(userData, data.token);
@@ -145,13 +197,15 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // Fallback if backend is down
       if (email && password) {
-        const displayName = email.split('@')[0];
+        const emailLc = String(email).trim().toLowerCase();
+        const displayName = emailLc.split('@')[0];
         const userData = {
-          name:   displayName,
-          email,
-          role:   'employee',
-          phone:  '',
-          avatar: displayName.slice(0, 2).toUpperCase(),
+          name:    displayName,
+          email:   emailLc,
+          role:    'employee',
+          phone:   '',
+          avatar:  displayName.slice(0, 2).toUpperCase(),
+          isAdmin: isAdminEmail(emailLc),
         };
         setUser(userData);
         persistAuth(userData, null);
@@ -170,13 +224,15 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
       if (data.success && data.user) {
+        const emailLc = (data.user.email || email).trim().toLowerCase();
         const userData = {
-          name:   data.user.name  || name,
-          email:  data.user.email || email,
-          role:   data.user.role  || 'employee',
-          phone:  data.user.phone || '',
-          avatar: (data.user.name || name).split(' ').map(n => n[0]).join('').toUpperCase(),
-          token:  data.token,
+          name:    data.user.name  || name,
+          email:   emailLc,
+          role:    data.user.role  || 'employee',
+          phone:   data.user.phone || '',
+          avatar:  (data.user.name || name).split(' ').map(n => n[0]).join('').toUpperCase(),
+          token:   data.token,
+          isAdmin: typeof data.user.isAdmin === 'boolean' ? data.user.isAdmin : isAdminEmail(emailLc),
         };
         setUser(userData);
         persistAuth(userData, data.token);
@@ -184,14 +240,17 @@ export const AuthProvider = ({ children }) => {
       }
       return { ok: false, message: data.message || 'Signup failed' };
     } catch {
-      // Backend offline — allow offline signup
+      // Backend offline — allow offline signup (view-only unless email
+      // is on the admin list).
       if (name && email && password) {
+        const emailLc = String(email).trim().toLowerCase();
         const userData = {
-          name:   name.trim(),
-          email:  email.trim().toLowerCase(),
-          role:   'employee',
-          phone:  '',
-          avatar: name.trim().split(' ').map(n => n[0]).join('').toUpperCase(),
+          name:    name.trim(),
+          email:   emailLc,
+          role:    'employee',
+          phone:   '',
+          avatar:  name.trim().split(' ').map(n => n[0]).join('').toUpperCase(),
+          isAdmin: isAdminEmail(emailLc),
         };
         setUser(userData);
         persistAuth(userData, null);
@@ -217,6 +276,12 @@ export const AuthProvider = ({ children }) => {
       login,
       signup,
       logout,
+      // Convenience flags so every page can do `useAuth().canEdit` to
+      // toggle Save / Delete / Add buttons. canEdit mirrors isAdmin —
+      // kept as a separate name because pages reading "canEdit" are
+      // easier to grep when adding more gating later.
+      isAdmin: !!user?.isAdmin,
+      canEdit: !!user?.isAdmin,
     }}>
       {!loading && children}
     </AuthContext.Provider>

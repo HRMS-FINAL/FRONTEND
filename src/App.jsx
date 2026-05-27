@@ -22,6 +22,7 @@ import Profile from './pages/Profile';
 import Announcements from './pages/Announcements';
 import EmployeeDetails from './pages/EmployeeDetails';
 import LiveTracking from './pages/LiveTracking';
+import DailyRoutes from './pages/DailyRoutes';
 import Login from './pages/Login';
 import ComingSoon from './pages/ComingSoon';
 import Assets from './pages/Assets';
@@ -29,7 +30,37 @@ import Allowance from './pages/Allowance';
 import ComplainRegister from './pages/ComplainRegister';
 
 import { reminders, calendarData } from './data/mockData';
+import { pickTitle } from './utils/labels';
 import './App.css';
+
+/**
+ * Yellow strip beneath the Topbar that says "View only". Rendered for
+ * every non-admin sign-in so the user sees why Save / Delete buttons
+ * don't react when they click them. Disappears for the three admin
+ * emails (the people who can actually edit).
+ */
+function ReadOnlyBanner() {
+  const { user, isAdmin } = useAuth();
+  if (!user || isAdmin) return null;
+  return (
+    <div
+      style={{
+        background: '#FEF3C7',
+        color: '#92400E',
+        borderBottom: '1px solid #FCD34D',
+        padding: '8px 24px',
+        fontSize: 12.5,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <span style={{ fontSize: 14 }}>👁️</span>
+      You're in view-only mode. Only the HR admin accounts can create or edit records.
+    </div>
+  );
+}
 import './form.css';
 import './tracking.css';
 
@@ -94,26 +125,27 @@ function MainApp() {
       const res  = await fetchWithTimeout(`${API}/employees?limit=200`);
       const data = await res.json();
       if (data && data.success && Array.isArray(data.employees)) {
-        // Reject raw 24-char hex ObjectId leaks. The /api/employees route
-        // resolves dept/designation via lookup maps, but a deleted ref or
-        // an unindexed row can still surface a raw string. The
-        // departmentName / designationTitle sidecar fields (denormalised
-        // on the Employee schema) are the bullet-proof fallback.
-        const isHexId = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s);
-        const pickTitle = (val, sidecar) => {
-          if (val && typeof val === 'object') {
-            const t = val.title || val.name || '';
-            return isHexId(t) ? (sidecar || '') : t;
-          }
-          if (typeof val === 'string' && !isHexId(val)) return val;
-          return sidecar || '';
-        };
+        // Resolved labels come from utils/labels.js — pickTitle() rejects
+        // any 24-char hex ObjectId, prefers the populated doc's title /
+        // name, and falls through to the denormalised
+        // departmentName / designationTitle sidecars stamped on every
+        // Employee row. Also overwrite the raw `designation` /
+        // `department` fields on the normalised object so any consumer
+        // that reads them directly (Payroll, EmployeeDetails, PDFs)
+        // gets the resolved label too.
+        const cleanDept  = (e) => pickTitle(e.department,  e.departmentName,   '');
+        const cleanDesig = (e) => pickTitle(e.designation, e.designationTitle, '');
         const normalised = data.employees.map(e => ({
           ...e,
-          id:       e._id,
-          name:     e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
-          role:     pickTitle(e.designation, e.designationTitle),
-          dept:     pickTitle(e.department,  e.departmentName),
+          id:          e._id,
+          name:        e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
+          role:        cleanDesig(e),
+          dept:        cleanDept(e),
+          // Overwrite the originals so any code path that doesn't use the
+          // `role`/`dept` aliases (Payroll PDF, EmployeeDetails CV) still
+          // ends up with a human label.
+          designation: cleanDesig(e),
+          department:  cleanDept(e),
           manager:  e.assignedTo || '',
           status:   e.status || 'Active',
           isActive: e.isActive !== false,
@@ -215,6 +247,7 @@ function MainApp() {
       case 'leave-permission-request': return <LeavePermissionRequest {...props} />;
       case 'reports':          return <Reports {...props} />;
       case 'live-tracking':    return <LiveTracking {...props} />;
+      case 'daily-routes':     return <DailyRoutes {...props} />;
       case 'assets':           return <Assets {...props} employees={employees} />;
       case 'complain-register': return <ComplainRegister {...props} />;
       case 'settings':         return <Settings {...props} />;
@@ -237,6 +270,11 @@ function MainApp() {
           activeView={activeView}   setActiveView={setActiveView}
           eligibleCount={eligibleEmployees.length}
         />
+        {/* View-only banner — shown for any user whose email is not on
+            the HRMS admin allowlist. Tells them up-front why their Save
+            buttons aren't working, instead of letting them discover it
+            via a generic 403 toast on click. */}
+        <ReadOnlyBanner />
         {renderView()}
       </main>
     </div>

@@ -122,6 +122,10 @@ export default function Sidebar({
           <span className="nav-text">Live Tracking</span>
           <div className="nav-live-dot" />
         </div>
+        <div className={`nav-item ${activeView === 'daily-routes' ? 'active' : ''}`} onClick={() => handleNavClick('daily-routes')}>
+          <MapPin className="nav-icon" size={18} />
+          <span className="nav-text">Daily Routes</span>
+        </div>
         <div className={`nav-item ${activeView === 'announcements' ? 'active' : ''}`} onClick={() => handleNavClick('announcements')}>
           <Megaphone className="nav-icon" size={18} />
           <span className="nav-text">Announcements</span>
