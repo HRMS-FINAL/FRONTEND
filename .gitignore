@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# Environment files — these contain environment-specific URLs and
+# should NOT be committed. Use `.env.example` (which IS committed) to
+# document the variables a developer needs to set locally.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production
+.env.production.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

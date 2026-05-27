@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
-const API    = 'http://localhost:8001/api';
+import { API } from '../config/api';
 const COLORS = ['#4299E1','#9F7AEA','#4CAA17','#ECC94B','#F687B3','#ED8936','#38B2AC','#FC8181'];
 
 // Hardcoded mock removed — list now comes from /api/designations only.

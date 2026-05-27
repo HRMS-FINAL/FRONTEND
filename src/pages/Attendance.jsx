@@ -9,7 +9,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { allEmployees } from '../data/mockData';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',

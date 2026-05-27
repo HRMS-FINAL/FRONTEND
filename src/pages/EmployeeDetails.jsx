@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function EmployeeDetails({ employee, employees, setEmployees, setSelectedEmployee, onBack }) {
   const { showNotification, confirmDialog } = useNotification();

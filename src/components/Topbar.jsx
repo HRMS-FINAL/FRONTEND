@@ -7,7 +7,7 @@ import {
   Settings as SettingsIcon, LogOut, AlertCircle, Wallet,
 } from 'lucide-react';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 // Stored as ISO. Every item with timestamp <= this is treated as read.
 const READ_CURSOR_KEY = 'hrms_notif_read_cursor';
 

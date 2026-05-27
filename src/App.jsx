@@ -63,8 +63,9 @@ function ReadOnlyBanner() {
 }
 import './form.css';
 import './tracking.css';
-
-const API = 'http://localhost:8001/api';
+// Base URL of the HRMS backend. Normalised in src/config/api.js so the
+// env var (VITE_API_URL) can be written with or without the `/api` suffix.
+import { API } from './config/api';
 
 // localStorage keys used to remember which screen the user was on across
 // browser refreshes. (HRMS currently doesn't use a router, so without

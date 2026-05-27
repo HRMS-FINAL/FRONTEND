@@ -19,7 +19,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronRight, Calendar, Search, Navigation, MapPin } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 function todayISO() {
   return new Date().toISOString().split('T')[0];

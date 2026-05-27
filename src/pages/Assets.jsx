@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { allEmployees } from '../data/mockData';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 // Map API record into UI shape
 const mapApiAsset = (a) => ({

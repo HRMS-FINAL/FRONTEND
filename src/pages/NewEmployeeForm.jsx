@@ -7,7 +7,7 @@ import { allEmployees } from '../data/mockData';
 import { MANAGERS, DESIGNATIONS, DEPARTMENTS } from '../data/companyData';
 import { useAuth } from '../context/AuthContext';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, employees }) {
   const { user, isAdmin } = useAuth();

@@ -32,7 +32,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { X } from 'lucide-react';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 // ─── Route response cache ─────────────────────────────────────────────
 // 2-minute TTL so reopening the same row's modal is instant.

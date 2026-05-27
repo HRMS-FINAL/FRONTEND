@@ -7,7 +7,7 @@ import RouteMapModal, { prefetchDailyRoute } from '../components/RouteMapModal';
 // at /api/allowances (server-side talks to the mobile backend using
 // MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data source
 // flipped from hardcoded mock arrays to real fetches.
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 const LS_KEY = 'tesco_hrms_allowance_cache';
 
 /** Read last-fetched petrol+travel arrays from localStorage so the page

@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 
 import { useNotification } from '../context/NotificationContext';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function EmployeeList({ onBack, employees, setEmployees, setSelectedEmployee, setActiveView }) {
   const { showNotification, confirmDialog } = useNotification();

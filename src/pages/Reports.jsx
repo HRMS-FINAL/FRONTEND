@@ -12,7 +12,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 // ── Report definitions ────────────────────────────────────────────
 const REPORT_TYPES = [

@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function Settings({ onBack }) {
   const { showNotification } = useNotification();

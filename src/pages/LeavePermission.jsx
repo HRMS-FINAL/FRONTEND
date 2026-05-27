@@ -10,7 +10,7 @@ import { useNotification } from '../context/NotificationContext';
 // only the data source switched. Hardcoded mock seed below stays as a
 // fallback when the backend is unreachable, so the page still shows the
 // original demo content offline.
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',

@@ -4,6 +4,7 @@ import L from 'leaflet';
 import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import '../tracking.css';
+import { API } from '../config/api';
 
 // Live tracking now starts empty — populated from the mobile backend's
 // /api/attendance/admin/all (per-employee lat/lng captured at check-in)
@@ -347,7 +348,7 @@ export default function LiveTracking() {
     inFlightRef.current = true;
     setRefreshing(true);
     try {
-      const r = await fetch('http://localhost:8001/api/live-tracking');
+      const r = await fetch(`${API}/live-tracking`);
       const d = await r.json().catch(() => ({}));
       if (cancelledRef.current) return;
       if (!d?.success || !Array.isArray(d.data)) return;

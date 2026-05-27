@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Search, X as CloseIcon, Activity, Clock, ChevronRight, Phone, MessageSquare, Users, MapPin } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
+import { API } from './config/api';
 
 // ── Employee tracking data (simulated – Mumbai coordinates) ──────
 const EMPLOYEES = [
@@ -99,7 +100,7 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
 
   const loadLive = React.useCallback(async () => {
     try {
-      const r = await fetch('http://localhost:8001/api/live-tracking');
+      const r = await fetch(`${API}/live-tracking`);
       const d = await r.json().catch(() => ({}));
       if (!d?.success || !Array.isArray(d.data)) return;
       if (d.office) setOffice(d.office);

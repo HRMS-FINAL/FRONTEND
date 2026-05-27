@@ -6,7 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 // /api/leave-requests (server-side talks to https://backend-emqy.onrender.com
 // using MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data
 // source switched from the hardcoded mock array to real fetches.
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 const LS_KEY = 'tesco_hrms_leave_requests_cache';
 
 /** Read last-fetched requests from localStorage so the page populates

@@ -8,7 +8,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import logo from '../assets/logo.png';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function Payroll({ onBack, employees = [], updateEmployeeSalary }) {
   const { showNotification } = useNotification();

@@ -7,7 +7,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CompactTrackingMap } from '../LiveTrackingMap';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 export default function Dashboard({
   calGrid, days, calStats,

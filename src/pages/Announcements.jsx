@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const API    = 'http://localhost:8001/api';
+import { API } from '../config/api';
 const LS_KEY = 'tesco_hrms_announcements_cache';
 
 /** Read last-fetched announcements from localStorage so the list shows

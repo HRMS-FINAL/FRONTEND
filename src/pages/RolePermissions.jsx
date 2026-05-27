@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 
 const ROLE_ICONS_FN = [
   <Zap size={18}/>, <UserCheck size={18}/>, <User size={18}/>, <Shield size={18}/>, <Users size={18}/>

@@ -5,7 +5,7 @@ import { Search, Filter, MessageSquare, AlertCircle, X } from 'lucide-react';
 // (server-side proxies to https://backend-emqy.onrender.com using
 // MOBILE_ADMIN_SECRET). UI layout below is unchanged — only the data
 // source is now real instead of hardcoded.
-const API = 'http://localhost:8001/api';
+import { API } from '../config/api';
 const LS_KEY = 'tesco_hrms_complaints_cache';
 
 const priorityColors = {
