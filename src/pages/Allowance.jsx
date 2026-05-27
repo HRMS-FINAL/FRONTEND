@@ -73,14 +73,34 @@ export default function Allowance({ onBack }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  // Approve/Reject — optimistically flip locally, then PATCH the mobile
-  // backend through the HRMS proxy. The mobile backend fires an in-app
+  // ─── Two-stage approval ─────────────────────────────────────────────
+  // Manager Approve/Reject is a LOCAL-ONLY decision — it doesn't hit the
+  // backend. It just gates whether the HR Approve/Reject buttons show
+  // up in the Status column. Once the manager approves, HR sees the
+  // buttons; if the manager rejects, the Status column shows "—".
+  //
+  // (We don't persist manager status to the backend yet because the
+  // mobile Allowance model doesn't have a managerStatus field. If HR
+  // needs that persisted, we can add it later — for now it's a UX gate.)
+  const handleManagerAction = (id, type, newManagerStatus) => {
+    const setList = type === 'petrol' ? setPetrolRequests : setTravelRequests;
+    setList(prev => prev.map(req => req.id === id ? { ...req, managerStatus: newManagerStatus } : req));
+    showNotification(`Manager ${newManagerStatus.toLowerCase()} request ${id}`, 'success');
+  };
+
+  // HR Approve/Reject — optimistically flip locally, then PATCH the
+  // mobile backend through the HRMS proxy. Backend fires an in-app
   // notification to the employee on a real status transition.
   const handleAction = async (id, action, type) => {
     const newStatus = action === 'approve' ? 'Approved' : 'Rejected';
     const setList   = type === 'petrol' ? setPetrolRequests : setTravelRequests;
     const sourceArr = type === 'petrol' ? petrolRequests   : travelRequests;
     const target    = sourceArr.find((r) => r.id === id);
+    // Block HR action if manager hasn't approved yet.
+    if (target && target.managerStatus !== 'Approved') {
+      showNotification('Cannot process — Manager has not approved yet.', 'error');
+      return;
+    }
     setList(prev => prev.map(req => req.id === id ? { ...req, status: newStatus } : req));
     try {
       const res = await fetch(`${API}/allowances/${target?._id || id}`, {
@@ -190,6 +210,8 @@ export default function Allowance({ onBack }) {
                     <th>Distance</th>
                     <th>Claim Amount</th>
                     <th>Route Map</th>
+                    <th>MANAGER STATUS</th>
+                    <th>STATUS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -236,11 +258,76 @@ export default function Allowance({ onBack }) {
                           <MapPin size={12} /> View Route
                         </button>
                       </td>
+                      {/* MANAGER STATUS — first gate. Once manager acts, the
+                          buttons disappear and a status pill takes their place. */}
+                      <td>
+                        {req.managerStatus === 'Approved' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}>
+                            <CheckCircle size={12} /> Approved
+                          </span>
+                        )}
+                        {req.managerStatus === 'Rejected' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                            <XCircle size={12} /> Rejected
+                          </span>
+                        )}
+                        {!req.managerStatus && (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => handleManagerAction(req.id, 'petrol', 'Approved')}
+                              style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleManagerAction(req.id, 'petrol', 'Rejected')}
+                              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      {/* STATUS — HR's column. Empty if manager rejected;
+                          Approve/Reject buttons if manager approved; pill
+                          once HR has acted. */}
+                      <td>
+                        {req.managerStatus === 'Rejected' ? (
+                          <span style={{ color: 'var(--text-light)', fontSize: '11px' }}>—</span>
+                        ) : req.status === 'Approved' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}>
+                            <CheckCircle size={12} /> Approved
+                          </span>
+                        ) : req.status === 'Rejected' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                            <XCircle size={12} /> Rejected
+                          </span>
+                        ) : req.managerStatus === 'Approved' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => handleAction(req.id, 'approve', 'petrol')}
+                              style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleAction(req.id, 'reject', 'petrol')}
+                              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}>
+                            <Clock size={12} /> Awaiting Manager
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {petrolRequests.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -314,21 +401,56 @@ export default function Allowance({ onBack }) {
                           <MapPin size={12} /> View Route
                         </button>
                       </td>
+                      {/* MANAGER STATUS — first gate. */}
                       <td>
-                        {req.status === 'Pending' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}><Clock size={12} /> Pending</span>}
-                        {req.status === 'Approved' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}><CheckCircle size={12} /> Approved</span>}
-                        {req.status === 'Rejected' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}><XCircle size={12} /> Rejected</span>}
+                        {req.managerStatus === 'Approved' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}>
+                            <CheckCircle size={12} /> Approved
+                          </span>
+                        )}
+                        {req.managerStatus === 'Rejected' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                            <XCircle size={12} /> Rejected
+                          </span>
+                        )}
+                        {!req.managerStatus && (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => handleManagerAction(req.id, 'travel', 'Approved')}
+                              style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleManagerAction(req.id, 'travel', 'Rejected')}
+                              style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
                       </td>
+                      {/* STATUS — HR's column. Empty if manager rejected. */}
                       <td>
-                        {req.status === 'Pending' ? (
+                        {req.managerStatus === 'Rejected' ? (
+                          <span style={{ color: 'var(--text-light)', fontSize: '11px' }}>—</span>
+                        ) : req.status === 'Approved' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}>
+                            <CheckCircle size={12} /> Approved
+                          </span>
+                        ) : req.status === 'Rejected' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                            <XCircle size={12} /> Rejected
+                          </span>
+                        ) : req.managerStatus === 'Approved' ? (
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <button 
+                            <button
                               onClick={() => handleAction(req.id, 'approve', 'travel')}
                               style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                             >
                               Approve
                             </button>
-                            <button 
+                            <button
                               onClick={() => handleAction(req.id, 'reject', 'travel')}
                               style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                             >
@@ -336,10 +458,9 @@ export default function Allowance({ onBack }) {
                             </button>
                           </div>
                         ) : (
-                          <>
-                            {req.status === 'Approved' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}><CheckCircle size={12} /> Approved</span>}
-                            {req.status === 'Rejected' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}><XCircle size={12} /> Rejected</span>}
-                          </>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}>
+                            <Clock size={12} /> Awaiting Manager
+                          </span>
                         )}
                       </td>
                     </tr>

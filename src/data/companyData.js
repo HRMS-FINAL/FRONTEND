@@ -3,8 +3,7 @@
  * before the API has loaded (and as the canonical list of managers, which
  * isn't a separate collection in the DB).
  *
- * The MANAGERS list mirrors HR's printed roster + 'Vivek - Technical Lead'
- * who joined later. Order matches the way HR reads them out.
+ * Order matches the way HR reads them out.
  */
 
 export const MANAGERS = [
@@ -21,7 +20,6 @@ export const MANAGERS = [
   { name: 'Shamma',           title: 'Business Development manager' },
   { name: 'Praveenraja',      title: 'Business Development manager' },
   { name: 'Sinduja',          title: 'Technical Lead Consultant' },
-  { name: 'Vivek',            title: 'Technical Lead' },
 ];
 
 // Designation list — used as a static fallback if the /api/designations

@@ -4,6 +4,7 @@ import {
   Calendar, User, Tag, ChevronRight, Send, X, AlertCircle, Trash2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
 const LS_KEY = 'tesco_hrms_announcements_cache';
@@ -38,6 +39,11 @@ const mapApi = (a) => ({
 
 export default function Announcements({ onBack }) {
   const { user } = useAuth() || {};
+  // Pull the toast + confirm-dialog helpers from the NotificationContext.
+  // Without these, the Delete button silently no-op'd because confirmDialog
+  // was undefined and `await undefined` resolved to undefined → !undefined
+  // === true → the handleDelete function returned before hitting the API.
+  const { showNotification, confirmDialog } = useNotification();
   const [showPostModal, setShowPostModal] = useState(false);
   // Seed announcements from cache so the list paints immediately on refresh
   // instead of being blank during the mobile-backend cold-start.
