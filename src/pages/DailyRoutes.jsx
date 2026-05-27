@@ -52,19 +52,54 @@ export default function DailyRoutes({ onBack }) {
     setLoading(true);
     setError('');
     (async () => {
+      const url = `${API}/attendance/daily-routes?date=${encodeURIComponent(date)}`;
+      console.log('[DailyRoutes] GET', url);
       try {
-        const r = await fetch(`${API}/attendance/daily-routes?date=${encodeURIComponent(date)}`);
+        const r = await fetch(url);
         const j = await r.json().catch(() => ({}));
+        console.log('[DailyRoutes] response', r.status, j);
         if (cancelled) return;
         if (!r.ok || j.success === false) {
-          setError(j?.message || `HTTP ${r.status}`);
+          // Server responded but with a non-OK status. Surface the most
+          // useful message we can build from the response.
+          let msg = j?.message || `HTTP ${r.status}`;
+          if (r.status === 503) {
+            msg = 'Backend is missing MOBILE_ADMIN_SECRET in its environment. ' +
+                  'Set it on Render and redeploy.';
+          } else if (r.status === 502) {
+            msg = 'HRMS backend reached the proxy but the mobile backend on Render is unreachable. ' +
+                  'Open https://backend-emqy.onrender.com/api/health in a new tab — if it spins for 30s, it is cold-starting.';
+          } else if (r.status === 404) {
+            msg = `Endpoint not found (${r.status}). The HRMS backend may need a redeploy to pick up new routes.`;
+          }
+          setError(msg);
           setItems([]);
         } else {
           setItems(Array.isArray(j.items) ? j.items : []);
         }
       } catch (e) {
+        // "Failed to fetch" lands here — no response at all reached the
+        // browser. Most likely causes, in rough order of likelihood:
+        //   1. The HRMS backend is offline / cold-starting
+        //   2. CORS_ORIGINS on the backend doesn't include this domain
+        //   3. The VITE_API_URL baked into the build is wrong
+        //   4. Mixed content (https page → http API blocked by browser)
+        console.error('[DailyRoutes] fetch failed:', e);
         if (!cancelled) {
-          setError(e.message || 'Network error');
+          const isHttps   = typeof window !== 'undefined' && window.location.protocol === 'https:';
+          const apiHttp   = String(API || '').startsWith('http://');
+          const mixedContent = isHttps && apiHttp;
+          let msg = `Could not reach the backend at ${API}. `;
+          if (mixedContent) {
+            msg += 'You are loading this page over HTTPS but the API URL is HTTP — the browser blocks that as "mixed content". Update VITE_API_URL to use https:// and rebuild.';
+          } else {
+            msg +=
+              'Three checks: ' +
+              '(1) open ' + API.replace(/\/api$/, '') + ' in a new tab — if it spins or shows an error, the backend is offline or cold-starting on Render (wait 30 sec and retry); ' +
+              '(2) open DevTools → Network and click the failed request — if you see "CORS" in the message, add this domain to CORS_ORIGINS on the backend env and redeploy; ' +
+              '(3) verify VITE_API_URL in .env.production matches your deployed backend.';
+          }
+          setError(msg);
           setItems([]);
         }
       } finally {
