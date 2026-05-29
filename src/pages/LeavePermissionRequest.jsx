@@ -127,7 +127,7 @@ export default function LeavePermissionRequest({ onBack }) {
   const filterTabs = ['permission', 'leave'];
 
   return (
-    <div className="emp-list-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div className="emp-list-page">
       <div className="emp-list-header">
         <div className="ne-breadcrumb">
           <span className="ne-breadcrumb-link" onClick={onBack}>Dashboard</span>
@@ -233,7 +233,7 @@ export default function LeavePermissionRequest({ onBack }) {
           </div>
         </div>
 
-        <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
+        <div style={{ overflowX: 'auto' }}>
           <table className="emp-table">
             <thead>
               <tr>
