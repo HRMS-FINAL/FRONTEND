@@ -18,7 +18,7 @@ export const MANAGERS = [
   { name: 'Sathish',      title: 'Project Manager' },
   { name: 'Karthick',     title: 'Structural Engineer' },
   { name: 'Anish Kumar',  title: 'CEO' },
-  { name: 'Vinoth',       title: 'Techno Lead Consultant' },
+  { name: 'Vivek',        title: 'Techno Lead Consultant' },
 ];
 
 // Designation list — used as a static fallback if the /api/designations
