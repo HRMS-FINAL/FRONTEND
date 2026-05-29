@@ -128,8 +128,11 @@ export default function Attendance({ onBack, employees = [] }) {
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
         const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s === 'Half Day' ? 'Permission' : s;
+        // Present count folds Late in (employee did come in); the Late
+        // figure is preserved separately so the monthly view can still
+        // surface it.
         setMonthlyOverview({
-          present:    mine.filter(l => norm(l.status) === 'Present').length,
+          present:    mine.filter(l => norm(l.status) === 'Present' || norm(l.status) === 'Late').length,
           late:       mine.filter(l => norm(l.status) === 'Late').length,
           leave:      mine.filter(l => norm(l.status) === 'On Leave').length,
           permission: mine.filter(l => norm(l.status) === 'Permission').length,

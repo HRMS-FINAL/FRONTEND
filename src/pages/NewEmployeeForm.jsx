@@ -107,7 +107,10 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
       if (!form.employeeId) newErrors.employeeId = 'Employee ID is required';
       if (!form.designation) newErrors.designation = 'Designation is required';
       if (!form.salary) newErrors.salary = 'Salary amount is required';
-      if (!form.assignedTo) newErrors.assignedTo = 'Manager assignment is required';
+      // assignedTo is optional — managers themselves (CEO, MD, Project
+      // Manager etc.) have no manager above them. HR can leave this blank
+      // and the row simply has no `assignedTo` in HRMS.
+      // (No validation here.)
     } else if (currentStep === 3) {
       if (!form.degree) newErrors.degree = 'Degree is required';
       if (!form.university) newErrors.university = 'University is required';
@@ -492,7 +495,10 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                     <input type="number" id="salary" className={`form-input ${errors.salary ? 'error' : ''}`} placeholder="Enter salary" value={form.salary} onChange={handleInputChange} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label" htmlFor="assignedTo"><span className="required">*</span> Assigned to (Manager)</label>
+                    <label className="form-label" htmlFor="assignedTo">
+                      Assigned to (Manager)
+                      <span style={{ fontSize: 11, color: '#64748B', marginLeft: 6, fontWeight: 400 }}>(optional — leave blank for top-level roles)</span>
+                    </label>
                     <select
                       id="assignedTo"
                       className={`form-input ${errors.assignedTo ? 'error' : ''}`}

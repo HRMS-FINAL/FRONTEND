@@ -237,6 +237,16 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
     if (errors[field]) setErrors((e) => ({ ...e, [field]: '' }));
   };
 
+  // When the user multi-selects types AND has only typed ONE asset name
+  // (e.g. "DELL"), each type-specific row should still read sensibly in
+  // the Assets table. ID Card rows in particular look wrong if their
+  // name is "DELL" — they should be labelled "ID Card". This helper
+  // returns the name to use for a specific type within a multi-row save.
+  const nameForType = (typeName, typedName) => {
+    if (/id ?card/i.test(typeName)) return 'ID Card';
+    return typedName;
+  };
+
   const validate = () => {
     const e = {};
     if (!foundEmp)                            e.emp        = 'Please look up a valid employee first.';
@@ -297,7 +307,7 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
         const primaryType = editTypes[0];
 
         const primaryPayload = {
-          assetName:    form.assetName.trim(),
+          assetName:    nameForType(primaryType, form.assetName.trim()),
           type:         primaryType,
           employeeId:   foundEmp.employeeId,
           employeeName: foundEmp.name || '',
@@ -320,7 +330,10 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
         for (const t of extras) {
           const suffix = '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase();
           const extraPayload = {
-            assetName:    form.assetName.trim(),
+            // Per-type name so the table doesn't show "DELL" for an ID
+            // Card row; ID Card always reads "ID Card", every other type
+            // inherits the typed brand/model.
+            assetName:    nameForType(t, form.assetName.trim()),
             type:         t,
             employeeId:   foundEmp.employeeId,
             employeeName: foundEmp.name || '',
@@ -353,7 +366,9 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
           ? '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase()
           : '';
         const payload = {
-          assetName:    form.assetName.trim(),
+          // Per-type name: ID Card rows always read "ID Card", everything
+          // else inherits the typed name.
+          assetName:    nameForType(t, form.assetName.trim()),
           type:         t,
           employeeId:   foundEmp.employeeId,
           employeeName: foundEmp.name || '',
