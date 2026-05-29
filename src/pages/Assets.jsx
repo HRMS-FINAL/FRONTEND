@@ -260,7 +260,22 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
     setForm((f) => {
       const has = f.types.includes(t);
       const next = has ? f.types.filter((x) => x !== t) : [...f.types, t];
-      return { ...f, types: next };
+
+      // Convenience: when the user ticks "ID Card" and they haven't typed
+      // a custom name yet, auto-fill the Asset Name to "ID Card" — saves
+      // HR a typing step since the name + type are effectively the same
+      // for ID cards. Doesn't clobber a name the user already typed.
+      let assetName = f.assetName;
+      const newlyAddedIdCard = !has && /id ?card/i.test(t);
+      if (newlyAddedIdCard) {
+        const empty = !assetName || !assetName.trim();
+        // Also overwrite when the existing name was previously set by us
+        // (matches the literal "ID Card") — keeps the UX consistent even
+        // if the user is toggling ID Card on/off.
+        const previouslyAuto = String(assetName).trim().toLowerCase() === 'id card';
+        if (empty || previouslyAuto) assetName = 'ID Card';
+      }
+      return { ...f, types: next, assetName };
     });
   };
 
@@ -1027,5 +1042,35 @@ const styles = {
     color: 'var(--text-light)',
     fontWeight: 600,
     marginTop: 2,
+  },
+
+  // ── Per-employee asset grouping ─────────────────────────────────────
+  empGroup: {
+    borderTop: '1px solid var(--border-color)',
+  },
+  empGroupHeader: {
+    padding: '12px 24px',
+    background: '#F8FAFC',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottom: '1px solid var(--border-color)',
+  },
+
+  // Table headers inside the per-employee accordion.
+  th: {
+    position: 'sticky',
+    top: 0,
+    background: '#f8fafc',
+    zIndex: 5,
+    textAlign: 'left',
+    fontSize: 10,
+    fontWeight: 800,
+    color: 'var(--text-light)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    padding: '10px 14px',
+    boxShadow: 'inset 0 -1px 0 var(--border-color)',
   },
 };

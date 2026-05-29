@@ -416,6 +416,55 @@ export default function LiveTracking() {
     return matchesFilter && matchesSearch;
   });
 
+  // ─── Historical roster (drives the search dropdown) ───────────────
+  // When HR picks a non-live date range, the search/datalist should list
+  // ONLY employees who actually checked in inside that range — not the
+  // full live roster. We fetch /api/attendance/logs once per day in the
+  // range and de-dupe by employeeId+name.
+  const [historicalEmployees, setHistoricalEmployees] = useState([]);
+  useEffect(() => {
+    if (isLive) { setHistoricalEmployees([]); return; }
+    let cancelled = false;
+    (async () => {
+      // Build the list of dates from selectedDate → endDate, inclusive.
+      const start = new Date(selectedDate);
+      const end   = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+        setHistoricalEmployees([]);
+        return;
+      }
+      const dates = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().slice(0, 10));
+      }
+      // Cap at 31 days to keep the burst manageable.
+      const capped = dates.slice(0, 31);
+      try {
+        const seen = new Map();   // key = employeeId || name lowercased
+        await Promise.all(capped.map(async (date) => {
+          const r = await fetch(`${API}/attendance/logs?date=${date}`);
+          const d = await r.json().catch(() => ({}));
+          if (cancelled || !d?.success || !Array.isArray(d.data)) return;
+          for (const row of d.data) {
+            // Only count actual check-ins — skip placeholder rows where
+            // the employee never clocked in.
+            if (!row.checkIn || row.checkIn === '—' || row.checkIn === '--:--') continue;
+            const empId = String(row.employeeId || '').trim();
+            const name  = String(row.employeeName || row.name || '').trim();
+            const key   = empId.toLowerCase() || name.toLowerCase();
+            if (!key || seen.has(key)) continue;
+            seen.set(key, { id: key, name, employeeId: empId });
+          }
+        }));
+        if (cancelled) return;
+        setHistoricalEmployees([...seen.values()].sort((a, b) => a.name.localeCompare(b.name)));
+      } catch {
+        if (!cancelled) setHistoricalEmployees([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLive, selectedDate, endDate]);
+
   // ─── Travel Report (historical mode) ────────────────────────────
   // When HR picks a date range that isn't today AND types an emp ID or
   // name into the search, we replace the map with a Travel Report panel
@@ -590,7 +639,10 @@ export default function LiveTracking() {
                 currently being tracked so HR can pick from a menu instead
                 of typing. */}
             <datalist id="livetrack-employees">
-              {employees.map(e => (
+              {/* In live mode: list everyone currently being tracked.
+                  In historical mode: only employees who actually checked
+                  in inside the selected from→to range. */}
+              {(isLive ? employees : historicalEmployees).map(e => (
                 <option key={e.id} value={e.employeeId || e.name}>{e.name}{e.employeeId ? ' — ' + e.employeeId : ''}</option>
               ))}
             </datalist>

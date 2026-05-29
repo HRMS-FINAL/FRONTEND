@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Megaphone, Plus, Search, Filter, MoreVertical,
-  Calendar, User, Tag, ChevronRight, Send, X, AlertCircle, Trash2
+  Calendar, User, Tag, ChevronRight, Send, X, AlertCircle, Trash2,
+  Paperclip, Download, FileText,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
@@ -35,7 +36,29 @@ const mapApi = (a) => ({
         ? new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
         : ''),
   isNew: a.createdAt ? (Date.now() - new Date(a.createdAt).getTime()) < 1000 * 60 * 60 * 24 * 3 : false,
+  // Attachments — keep the same shape backend stores so the card can render
+  // download links straight from `dataBase64` (inline) or `url` (external).
+  attachments: Array.isArray(a.attachments) ? a.attachments : [],
 });
+
+// Pretty-print bytes for the attachment chip ("184 KB", "2.3 MB").
+function fmtBytes(n) {
+  const x = Number(n) || 0;
+  if (x < 1024) return `${x} B`;
+  if (x < 1024 * 1024) return `${(x / 1024).toFixed(1)} KB`;
+  return `${(x / 1024 / 1024).toFixed(1)} MB`;
+}
+// Trigger a download from inline base64 OR an external URL.
+function downloadAttachment(att) {
+  if (att.dataBase64) {
+    const a = document.createElement('a');
+    a.href = `data:${att.mimeType || 'application/octet-stream'};base64,${att.dataBase64}`;
+    a.download = att.name || 'attachment';
+    document.body.appendChild(a); a.click(); a.remove();
+  } else if (att.url) {
+    window.open(att.url, '_blank', 'noopener');
+  }
+}
 
 export default function Announcements({ onBack }) {
   const { user } = useAuth() || {};
@@ -52,8 +75,47 @@ export default function Announcements({ onBack }) {
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
 
-  const [newPost, setNewPost] = useState({ title: '', content: '', category: 'General', priority: 'Low' });
+  const [newPost, setNewPost] = useState({ title: '', content: '', category: 'General', priority: 'Low', attachments: [] });
   const [postErrors, setPostErrors] = useState({});
+  const [uploadingFile, setUploadingFile] = useState(false);
+  // Cap one file at 5 MB before base64 inflation. The express.json limit
+  // on the server is 12 MB which leaves headroom for a few attachments.
+  const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+  // File picker → base64 in memory → push onto newPost.attachments.
+  const handlePickFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    setUploadingFile(true);
+    try {
+      const next = [];
+      for (const f of files) {
+        if (f.size > MAX_FILE_BYTES) {
+          showNotification(`"${f.name}" is over the 5 MB limit and was skipped.`, 'error');
+          continue;
+        }
+        // Read as data URL and split off the base64 payload.
+        const dataUrl = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload  = () => resolve(r.result);
+          r.onerror = () => reject(r.error);
+          r.readAsDataURL(f);
+        });
+        const base64 = String(dataUrl).split(',')[1] || '';
+        next.push({ name: f.name, mimeType: f.type || 'application/octet-stream', size: f.size, dataBase64: base64 });
+      }
+      if (next.length) {
+        setNewPost(prev => ({ ...prev, attachments: [...prev.attachments, ...next] }));
+      }
+    } catch (err) {
+      showNotification(`Could not read file: ${err?.message || 'unknown'}`, 'error');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+  const removePickedFile = (idx) => {
+    setNewPost(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== idx) }));
+  };
 
   // Load announcements from API on mount. Cache the result to localStorage
   // so subsequent refreshes pick up where the user left off.
@@ -93,8 +155,15 @@ export default function Announcements({ onBack }) {
     if (!newPost.content.trim()) errors.content = 'Content cannot be empty';
     if (Object.keys(errors).length > 0) { setPostErrors(errors); return; }
 
+    // Send the create request and check the response BEFORE closing the
+    // modal. The previous code closed the modal in the finally branch
+    // even when the POST failed (write-gate denial, attachment-too-big,
+    // network blip), which made HR think the announcement was posted —
+    // it then disappeared on the next list refresh because it was never
+    // actually saved.
+    let res;
     try {
-      const res = await fetch(`${API}/announcements`, {
+      res = await fetch(`${API}/announcements`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -104,20 +173,37 @@ export default function Announcements({ onBack }) {
           priority: newPost.priority,
           author:   user?.name || 'HR',
           createdByRole: user?.role || '',
+          attachments: newPost.attachments,
         }),
       });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setAnnouncements(prev => [mapApi(data.data), ...prev]);
-      } else {
-        loadAnnouncements();
-      }
     } catch (err) {
-      console.error('Failed to post announcement:', err);
+      showNotification(`Could not post: ${err?.message || 'network error'}`, 'error');
+      return;
     }
 
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON */ }
+    if (!res.ok || !data?.success) {
+      if (data?.code === 'READ_ONLY') {
+        showNotification('You are signed in as a view-only user. Only HR admins can post announcements.', 'error');
+      } else if (res.status === 413) {
+        showNotification('One of your attachments is too large. Keep each file under 5 MB.', 'error');
+      } else {
+        showNotification(data?.message || `Post failed (HTTP ${res.status})`, 'error');
+      }
+      return;
+    }
+
+    // Server confirmed → insert into the list, close modal, reset form.
+    if (data.data) {
+      setAnnouncements(prev => [mapApi(data.data), ...prev]);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([mapApi(data.data), ...JSON.parse(localStorage.getItem(LS_KEY) || '[]')])); } catch {}
+    } else {
+      loadAnnouncements();
+    }
+    showNotification('Announcement posted.', 'success');
     setShowPostModal(false);
-    setNewPost({ title: '', content: '', category: 'General', priority: 'Low' });
+    setNewPost({ title: '', content: '', category: 'General', priority: 'Low', attachments: [] });
     setPostErrors({});
   };
 
@@ -243,6 +329,35 @@ export default function Announcements({ onBack }) {
               </div>
               <h3 className="a-title">{item.title}</h3>
               <p className="a-content">{item.content}</p>
+
+              {/* Attachments — each chip is a button that pulls the file
+                  out of `dataBase64` (or follows `url` for legacy rows)
+                  and triggers a download. */}
+              {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                  {item.attachments.map((att, i) => (
+                    <button
+                      key={`${item.id}-att-${i}`}
+                      type="button"
+                      onClick={() => downloadAttachment(att)}
+                      title={`Download ${att.name}`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '6px 10px', borderRadius: 6,
+                        background: '#F1F9EE', color: '#15803D',
+                        border: '1px solid #BBF7D0', cursor: 'pointer',
+                        fontSize: 11, fontWeight: 600,
+                      }}
+                    >
+                      <FileText size={12} />
+                      <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name || 'file'}</span>
+                      {att.size ? <span style={{ color: '#64748B', fontWeight: 500 }}>· {fmtBytes(att.size)}</span> : null}
+                      <Download size={12} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="a-footer">
                 <div className="a-meta">
                   <div className="a-meta-item"><User size={13} /> {item.author}</div>
@@ -315,9 +430,66 @@ export default function Announcements({ onBack }) {
                 ></textarea>
                 {postErrors.content && <span className="error-text" style={{ color: '#E53E3E', fontSize: '11px', marginTop: '4px' }}>{postErrors.content}</span>}
               </div>
+              <div className="ne-field">
+                <label className="ne-label">Attachments (optional)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <label
+                    htmlFor="ann-file-input"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '8px 12px', borderRadius: 6,
+                      background: '#F8FAFC', color: '#0F172A',
+                      border: '1px dashed #CBD5E1', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 600,
+                      opacity: uploadingFile ? 0.6 : 1,
+                    }}
+                  >
+                    <Paperclip size={14} /> {uploadingFile ? 'Reading…' : 'Choose files'}
+                  </label>
+                  <input
+                    id="ann-file-input"
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.txt,.csv"
+                    style={{ display: 'none' }}
+                    onChange={(e) => { handlePickFiles(e.target.files); e.target.value = ''; }}
+                  />
+                  <span style={{ fontSize: 11, color: '#64748B' }}>Up to 5 MB per file.</span>
+                </div>
+                {newPost.attachments.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                    {newPost.attachments.map((att, i) => (
+                      <span
+                        key={`pick-${i}`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '5px 10px', borderRadius: 6,
+                          background: '#F1F5F9', color: '#0F172A',
+                          border: '1px solid #E2E8F0', fontSize: 11, fontWeight: 600,
+                        }}
+                      >
+                        <FileText size={12} />
+                        <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                        <span style={{ color: '#64748B', fontWeight: 500 }}>· {fmtBytes(att.size)}</span>
+                        <button
+                          type="button"
+                          onClick={() => removePickedFile(i)}
+                          title="Remove"
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: '#94A3B8' }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="ne-modal-footer">
                 <button type="button" className="ne-btn-secondary" onClick={() => setShowPostModal(false)}>Cancel</button>
-                <button type="submit" className="ne-btn-primary"><Send size={16} /> Post Now</button>
+                <button type="submit" className="ne-btn-primary" disabled={uploadingFile}>
+                  <Send size={16} /> {uploadingFile ? 'Uploading…' : 'Post Now'}
+                </button>
               </div>
             </form>
           </div>

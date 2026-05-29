@@ -269,30 +269,26 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
       return;
     }
 
-    const nameParts = editForm.name.trim().split(' ');
-    const firstName = nameParts[0] || '';
-    const lastName  = nameParts.slice(1).join(' ') || '';
+    const nameParts  = editForm.name.trim().split(' ');
+    const firstName  = nameParts[0] || '';
+    const lastName   = nameParts.slice(1).join(' ') || '';
+    const emailClean = String(editForm.email || '').trim().toLowerCase();
 
-    const updatedEmp = {
-      ...employee,
-      ...editForm,
-      initials: editForm.name.split(' ').map(n => n[0]).join('').toUpperCase()
-    };
-
-    setEmployees(prev => prev.map(emp => emp.id === employee.id ? updatedEmp : emp));
-    setSelectedEmployee(updatedEmp);
-    showNotification("Employee profile updated successfully!", "success");
-    setEditingEmp(null);
-
-    // Persist to API
+    // Persist FIRST, mirror INTO the local list only after the server
+    // confirms the write. The previous code fired an optimistic update
+    // and the "Updated successfully" toast before the PUT, and silently
+    // swallowed every backend error — that's why edits looked like they
+    // saved but then reverted on the next 30 s poll (the polled response
+    // still carried the OLD value because the write actually failed).
+    let res;
     try {
-      await fetch(`${API}/employees/${employee.id}`, {
+      res = await fetch(`${API}/employees/${employee.id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName,
           lastName,
-          email:       editForm.email,
+          email:       emailClean,
           designation: editForm.role,
           department:  editForm.dept,
           assignedTo:  editForm.manager,
@@ -301,9 +297,34 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
           joiningDate: editForm.joiningDate,
         }),
       });
-    } catch {
-      // UI already updated; API sync is best-effort
+    } catch (err) {
+      showNotification(`Could not save: ${err?.message || 'network error'}`, 'error');
+      return;
     }
+
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON */ }
+    if (!res.ok || !data?.success) {
+      if (data?.code === 'READ_ONLY') {
+        showNotification('You are signed in as a view-only user. Only HR admins can edit employees.', 'error');
+      } else if (res.status === 400 && /duplicate/i.test(data?.message || '')) {
+        showNotification('Could not save: that email is already used by another employee.', 'error');
+      } else {
+        showNotification(data?.message || `Save failed (HTTP ${res.status})`, 'error');
+      }
+      return;
+    }
+
+    const updatedEmp = {
+      ...employee,
+      ...editForm,
+      email: emailClean,
+      initials: editForm.name.split(' ').map(n => n[0]).join('').toUpperCase(),
+    };
+    setEmployees(prev => prev.map(emp => emp.id === employee.id ? updatedEmp : emp));
+    setSelectedEmployee(updatedEmp);
+    showNotification("Employee profile updated. Changes are live in the DB.", "success");
+    setEditingEmp(null);
   };
 
   if (!employee) return <div>Employee not found</div>;
