@@ -15,11 +15,23 @@ const mapApiAsset = (a) => ({
   assetName:  a.assetName || '',
   type:       a.type      || 'Laptop',
   employeeId: a.employeeId || '',
+  // employeeName comes from the backend (stamped at create/edit time so
+  // HR sees the actual person's name in the Assets table, not just the
+  // emp ID badge).
+  employeeName: a.employeeName || '',
   serialNo:   a.serialNo  || '',
   issuedDate: a.issuedDate ? a.issuedDate.slice(0, 10) : '',
   condition:  a.condition || 'Good',
   status:     a.status    || 'Assigned',
 });
+
+// Display name to show in the Asset column. ID-Card rows always read
+// "ID Card" regardless of what's saved, so a legacy row whose name is
+// "DELL" still renders correctly. Other types use whatever HR typed.
+const displayAssetName = (asset) => {
+  if (/id ?card/i.test(asset.type || '')) return 'ID Card';
+  return asset.assetName || asset.type || '—';
+};
 
 // Helpers
 const ASSET_TYPES = ['Laptop', 'Monitor', 'Mouse', 'Keyboard', 'ID Card', 'PC', 'Mobile with SIM'];
@@ -680,12 +692,44 @@ export default function Assets({ employees = [] }) {
   };
   useEffect(() => { loadAssets(); }, []);
 
-  // Build employee lookup map
+  // Build employee lookup map. Merges live employees (passed from the
+  // parent — comes from /api/employees) with the static mock as fallback,
+  // and finally lets every asset's own employeeId/employeeName seed the
+  // map. So even if the parent forgot to pass the employees prop, the
+  // group header still shows the right name (because the asset row itself
+  // remembers it).
   const empMap = useMemo(() => {
     const m = {};
-    allEmployees.forEach((e) => { m[e.employeeId] = e; });
+    for (const e of allEmployees) if (e?.employeeId) m[e.employeeId] = e;
+    for (const e of (employees || [])) {
+      if (!e?.employeeId) continue;
+      const initials = (e.name || '').split(' ').filter(Boolean).map(s => s[0]).slice(0,2).join('').toUpperCase() || '??';
+      m[e.employeeId] = {
+        ...m[e.employeeId],
+        employeeId: e.employeeId,
+        name:       e.name        || m[e.employeeId]?.name || e.employeeId,
+        role:       e.role        || e.designation || m[e.employeeId]?.role || '—',
+        dept:       e.dept        || e.department  || m[e.employeeId]?.dept || '—',
+        initials,
+        color:      e.color       || m[e.employeeId]?.color || '#4299E1',
+      };
+    }
+    for (const a of assets) {
+      const id = a.employeeId;
+      if (!id) continue;
+      if (m[id]) continue;
+      const nm = a.employeeName || id;
+      const initials = nm.split(' ').filter(Boolean).map(s => s[0]).slice(0,2).join('').toUpperCase() || '??';
+      m[id] = {
+        employeeId: id,
+        name: nm,
+        role: '—', dept: '—',
+        initials,
+        color: '#4299E1',
+      };
+    }
     return m;
-  }, []);
+  }, [employees, assets]);
 
   // Filter
   const filtered = useMemo(() => {
@@ -865,7 +909,20 @@ export default function Assets({ employees = [] }) {
             </div>
           ) : (
             grouped.map(([empId, empAssets]) => {
-              const emp = empMap[empId] || { name: empId, role: '—', dept: '—', initials: (empId || 'NA').slice(0, 2), color: '#A0AEC0' };
+              // If empMap somehow has no entry, fall back to the
+              // employeeName the asset row itself carries (saved at
+              // create/edit time) so the header still reads as a name,
+              // never just the emp ID echoed twice.
+              const fallbackName = empAssets[0]?.employeeName || empId;
+              const fallbackInitials = fallbackName.split(' ').filter(Boolean)
+                .map(s => s[0]).slice(0, 2).join('').toUpperCase() || (empId || 'NA').slice(0, 2);
+              const emp = empMap[empId] || {
+                name:     fallbackName,
+                role:     '—',
+                dept:     '—',
+                initials: fallbackInitials,
+                color:    '#4299E1',
+              };
               return (
                 <div key={empId} style={styles.empGroup}>
                   {/* Employee header row */}
@@ -941,7 +998,7 @@ export default function Assets({ employees = [] }) {
                                   {typeIcon(asset.type)}
                                 </div>
                                 <div>
-                                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-main)' }}>{asset.assetName}</div>
+                                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-main)' }}>{displayAssetName(asset)}</div>
                                   <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-light)' }}>{asset.id}</div>
                                 </div>
                               </div>
