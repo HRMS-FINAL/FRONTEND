@@ -45,9 +45,12 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
   const [upcomingLeaves, setUpcomingLeaves] = useState([]);
   const [productivity, setProductivity] = useState({
     leavesUsed: 0, permsUsed: 0, permHoursUsed: 0, absent: 0,
-    // LOP (Loss of Pay) — days the employee was absent / on leave beyond
-    // the monthly policy (1 CL + 2 perms). 1/2 LOP is the half-day
-    // equivalent that piles up when permissions exceed quota.
+    lateCount: 0,
+    // LOP (Loss of Pay) — applied when the employee exceeds the monthly
+    // policy (1 CL + 2 perms) or accumulates lates.
+    //   • 1 CL/month free; extra CLs = 1 LOP each.
+    //   • 2 perms/month free; extra perms = 0.5 LOP each (1/2 LOP).
+    //   • Every 3 lates = 0.5 LOP, every 6 lates = 1 LOP.
     lopDays: 0, halfLopDays: 0,
   });
   const [documents, setDocuments] = useState([]);
@@ -98,13 +101,25 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
         const permsUsed     = mine.filter(a => a.status === 'Permission' || a.status === 'Half Day').length;
         const permHoursUsed = permsUsed * 2;
         const absent        = mine.filter(a => a.status === 'Absent').length;
-        // Policy: 1 CL + 2 permissions per month, anything above hits LOP.
-        //   LOP days        = absences + leaves beyond the 1-CL allowance.
-        //   1/2 LOP (half)  = each permission past the 2/month policy is
-        //                     billed as a half-day loss.
-        const lopDays     = Math.max(0, absent + Math.max(0, leavesUsed - 1));
-        const halfLopDays = Math.max(0, permsUsed - 2);
-        setProductivity({ leavesUsed, permsUsed, permHoursUsed, absent, lopDays, halfLopDays });
+        // Late = check-in after 10:01 AM. The day still counts as present
+        // (the employee showed up), but the late tally drives LOP below.
+        const lateCount     = mine.filter(a => a.status === 'Late').length;
+
+        // LOP policy (set by HR 2026-05-28):
+        //   • 1 CL/month free; extras = 1 LOP each.
+        //   • 2 perms/month free; extras = 0.5 LOP each (1/2 LOP).
+        //   • Every 3 lates = 0.5 LOP; every 6 lates = 1 LOP.
+        //   • Absent (no leave taken) = 1 LOP.
+        const excessLeaves = Math.max(0, leavesUsed - 1);
+        const excessPerms  = Math.max(0, permsUsed - 2);
+        const lateFullLop  = Math.floor(lateCount / 6);
+        const lateHalfLop  = (lateCount % 6 >= 3) ? 1 : 0;
+        const lopDays      = excessLeaves + absent + lateFullLop;
+        const halfLopDays  = excessPerms + lateHalfLop;
+        setProductivity({
+          leavesUsed, permsUsed, permHoursUsed, absent, lateCount,
+          lopDays, halfLopDays,
+        });
       })
       .catch(() => {});
 
@@ -351,7 +366,7 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
           <div className="card" style={{ padding: '24px' }}>
             <h3 className="p-card-title" style={{ marginBottom: '6px', fontSize: '16px' }}>Productivity</h3>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
-              This month — policy: 1 CL + 2 perm (2 hrs each)
+              This month — policy: 1 CL + 2 perms (2 hrs each); 3 lates = 1/2 LOP, 6 = 1 LOP
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
@@ -365,6 +380,10 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.absent > 0 ? '#FC8181' : '#4299E1' }}>{productivity.absent}</div>
                 <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Absent</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.lateCount > 0 ? '#ECC94B' : '#4299E1' }}>{productivity.lateCount}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Late</div>
               </div>
               <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.lopDays > 0 ? '#DC2626' : '#4299E1' }}>{productivity.lopDays}</div>

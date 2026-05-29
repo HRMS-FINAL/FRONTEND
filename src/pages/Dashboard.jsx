@@ -83,7 +83,7 @@ export default function Dashboard({
     { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),  trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',       Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'Active Staff',    value: loading ? '...' : activeStaff.toLocaleString(),trend: stats?.cards?.activeStaff?.trend    || '—', up: stats?.cards?.activeStaff?.up    ?? true,  sub: 'currently working',    Icon: UserCheck,  target: 'live-tracking',    color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'On Leave',        value: loading ? '...' : onLeave.toLocaleString(),    trend: stats?.cards?.onLeave?.trend         || '—', up: false,                                     sub: 'today',                Icon: CalendarOff,target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Permission',      value: loading ? '...' : permission.toLocaleString(), trend: stats?.cards?.permission?.trend      || '—', up: stats?.cards?.permission?.up      ?? false, sub: 'requests pending',     Icon: Clock,      target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Permission',      value: loading ? '...' : permission.toLocaleString(), trend: stats?.cards?.permission?.trend      || '—', up: stats?.cards?.permission?.up      ?? false, sub: 'awaiting review',     Icon: Clock,      target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
   ];
 
   return (

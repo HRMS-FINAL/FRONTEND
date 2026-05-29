@@ -95,25 +95,59 @@ export default function Department({ onBack }) {
 
   const handleEdit = (d) => { setOpenMenu(null); setEditTarget({ ...d }); };
 
+  const [savingEdit, setSavingEdit] = useState(false);
   const handleSaveEdit = async (e) => {
-    e.preventDefault();
-    if (!editTarget?.name?.trim()) return;
+    e?.preventDefault?.();
+    const name = String(editTarget?.name || '').trim();
+    const manager = String(editTarget?.manager || '').trim();
+    if (!name) {
+      showNotification('Department name is required.', 'error');
+      return;
+    }
+    if (!editTarget?.id) {
+      showNotification('Cannot identify which department to update.', 'error');
+      return;
+    }
+    setSavingEdit(true);
     try {
       const res = await fetch(`${API}/departments/${editTarget.id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ name: editTarget.name.trim(), manager: editTarget.manager || '' }),
+        body:    JSON.stringify({ name, manager }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        showNotification(data?.message || 'Could not update department', 'error');
+      let data = {};
+      try { data = await res.json(); } catch { /* non-JSON */ }
+
+      // Surface the real failure mode rather than a generic "Could not update".
+      if (!res.ok) {
+        if (data?.code === 'READ_ONLY') {
+          showNotification('You are signed in as a view-only user. Only HR admins can edit departments.', 'error');
+        } else {
+          showNotification(data?.message || `Save failed (HTTP ${res.status})`, 'error');
+        }
         return;
       }
-      showNotification(`Updated "${editTarget.name}"`, 'success');
+      if (!data?.success) {
+        showNotification(data?.message || 'Department update did not succeed.', 'error');
+        return;
+      }
+
+      // Apply the server response optimistically so the row reflects the
+      // edit even before the /departments refetch completes.
+      const fresh = data.data;
+      if (fresh && fresh._id) {
+        setDepartments(prev => prev.map(d => d.id === editTarget.id
+          ? { ...d, name: fresh.name, manager: fresh.manager,
+              managerInitials: (fresh.manager || 'NA').split(' ').map(n => n[0]).join('').toUpperCase() }
+          : d));
+      }
+      showNotification(`Updated "${name}"`, 'success');
       setEditTarget(null);
       refresh();
     } catch (err) {
-      showNotification('Network error: ' + err.message, 'error');
+      showNotification('Network error: ' + (err?.message || 'unknown'), 'error');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -272,7 +306,9 @@ export default function Department({ onBack }) {
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button type="button" className="ne-btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
-                <button type="submit" className="ne-btn-primary"><Check size={16} /> Save Changes</button>
+                <button type="submit" className="ne-btn-primary" disabled={savingEdit}>
+                  <Check size={16} /> {savingEdit ? 'Saving…' : 'Save Changes'}
+                </button>
               </div>
             </form>
           </div>

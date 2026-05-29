@@ -53,31 +53,27 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     const nameParts = editForm.name.trim().split(' ');
     const firstName = nameParts[0] || '';
     const lastName  = nameParts.slice(1).join(' ') || '';
+    const emailClean = String(editForm.email || '').trim().toLowerCase();
 
-    setEmployees(prev => prev.map(emp => {
-      if (emp.id === editingEmp.id) {
-        const initials = editForm.name.split(' ').map(n => n[0]).join('').toUpperCase();
-        return {
-          ...emp,
-          ...editForm,
-          initials
-        };
-      }
-      return emp;
-    }));
-
-    showNotification("Employee profile updated successfully!", "success");
-    setEditingEmp(null);
-
-    // Persist to API
+    // ─── Persist FIRST, then UPDATE UI ───────────────────────────────
+    // The old flow flipped the local list optimistically and showed a
+    // "successfully" toast BEFORE the PUT, then swallowed every backend
+    // error in a silent catch. So when an edit failed (write-gate,
+    // duplicate-email index, validation, network blip), HR saw success
+    // but the DB never changed — which is exactly why editing an
+    // employee's email then trying to log in with the new email on ERM
+    // returned "no employee found". Now we send the request, surface
+    // the real failure, and only mirror it into the local list once
+    // the server confirms the write.
+    let res;
     try {
-      await fetch(`${API}/employees/${editingEmp.id}`, {
+      res = await fetch(`${API}/employees/${editingEmp.id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName,
           lastName,
-          email:       editForm.email,
+          email:       emailClean,
           designation: editForm.role,
           department:  editForm.dept,
           assignedTo:  editForm.manager,
@@ -86,9 +82,40 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
           joiningDate: editForm.joiningDate,
         }),
       });
-    } catch {
-      // UI already updated; API sync is best-effort
+    } catch (err) {
+      showNotification(`Could not save: ${err?.message || 'network error'}`, 'error');
+      return;
     }
+
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON */ }
+    if (!res.ok || !data?.success) {
+      // Surface the actual failure mode instead of pretending it worked.
+      if (data?.code === 'READ_ONLY') {
+        showNotification('You are signed in as a view-only user. Only HR admins can edit employees.', 'error');
+      } else if (res.status === 400 && /duplicate/i.test(data?.message || '')) {
+        showNotification(`Could not save: that email is already used by another employee.`, 'error');
+      } else {
+        showNotification(data?.message || `Save failed (HTTP ${res.status})`, 'error');
+      }
+      return;
+    }
+
+    // ── Server confirmed → mirror into local list and close drawer ──
+    setEmployees(prev => prev.map(emp => {
+      if (emp.id === editingEmp.id) {
+        const initials = editForm.name.split(' ').map(n => n[0]).join('').toUpperCase();
+        return {
+          ...emp,
+          ...editForm,
+          email: emailClean,
+          initials,
+        };
+      }
+      return emp;
+    }));
+    showNotification("Employee profile updated. New email is live in ERM login.", "success");
+    setEditingEmp(null);
   };
 
   const candidateManagers = useMemo(() => {

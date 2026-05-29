@@ -416,6 +416,92 @@ export default function LiveTracking() {
     return matchesFilter && matchesSearch;
   });
 
+  // ─── Travel Report (historical mode) ────────────────────────────
+  // When HR picks a date range that isn't today AND types an emp ID or
+  // name into the search, we replace the map with a Travel Report panel
+  // that lists every petrol + travel allowance for that employee inside
+  // the range, plus totals.
+  const [travelReport, setTravelReport] = useState({ loading: false, rows: [], emp: null });
+
+  // ddmmyyyy fragments used in the title / CSV.
+  const fmtDDMMYYYY = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+  };
+
+  const reportActive = !isLive && search.trim().length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!reportActive) {
+      setTravelReport({ loading: false, rows: [], emp: null });
+      return;
+    }
+    (async () => {
+      setTravelReport((p) => ({ ...p, loading: true }));
+      try {
+        const r = await fetch(`${API}/allowances?limit=500`);
+        const d = await r.json().catch(() => ({}));
+        if (cancelled) return;
+
+        // /api/allowances returns { petrol: [], travel: [] }. Stitch both
+        // lists together with a kind tag so we can group later.
+        const all = [
+          ...(Array.isArray(d?.petrol) ? d.petrol : []).map(x => ({ ...x, kind: 'petrol' })),
+          ...(Array.isArray(d?.travel) ? d.travel : []).map(x => ({ ...x, kind: 'travel' })),
+        ];
+
+        // Match against the typed search — accept emp ID OR a name substring.
+        const needle = search.trim().toLowerCase();
+        const inRange = (dateStr) => {
+          if (!dateStr) return false;
+          // dateStr from the allowance proxy is already yyyy-mm-dd.
+          return dateStr >= selectedDate && dateStr <= endDate;
+        };
+        const matches = all.filter(row => {
+          const a = String(row.empId || row.employeeId || '').toLowerCase();
+          const b = String(row.empName || '').toLowerCase();
+          if (a !== needle && !b.includes(needle)) return false;
+          return inRange(row.date);
+        });
+
+        // Sort by date desc — newest trip first.
+        matches.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+        const first = matches[0];
+        setTravelReport({
+          loading: false,
+          rows: matches,
+          emp: first ? { name: first.empName, employeeId: first.empId || first.employeeId || '' } : null,
+        });
+      } catch {
+        if (!cancelled) setTravelReport({ loading: false, rows: [], emp: null });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reportActive, search, selectedDate, endDate]);
+
+  // CSV export — kept dependency-free so we don't have to import xlsx here.
+  const downloadTravelReportCsv = () => {
+    const header = ['Date', 'Type', 'From', 'To', 'Distance (km)', 'Amount (₹)', 'Status'];
+    const rows = travelReport.rows.map(r => [
+      fmtDDMMYYYY(r.date), r.kind === 'petrol' ? 'Petrol' : 'Travel',
+      r.from || '', r.to || '', r.distance ?? 0, r.amount ?? 0, r.status || '',
+    ]);
+    const csv = [header, ...rows]
+      .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `travel-report_${travelReport.emp?.employeeId || 'employee'}_${selectedDate}_${endDate}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   // Buckets the header + filter tabs are built from.
   const counts = {
     total:   employees.length,
@@ -597,8 +683,127 @@ export default function LiveTracking() {
           </div>
         </div>
 
-        {/* Map Container */}
+        {/* Map Container — replaced by Travel Report panel when historical
+            date range + emp filter are active. */}
         <div className="tracking-map-container">
+          {reportActive && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 5,
+              background: '#fff', display: 'flex', flexDirection: 'column',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '14px 18px', borderBottom: '1px solid var(--border-color)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: '#F8FAFC',
+              }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>
+                    Travel Report
+                    {travelReport.emp ? ` — ${travelReport.emp.name}` : ''}
+                    {travelReport.emp?.employeeId ? ` (${travelReport.emp.employeeId})` : ''}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                    {fmtDDMMYYYY(selectedDate)} → {fmtDDMMYYYY(endDate)} · filter: <b>{search}</b>
+                  </div>
+                </div>
+                <button
+                  onClick={downloadTravelReportCsv}
+                  disabled={travelReport.rows.length === 0}
+                  style={{
+                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                    border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
+                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Download CSV
+                </button>
+              </div>
+
+              {/* Summary tiles */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
+                {(() => {
+                  const rs = travelReport.rows;
+                  const totalKm     = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+                  const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
+                  const trips       = rs.length;
+                  const days        = new Set(rs.map(r => r.date)).size;
+                  const tile = (lbl, val, color) => (
+                    <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>{lbl}</div>
+                    </div>
+                  );
+                  return (
+                    <>
+                      {tile('Trips',           trips,                                '#0F172A')}
+                      {tile('Days Travelled',  days,                                 '#0F172A')}
+                      {tile('Total Distance',  `${totalKm.toFixed(1)} km`,           '#4299E1')}
+                      {tile('Total Amount',    `₹${totalAmount.toLocaleString('en-IN')}`, '#4CAA17')}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Detailed rows */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
+                {travelReport.loading && (
+                  <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading…</div>
+                )}
+                {!travelReport.loading && travelReport.rows.length === 0 && (
+                  <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>
+                    No travel records found for "{search}" between {fmtDDMMYYYY(selectedDate)} and {fmtDDMMYYYY(endDate)}.
+                  </div>
+                )}
+                {!travelReport.loading && travelReport.rows.length > 0 && (
+                  <table className="emp-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>From → To</th>
+                        <th>Distance</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {travelReport.rows.map((r, i) => (
+                        <tr key={i}>
+                          <td><div style={{ fontSize: 12, fontWeight: 700 }}>{fmtDDMMYYYY(r.date)}</div></td>
+                          <td>
+                            <span style={{
+                              fontSize: 10, fontWeight: 800,
+                              padding: '3px 8px', borderRadius: 6,
+                              background: r.kind === 'petrol' ? '#F1F9EE' : '#EFF6FF',
+                              color:      r.kind === 'petrol' ? '#15803D' : '#1D4ED8',
+                              border: '1px solid ' + (r.kind === 'petrol' ? '#BBF7D0' : '#BFDBFE'),
+                              textTransform: 'uppercase', letterSpacing: 0.4,
+                            }}>{r.kind === 'petrol' ? 'Petrol' : 'Travel'}</span>
+                          </td>
+                          <td><div style={{ fontSize: 12 }}>{r.from || '—'} → {r.to || '—'}</div></td>
+                          <td><div style={{ fontSize: 12 }}>{(Number(r.distance) || 0).toFixed(1)} km</div></td>
+                          <td><div style={{ fontSize: 12, fontWeight: 700, color: '#4CAA17' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div></td>
+                          <td>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700,
+                              padding: '3px 8px', borderRadius: 6,
+                              background: r.status === 'Approved' ? '#F0FDF4'
+                                       : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
+                              color:      r.status === 'Approved' ? '#16A34A'
+                                       : r.status === 'Rejected' ? '#DC2626' : '#D97706',
+                            }}>{r.status || 'Pending'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
           <MapContainer
             // Default-centre on the Tesco Structures office (Ashok Nagar
             // Chennai) so the map opens looking at HQ instead of Mumbai.

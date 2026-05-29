@@ -35,8 +35,13 @@ export default function Designation({ onBack }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal]     = useState(false);
   const [designations, setDesignations] = useState(MOCK_DESGS);
-  const [newRole, setNewRole] = useState({ title: '', dept: 'Engineering', minSalary: '', maxSalary: '' });
+  const [newRole, setNewRole] = useState({ title: '', dept: '', minSalary: '', maxSalary: '' });
   const [editTarget, setEditTarget] = useState(null);  // current designation being edited
+  // Live department list — used to populate the Department dropdown
+  // when adding or editing a designation. Pulled from /api/departments
+  // (single source of truth), so when HR creates a new dept in the
+  // Department directory it shows up here on the next mount/refresh.
+  const [deptOptions, setDeptOptions] = useState([]);
 
   // Silently load from API on mount
   useEffect(() => {
@@ -45,6 +50,24 @@ export default function Designation({ onBack }) {
       .then(data => {
         if (data.success && data.data && data.data.length > 0) {
           setDesignations(data.data.map(mapApiDesg));
+        }
+      })
+      .catch(() => {});
+
+    fetch(`${API}/departments`)
+      .then(r => r.json())
+      .then(data => {
+        if (data?.success && Array.isArray(data.data)) {
+          // De-dupe by name (case-insensitive) so a stray duplicate row
+          // in the DB doesn't double-list the same dept in the dropdown.
+          const seen = new Set();
+          const names = [];
+          for (const d of data.data) {
+            const n = String(d?.name || '').trim();
+            const k = n.toLowerCase();
+            if (n && !seen.has(k)) { seen.add(k); names.push(n); }
+          }
+          setDeptOptions(names);
         }
       })
       .catch(() => {});
@@ -65,7 +88,7 @@ export default function Designation({ onBack }) {
     setDesignations(prev => [...prev, tempEntry]);
     showNotification(`Job role "${newRole.title}" added!`, 'success');
     setShowModal(false);
-    setNewRole({ title: '', dept: 'Engineering', minSalary: '', maxSalary: '' });
+    setNewRole({ title: '', dept: '', minSalary: '', maxSalary: '' });
     // Persist to API silently then re-sync
     try {
       await fetch(`${API}/designations`, {
@@ -226,11 +249,22 @@ export default function Designation({ onBack }) {
                 </div>
                 <div className="ne-field" style={{ marginBottom: '20px' }}>
                   <label className="ne-label">Department</label>
-                  <input
+                  <select
                     className="ne-input"
                     value={editTarget.dept || ''}
                     onChange={e => setEditTarget({ ...editTarget, dept: e.target.value })}
-                  />
+                  >
+                    <option value="">— Select department —</option>
+                    {/* Show the existing value first so we don't accidentally
+                        lose it if it isn't in the live deptOptions list yet
+                        (e.g. a legacy dept name that's since been renamed). */}
+                    {editTarget.dept && !deptOptions.includes(editTarget.dept) && (
+                      <option value={editTarget.dept}>{editTarget.dept} (legacy)</option>
+                    )}
+                    {deptOptions.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div className="ne-field">
@@ -278,11 +312,12 @@ export default function Designation({ onBack }) {
                     value={newRole.dept}
                     onChange={e => setNewRole({ ...newRole, dept: e.target.value })}
                   >
-                    <option>Engineering</option>
-                    <option>Design</option>
-                    <option>Sales</option>
-                    <option>Operations</option>
-                    <option>HR</option>
+                    <option value="">— Select department —</option>
+                    {deptOptions.length === 0 ? (
+                      <option value="" disabled>Loading departments…</option>
+                    ) : (
+                      deptOptions.map(d => <option key={d} value={d}>{d}</option>)
+                    )}
                   </select>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

@@ -243,7 +243,7 @@ export default function LeavePermissionRequest({ onBack }) {
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Date Range</th>
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '25%' }}>Reason</th>
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Manager Status</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'right' }}>Actions</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'right' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -300,6 +300,9 @@ export default function LeavePermissionRequest({ onBack }) {
                     </div>
                   </td>
                   <td>
+                    {/* Manager Status is now READ-ONLY here. The manager
+                        does Approve/Reject from ERM Web; HRMS only mirrors
+                        that decision and uses it to gate the Status column. */}
                     {rec.managerStatus === 'Approved' ? (
                       <span style={{
                         fontWeight: 800, fontSize: '10px',
@@ -319,47 +322,21 @@ export default function LeavePermissionRequest({ onBack }) {
                         Rejected
                       </span>
                     ) : (
-                      // Pending — manager hasn't acted yet. Two compact
-                      // buttons let them approve OR reject directly. HR's
-                      // action column stays gated on this outcome.
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          onClick={() => handleManagerAction(rec.id, 'Approved')}
-                          style={{
-                            cursor: 'pointer', fontWeight: 700, fontSize: '10px',
-                            border: '1px solid #C2E7B0',
-                            background: '#F1F9EE', color: '#4CAA17',
-                            padding: '4px 8px', borderRadius: '6px',
-                            display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          }}
-                          title="Approve as Manager"
-                        >
-                          <Check size={11} /> Approve
-                        </button>
-                        <button
-                          onClick={() => handleManagerAction(rec.id, 'Rejected')}
-                          style={{
-                            cursor: 'pointer', fontWeight: 700, fontSize: '10px',
-                            border: '1px solid #FED7D7',
-                            background: '#FFF5F5', color: '#FC8181',
-                            padding: '4px 8px', borderRadius: '6px',
-                            display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          }}
-                          title="Reject as Manager"
-                        >
-                          <X size={11} /> Reject
-                        </button>
-                      </div>
+                      <span style={{
+                        fontWeight: 700, fontSize: '10px',
+                        padding: '4px 8px', borderRadius: '6px',
+                        background: '#F7FAFC', color: '#64748B',
+                        border: '1px solid #E2E8F0', display: 'inline-block',
+                      }}>
+                        Awaiting Manager
+                      </span>
                     )}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     {rec.managerStatus === 'Rejected' ? (
-                      // Manager rejected → HR has nothing to do. Show an
-                      // empty placeholder so the table doesn't collapse
-                      // and HR clearly sees there's no action available.
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px', fontStyle: 'italic' }}>
-                        —
-                      </span>
+                      // Manager rejected → Status column stays EMPTY.
+                      // HR has no action to take; the request is dead.
+                      null
                     ) : rec.status !== 'Pending' ? (
                       <div style={{
                         padding: '8px 12px',

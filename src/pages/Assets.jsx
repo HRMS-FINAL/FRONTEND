@@ -248,14 +248,16 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
   };
 
   /**
-   * Toggle a single asset-type checkbox. On Edit mode we keep this single-
-   * select (you can't change one asset row into many), but on Add we let
-   * HR tick multiple and we'll POST one asset per ticked type below.
+   * Toggle a single asset-type checkbox. Multi-select in BOTH Add and Edit:
+   *   • Add  → POST one row per ticked type.
+   *   • Edit → keep the original row pointed at the first ticked type and
+   *            POST new rows for any extra ticked types. Untoggling a type
+   *            that the original row used reassigns the row to one of the
+   *            other ticked types so the row never gets orphaned.
    */
   const toggleType = (t) => {
     setErrors((cur) => ({ ...cur, types: '' }));
     setForm((f) => {
-      if (isEdit) return { ...f, types: [t] };
       const has = f.types.includes(t);
       const next = has ? f.types.filter((x) => x !== t) : [...f.types, t];
       return { ...f, types: next };
@@ -270,25 +272,58 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
     setSubmitting(true);
     try {
       if (isEdit) {
-        // Edit a single row in place.
-        const payload = {
+        // Multi-select edit:
+        //   • Update the original row to point at form.types[0].
+        //   • For every other ticked type, POST a new row with a
+        //     type-suffixed serial (matches Add-mode behaviour so the
+        //     unique-serial DB constraint can't reject the second row).
+        const baseSerial = form.serialNo.trim();
+        const editTypes  = form.types.slice();
+        const primaryType = editTypes[0];
+
+        const primaryPayload = {
           assetName:    form.assetName.trim(),
-          type:         form.types[0],
+          type:         primaryType,
           employeeId:   foundEmp.employeeId,
           employeeName: foundEmp.name || '',
-          serialNo:     form.serialNo.trim(),
+          serialNo:     baseSerial,
           issuedDate:   form.issuedDate,
           condition:    form.condition,
           status:       form.status,
         };
-        const res  = await fetch(`${API}/assets/${initialAsset._id || initialAsset.id}`, {
+        const res = await fetch(`${API}/assets/${initialAsset._id || initialAsset.id}`, {
           method:  'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
+          body:    JSON.stringify(primaryPayload),
         });
         const data = await res.json();
         if (!data?.success || !data?.data) throw new Error(data?.message || 'Failed to save asset');
         onSave(mapApiAsset(data.data), 'edit');
+
+        // POST extra rows for the additional ticked types.
+        const extras = editTypes.slice(1);
+        for (const t of extras) {
+          const suffix = '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase();
+          const extraPayload = {
+            assetName:    form.assetName.trim(),
+            type:         t,
+            employeeId:   foundEmp.employeeId,
+            employeeName: foundEmp.name || '',
+            serialNo:     baseSerial + suffix,
+            issuedDate:   form.issuedDate,
+            condition:    form.condition,
+            status:       form.status,
+          };
+          const r2 = await fetch(`${API}/assets`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(extraPayload),
+          });
+          const d2 = await r2.json();
+          if (!d2?.success || !d2?.data) throw new Error(d2?.message || `Failed to save ${t}`);
+          onSave(mapApiAsset(d2.data), 'add');
+        }
+
         onClose();
         return;
       }
@@ -464,7 +499,7 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
                       }}
                     >
                       <input
-                        type={isEdit ? 'radio' : 'checkbox'}
+                        type="checkbox"
                         name="asset-type"
                         checked={active}
                         onChange={() => toggleType(t)}

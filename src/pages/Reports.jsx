@@ -168,12 +168,13 @@ export default function Reports({ onBack }) {
       const rows = tableRows.map(r => [
         r.employeeId, r.employeeName, r.department, r.designation,
         r.present, r.late,
-        // Permission + 1/2 LOP (Half-day LOP) replace the duplicate Leave
-        // column.  1/2 LOP = permissions over the 2-per-month policy.
+        // Permission + 1/2 LOP (half-day LOP) replace the duplicate Leave
+        // column. Both LOP figures come from the backend policy calc
+        // (1 CL + 2 perms free, lates count toward LOP).
         r.halfDay || 0,
         r.absent,
         r.lop,
-        Math.max(0, (r.halfDay || 0) - 2),
+        r.halfLop || 0,
         r.status,
       ]);
       autoTable(doc, {
@@ -210,7 +211,7 @@ export default function Reports({ onBack }) {
           'Permission':  r.halfDay || 0,
           'Absent':      r.absent,
           'LOP':         r.lop,
-          '1/2 LOP':     Math.max(0, (r.halfDay || 0) - 2),
+          '1/2 LOP':     r.halfLop || 0,
           'Status':      r.status,
         }))
       : tableRows.map(r => ({
@@ -463,7 +464,7 @@ export default function Reports({ onBack }) {
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfDay || 0) > 0 ? '#9F7AEA' : 'var(--text-main)' }}>{row.halfDay || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.absent > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.absent} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.lop > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.lop} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
-                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (Math.max(0, (row.halfDay || 0) - 2)) > 0 ? '#F97316' : 'var(--text-main)' }}>{Math.max(0, (row.halfDay || 0) - 2)} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
+                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfLop || 0) > 0 ? '#F97316' : 'var(--text-main)' }}>{row.halfLop || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                           </>
                         )}
                         <td><div style={{ fontSize: '12px', color: 'var(--text-light)' }}>{row.manager || '—'}</div></td>
