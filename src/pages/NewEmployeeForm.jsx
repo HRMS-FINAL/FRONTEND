@@ -74,24 +74,11 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
   // Managers shown in the "Assigned to" dropdown = the fixed HR roster
   // PLUS anyone in the live employees list whose designation looks
   // managerial (Head / Manager / Director / Lead). Deduped by name.
-  const managerOptions = React.useMemo(() => {
-    const liveManagers = (employees || [])
-      .map(e => {
-        const name = e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim();
-        const title = typeof e.designation === 'object'
-          ? (e.designation?.title || '')
-          : (e.designation || '');
-        return { name, title };
-      })
-      .filter(m => m.name && /head|manager|director|lead/i.test(m.title || ''));
-    const seen = new Set();
-    const merged = [];
-    [...MANAGERS, ...liveManagers].forEach(m => {
-      const key = m.name.toLowerCase().trim();
-      if (key && !seen.has(key)) { seen.add(key); merged.push(m); }
-    });
-    return merged;
-  }, [employees]);
+  // The dropdown is locked to the canonical MANAGERS list — we no longer
+  // auto-promote anyone in `employees` whose title happens to contain
+  // Head / Manager / Director / Lead. HR explicitly asked for exactly
+  // these 7 people, so a misnamed live employee can't widen the list.
+  const managerOptions = React.useMemo(() => MANAGERS.slice(), []);
 
   const validateStep = () => {
     let newErrors = {};
@@ -111,7 +98,11 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
         newErrors.phone = 'Invalid phone format (min 10 digits)';
       }
     } else if (currentStep === 2) {
-      if (!form.joiningDate) newErrors.joiningDate = 'Joining date is required';
+      if (!form.joiningDate) {
+        newErrors.joiningDate = 'Joining date is required';
+      } else if (!/^\d{2}-\d{2}-\d{4}$/.test(form.joiningDate)) {
+        newErrors.joiningDate = 'Use dd-mm-yyyy format';
+      }
       if (!form.department) newErrors.department = 'Department is required';
       if (!form.employeeId) newErrors.employeeId = 'Employee ID is required';
       if (!form.designation) newErrors.designation = 'Designation is required';
@@ -137,6 +128,36 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
         return n;
       });
     }
+  };
+
+  /**
+   * Joining-date input as dd-mm-yyyy.
+   *
+   * Internally we keep the value in dd-mm-yyyy (the format HR types and
+   * sees on every screen). At submit time we convert to yyyy-mm-dd before
+   * sending to the backend so Mongoose's Date cast still works.
+   */
+  const formatJoiningDateInput = (raw) => {
+    const digits = String(raw || '').replace(/\D/g, '').slice(0, 8);
+    const parts = [];
+    if (digits.length > 0) parts.push(digits.slice(0, 2));
+    if (digits.length > 2) parts.push(digits.slice(2, 4));
+    if (digits.length > 4) parts.push(digits.slice(4, 8));
+    return parts.join('-');
+  };
+  const handleJoiningDateChange = (e) => {
+    const masked = formatJoiningDateInput(e.target.value);
+    setForm(prev => ({ ...prev, joiningDate: masked }));
+    if (errors.joiningDate) {
+      setErrors(prev => { const n = { ...prev }; delete n.joiningDate; return n; });
+    }
+  };
+  // dd-mm-yyyy → yyyy-mm-dd  (returns '' if input is malformed)
+  const ddmmyyyyToIso = (s) => {
+    const m = String(s || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!m) return '';
+    const [_, d, mo, y] = m;
+    return `${y}-${mo}-${d}`;
   };
 
   const nextStep = () => {
@@ -181,7 +202,9 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
       designation:    form.designation,
       role:           form.role || form.designation || 'New Hire',
       employmentType: form.employmentType,
-      joiningDate:    form.joiningDate,
+      // Backend stores joiningDate as a Date. Convert dd-mm-yyyy from the
+      // form to yyyy-mm-dd so Mongoose's Date cast succeeds.
+      joiningDate:    ddmmyyyyToIso(form.joiningDate) || form.joiningDate,
       salary:         form.salary,
       assignedTo:     form.assignedTo,
       dob:            form.dob,
@@ -420,8 +443,20 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                 )}
                 <div className="form-grid">
                   <div className="form-group">
-                    <label className="form-label" htmlFor="joiningDate"><span className="required">*</span> Joining Date</label>
-                    <input type="date" id="joiningDate" className={`form-input ${errors.joiningDate ? 'error' : ''}`} value={form.joiningDate} onChange={handleInputChange} />
+                    <label className="form-label" htmlFor="joiningDate">
+                      <span className="required">*</span> Joining Date
+                      <span style={{ fontSize: 11, color: '#64748B', marginLeft: 6, fontWeight: 400 }}>(dd-mm-yyyy)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="joiningDate"
+                      inputMode="numeric"
+                      placeholder="dd-mm-yyyy"
+                      maxLength={10}
+                      className={`form-input ${errors.joiningDate ? 'error' : ''}`}
+                      value={form.joiningDate}
+                      onChange={handleJoiningDateChange}
+                    />
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="department"><span className="required">*</span> Department</label>

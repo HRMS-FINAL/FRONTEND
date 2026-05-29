@@ -43,7 +43,13 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
 
   // ─── Live data for the detail panels ─────────────────────────────
   const [upcomingLeaves, setUpcomingLeaves] = useState([]);
-  const [productivity, setProductivity] = useState({ leavesUsed: 0, permsUsed: 0, permHoursUsed: 0, absent: 0 });
+  const [productivity, setProductivity] = useState({
+    leavesUsed: 0, permsUsed: 0, permHoursUsed: 0, absent: 0,
+    // LOP (Loss of Pay) — days the employee was absent / on leave beyond
+    // the monthly policy (1 CL + 2 perms). 1/2 LOP is the half-day
+    // equivalent that piles up when permissions exceed quota.
+    lopDays: 0, halfLopDays: 0,
+  });
   const [documents, setDocuments] = useState([]);
   const fileInputRef = useRef(null);
 
@@ -92,7 +98,13 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
         const permsUsed     = mine.filter(a => a.status === 'Permission' || a.status === 'Half Day').length;
         const permHoursUsed = permsUsed * 2;
         const absent        = mine.filter(a => a.status === 'Absent').length;
-        setProductivity({ leavesUsed, permsUsed, permHoursUsed, absent });
+        // Policy: 1 CL + 2 permissions per month, anything above hits LOP.
+        //   LOP days        = absences + leaves beyond the 1-CL allowance.
+        //   1/2 LOP (half)  = each permission past the 2/month policy is
+        //                     billed as a half-day loss.
+        const lopDays     = Math.max(0, absent + Math.max(0, leavesUsed - 1));
+        const halfLopDays = Math.max(0, permsUsed - 2);
+        setProductivity({ leavesUsed, permsUsed, permHoursUsed, absent, lopDays, halfLopDays });
       })
       .catch(() => {});
 
@@ -353,6 +365,14 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
                 <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.absent > 0 ? '#FC8181' : '#4299E1' }}>{productivity.absent}</div>
                 <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Absent</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.lopDays > 0 ? '#DC2626' : '#4299E1' }}>{productivity.lopDays}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>LOP</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.halfLopDays > 0 ? '#F97316' : '#4299E1' }}>{productivity.halfLopDays}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>1/2 LOP</div>
               </div>
             </div>
           </div>

@@ -70,7 +70,10 @@ export default function Dashboard({
   const totalEmp    = stats?.counts?.totalEmployees  ?? 0;
   const activeStaff = stats?.counts?.activeEmployees ?? 0;
   const onLeave     = stats?.counts?.onLeaveToday    ?? 0;
-  const pending     = stats?.counts?.pendingApprovals ?? 0;
+  // Renamed: card now shows pending PERMISSION requests, not all
+  // pending approvals (HR asked for the dashboard tile to spotlight
+  // permission requests specifically).
+  const permission  = stats?.counts?.pendingPermissions ?? 0;
 
   // Department data from API (for pie chart)
   const deptData = stats?.byDepartment ?? [];
@@ -80,7 +83,7 @@ export default function Dashboard({
     { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),  trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',       Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'Active Staff',    value: loading ? '...' : activeStaff.toLocaleString(),trend: stats?.cards?.activeStaff?.trend    || '—', up: stats?.cards?.activeStaff?.up    ?? true,  sub: 'currently working',    Icon: UserCheck,  target: 'live-tracking',    color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'On Leave',        value: loading ? '...' : onLeave.toLocaleString(),    trend: stats?.cards?.onLeave?.trend         || '—', up: false,                                     sub: 'today',                Icon: CalendarOff,target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Pending',         value: loading ? '...' : pending.toLocaleString(),    trend: stats?.cards?.pending?.trend         || '—', up: stats?.cards?.pending?.up         ?? false, sub: 'approvals needed',     Icon: Clock,      target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Permission',      value: loading ? '...' : permission.toLocaleString(), trend: stats?.cards?.permission?.trend      || '—', up: stats?.cards?.permission?.up      ?? false, sub: 'requests pending',     Icon: Clock,      target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
   ];
 
   return (

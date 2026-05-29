@@ -6,20 +6,19 @@
  * Order matches the way HR reads them out.
  */
 
+// Canonical Manager dropdown — locked to these 7. HR can still create
+// employees under any of them, but no other "Head / Manager / Lead"
+// auto-promoted via the live employee list. Anish Kumar's title was
+// updated from BD Head → CEO and the legacy list pared down per the
+// 28-May-26 product brief.
 export const MANAGERS = [
-  { name: 'Vimal Kumar',      title: 'Managing Director' },
-  { name: 'Saleem Khan',      title: 'Sales head' },
-  { name: 'Vishnu K',         title: 'Execution Head' },
-  { name: 'Anish Kumar',      title: 'Business Development Head' },
-  { name: 'Gopinath',         title: 'Design Head' },
-  { name: 'Shanmuga Raja',    title: 'Design Manager' },
-  { name: 'Durga Devi',       title: 'Digital Marketing Manager' },
-  { name: 'Suriya',           title: 'Business Development manager' },
-  { name: 'Surendar',         title: 'Business Development manager' },
-  { name: 'Prabakaran R',     title: 'Business Development manager' },
-  { name: 'Shamma',           title: 'Business Development manager' },
-  { name: 'Praveenraja',      title: 'Business Development manager' },
-  { name: 'Sinduja',          title: 'Technical Lead Consultant' },
+  { name: 'Vimal Kumar',  title: 'Managing Director' },
+  { name: 'Saleem',       title: 'Sales Head' },
+  { name: 'Vishnu',       title: 'Execution Head' },
+  { name: 'Sathish',      title: 'Project Manager' },
+  { name: 'Karthick',     title: 'Structural Engineer' },
+  { name: 'Anish Kumar',  title: 'CEO' },
+  { name: 'Vinoth',       title: 'Techno Lead Consultant' },
 ];
 
 // Designation list — used as a static fallback if the /api/designations

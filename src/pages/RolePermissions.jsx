@@ -27,7 +27,6 @@ export default function RolePermissions({ onBack }) {
     { id: 'employees',    name: 'Employee Directory',    icon: <Users size={18} /> },
     { id: 'payroll',      name: 'Payroll & Finance',     icon: <DollarSign size={18} /> },
     { id: 'attendance',   name: 'Attendance & Leave',    icon: <CalendarCheck size={18} /> },
-    { id: 'performance',  name: 'Performance Metrics',   icon: <TrendingUp size={18} /> },
     { id: 'settings',     name: 'System Settings',       icon: <Settings size={18} /> },
     { id: 'live_tracking',name: 'Live Tracking',         icon: <Activity size={18} /> },
   ];

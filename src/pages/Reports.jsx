@@ -87,8 +87,12 @@ export default function Reports({ onBack }) {
   const metrics = reportId === 'attendance' && attendanceData ? [
     { label: 'Total Present',  value: attendanceData.summary.totalPresent,   icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
     { label: 'Late Arrivals',  value: attendanceData.summary.totalLate,      icon: <AlertCircle size={18} />, color: '#ECC94B', bg: '#FFFFF0' },
-    { label: 'Leave Days',     value: attendanceData.summary.totalLeavedays, icon: <XCircle size={18} />,     color: '#FC8181', bg: '#FFF5F5' },
-    { label: 'Absent Days',    value: attendanceData.summary.totalAbsent,    icon: <Clock size={18} />,       color: '#9F7AEA', bg: '#FAF5FF' },
+    // Leave + Absent collapsed: backend's `totalAbsent` already rolls raw
+    // 'leave' status into 'Absent', so showing both was double-counting in
+    // the eyes of HR. Permission is added in its place so the dashboard
+    // reflects everything HR actually acts on.
+    { label: 'Permission',     value: attendanceData.summary.totalHalfDay     || 0, icon: <Clock size={18} />,    color: '#9F7AEA', bg: '#FAF5FF' },
+    { label: 'Absent Days',    value: attendanceData.summary.totalAbsent      || 0, icon: <XCircle size={18} />,  color: '#FC8181', bg: '#FFF5F5' },
   ] : reportId === 'employee' ? [
     { label: 'Total Employees', value: employeeData.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
     { label: 'Active Staff',    value: employeeData.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
@@ -102,11 +106,11 @@ export default function Reports({ onBack }) {
         const deptMap = {};
         (attendanceData.rows || []).forEach(r => {
           const dept = r.department || 'Unknown';
-          if (!deptMap[dept]) deptMap[dept] = { period: dept, present: 0, late: 0, leave: 0, absent: 0 };
-          deptMap[dept].present += r.present;
-          deptMap[dept].late    += r.late;
-          deptMap[dept].leave   += r.leavedays;
-          deptMap[dept].absent  += r.absent;
+          if (!deptMap[dept]) deptMap[dept] = { period: dept, present: 0, late: 0, permission: 0, absent: 0 };
+          deptMap[dept].present    += r.present;
+          deptMap[dept].late       += r.late;
+          deptMap[dept].permission += (r.halfDay || 0);
+          deptMap[dept].absent     += r.absent;
         });
         return Object.values(deptMap).slice(0, 8);
       })()
@@ -163,11 +167,18 @@ export default function Reports({ onBack }) {
     if (reportId === 'attendance') {
       const rows = tableRows.map(r => [
         r.employeeId, r.employeeName, r.department, r.designation,
-        r.present, r.late, r.leavedays, r.absent, r.lop, r.status
+        r.present, r.late,
+        // Permission + 1/2 LOP (Half-day LOP) replace the duplicate Leave
+        // column.  1/2 LOP = permissions over the 2-per-month policy.
+        r.halfDay || 0,
+        r.absent,
+        r.lop,
+        Math.max(0, (r.halfDay || 0) - 2),
+        r.status,
       ]);
       autoTable(doc, {
         startY: 38,
-        head: [['ID', 'Name', 'Dept', 'Designation', 'Present', 'Late', 'Leave', 'Absent', 'LOP', 'Status']],
+        head: [['ID', 'Name', 'Dept', 'Designation', 'Present', 'Late', 'Permission', 'Absent', 'LOP', '1/2 LOP', 'Status']],
         body: rows,
       });
     } else {
@@ -184,7 +195,33 @@ export default function Reports({ onBack }) {
 
   // ── Export Excel ──────────────────────────────────────────────
   const exportToExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(tableRows);
+    // For attendance reports, reshape so the same columns appear as the
+    // PDF: ID, Name, Dept, Designation, Present, Late, Permission, Absent,
+    // LOP, 1/2 LOP, Status.  Leave is dropped (it duplicates Absent in the
+    // backend rollup); Permission and 1/2 LOP are added.
+    const sheetRows = reportId === 'attendance'
+      ? tableRows.map(r => ({
+          'Emp ID':      r.employeeId,
+          'Name':        r.employeeName,
+          'Department':  r.department,
+          'Designation': r.designation,
+          'Present':     r.present,
+          'Late':        r.late,
+          'Permission':  r.halfDay || 0,
+          'Absent':      r.absent,
+          'LOP':         r.lop,
+          '1/2 LOP':     Math.max(0, (r.halfDay || 0) - 2),
+          'Status':      r.status,
+        }))
+      : tableRows.map(r => ({
+          'Emp ID':      r.employeeId,
+          'Name':        r.employeeName,
+          'Department':  r.department,
+          'Designation': r.designation,
+          'Manager':     r.manager,
+          'Status':      r.status,
+        }));
+    const ws = XLSX.utils.json_to_sheet(sheetRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Report');
     XLSX.writeFile(wb, `${activeReport.label.replace(/ /g, '_')}_${startDate}_${endDate}.xlsx`);
@@ -353,8 +390,8 @@ export default function Reports({ onBack }) {
                   <Legend />
                   <Bar dataKey="present" name="Present"  fill="#4CAA17" radius={[4,4,0,0]} barSize={14} />
                   <Bar dataKey="late"    name="Late"     fill="#ECC94B" radius={[4,4,0,0]} barSize={14} />
-                  <Bar dataKey="leave"   name="Leave"    fill="#FC8181" radius={[4,4,0,0]} barSize={14} />
-                  <Bar dataKey="absent"  name="Absent"   fill="#9F7AEA" radius={[4,4,0,0]} barSize={14} />
+                  <Bar dataKey="permission" name="Permission" fill="#9F7AEA" radius={[4,4,0,0]} barSize={14} />
+                  <Bar dataKey="absent"     name="Absent"     fill="#FC8181" radius={[4,4,0,0]} barSize={14} />
                 </BarChart>
               ) : (
                 <BarChart data={chartData} barGap={4}>
@@ -395,9 +432,10 @@ export default function Reports({ onBack }) {
                         <>
                           <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Present</th>
                           <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Late</th>
-                          <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Leave</th>
+                          <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Permission</th>
                           <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Absent</th>
                           <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>LOP</th>
+                          <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>1/2 LOP</th>
                         </>
                       )}
                       <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Manager</th>
@@ -422,9 +460,10 @@ export default function Reports({ onBack }) {
                           <>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{row.present} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.late > 0 ? '#ECC94B' : 'var(--text-main)' }}>{row.late} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>times</span></div></td>
-                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{row.leavedays} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
+                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfDay || 0) > 0 ? '#9F7AEA' : 'var(--text-main)' }}>{row.halfDay || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.absent > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.absent} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.lop > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.lop} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
+                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (Math.max(0, (row.halfDay || 0) - 2)) > 0 ? '#F97316' : 'var(--text-main)' }}>{Math.max(0, (row.halfDay || 0) - 2)} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                           </>
                         )}
                         <td><div style={{ fontSize: '12px', color: 'var(--text-light)' }}>{row.manager || '—'}</div></td>
