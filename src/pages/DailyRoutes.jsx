@@ -27,12 +27,19 @@ function todayISO() {
 function fmtTime(d) {
   if (!d) return '—';
   try {
-    const dt = new Date(d);
+    // If the backend sent a UTC ISO without the trailing Z, JS would
+    // parse it as local time and the displayed hours would be 5h30m off
+    // for IST users. Force a Z suffix on ambiguous strings, then format
+    // in Asia/Kolkata so the times match what the employee actually saw
+    // on their phone.
+    let raw = String(d);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(raw)) raw += 'Z';
+    const dt = new Date(raw);
     if (isNaN(dt.getTime())) return '—';
-    let h = dt.getHours(); const m = dt.getMinutes();
-    const ap = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ap}`;
+    return dt.toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    }).replace(/\s+/g, ' ');
   } catch { return '—'; }
 }
 // Small reusable stat tile so the four headline numbers all share the
@@ -181,16 +188,25 @@ export default function DailyRoutes({ onBack }) {
           try {
             const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
             const j = await r.json().catch(() => ({}));
-            // The mobile backend has been observed to wrap points under
-            // several keys depending on which path it took — try them all.
-            const pts = Array.isArray(j?.route)        ? j.route :
+            // The mobile backend returns points under `polyline` (same key
+            // RouteMapModal reads). Older paths used `route` / `points` so
+            // we accept all three shapes to be safe.
+            const pts = Array.isArray(j?.polyline)     ? j.polyline :
+                        Array.isArray(j?.route)        ? j.route :
                         Array.isArray(j?.points)       ? j.points :
-                        Array.isArray(j?.data?.route)  ? j.data.route :
-                        Array.isArray(j?.data?.points) ? j.data.points : [];
+                        Array.isArray(j?.data?.polyline) ? j.data.polyline :
+                        Array.isArray(j?.data?.route)    ? j.data.route :
+                        Array.isArray(j?.data?.points)   ? j.data.points : [];
             const norm = pts
               .map(p => ({ lat: Number(p.lat ?? p.latitude), lng: Number(p.lng ?? p.longitude) }))
               .filter(p => isFinite(p.lat) && isFinite(p.lng));
-            const km = polylineKm(norm);
+            // Prefer the backend's own totalDistanceKm if it's non-zero —
+            // it's computed from the same polyline upstream and usually
+            // matches our local sum to within rounding. If it's 0, we use
+            // our own client-side polyline sum so HR sees the real number.
+            const serverKm = Number(j?.totalDistanceKm ?? j?.data?.totalDistanceKm ?? 0);
+            const localKm  = polylineKm(norm);
+            const km       = serverKm > 0 ? serverKm : localKm;
             if (cancelled) return;
             setGpsByEmp(prev => ({ ...prev, [empId]: { km, points: norm.length, loading: false } }));
           } catch {
@@ -436,6 +452,7 @@ export default function DailyRoutes({ onBack }) {
                             cursor: 'pointer',
                           }}
                         >
+                          <MapPin size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                           View Route
                         </button>
                       </td>
@@ -450,6 +467,7 @@ export default function DailyRoutes({ onBack }) {
 
       {routeRow && (
         <RouteMapModal
+          open={true}
           employeeId={routeRow.employeeId}
           employeeName={routeRow.name}
           date={date}

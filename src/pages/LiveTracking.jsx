@@ -635,10 +635,15 @@ export default function LiveTracking() {
             const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${date}`);
             const d = await r.json().catch(() => ({}));
             if (cancelled || !d?.success) return;
-            const pts = Array.isArray(d.route) ? d.route :
-                        Array.isArray(d.points) ? d.points :
-                        Array.isArray(d.data?.route) ? d.data.route :
-                        Array.isArray(d.data?.points) ? d.data.points : [];
+            // Mobile backend returns the polyline under `polyline` (same
+            // key RouteMapModal reads). Older paths used `route`/`points`,
+            // so accept all three shapes.
+            const pts = Array.isArray(d.polyline)        ? d.polyline :
+                        Array.isArray(d.route)           ? d.route :
+                        Array.isArray(d.points)          ? d.points :
+                        Array.isArray(d.data?.polyline)  ? d.data.polyline :
+                        Array.isArray(d.data?.route)     ? d.data.route :
+                        Array.isArray(d.data?.points)    ? d.data.points : [];
             for (const p of pts) {
               const lat = Number(p.lat ?? p.latitude);
               const lng = Number(p.lng ?? p.longitude);
@@ -1219,7 +1224,7 @@ export default function LiveTracking() {
                             padding: '3px 8px', borderRadius: 6,
                             background: r.status === 'Approved' ? '#F0FDF4'
                                      : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
-                            color:      r.status === 'Approved' ? '#16A34A'
+                                                        color:      r.status === 'Approved' ? '#16A34A'
                                      : r.status === 'Rejected' ? '#DC2626' : '#D97706',
                           }}>{r.status || 'Pending'}</span>
                         </td>
