@@ -35,8 +35,30 @@ const STATUS_LABEL = {
   offline:    'Offline',
 };
 
-/** Collapse the backend's four raw statuses into the three HR buckets. */
-function bucketOf(status) {
+// Haversine — straight-line distance (metres) between two lat/lng pairs.
+// Cheap enough to run on every employee on every render; the row count
+// is small (tens, not thousands) so we don't bother memoising.
+function distMeters(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some(v => typeof v !== 'number' || !isFinite(v))) return Infinity;
+  const R = 6371000;                       // earth radius in metres
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * Collapse the backend's raw statuses into the three HR buckets. When a
+ * GPS distance to the office is supplied, anyone INSIDE the office
+ * radius is forced into the 'office' bucket regardless of what their
+ * raw status says — so an employee who is physically at the office but
+ * is technically 'active' shows up correctly under "In Office".
+ */
+function bucketOf(status, distToOfficeM, radiusM) {
+  if (typeof distToOfficeM === 'number' && distToOfficeM <= (radiusM || 200)) return 'office';
   if (status === 'office')                            return 'office';
   if (status === 'travelling' || status === 'active') return 'active';
   return 'offline';                                   // idle + offline + anything else
@@ -331,6 +353,13 @@ export default function LiveTracking() {
   // here — the data is at most ~2 min old by design.
   const [liveEmployees, setLiveEmployees] = useState([]);
   const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, radiusM: 200, name: 'Tesco Structures HQ' });
+  // Designated office anchor — by HR's request the canonical office
+  // location is wherever PAVITHRA is currently pinging from (she sits
+  // in the office). Match by first name OR employeeId (TES018) so a
+  // typo in either side still works. If she's offline / no GPS, we
+  // fall through to whatever the backend gave us.
+  const OFFICE_ANCHOR = { name: /^pavithra/i, employeeId: 'TES018' };
+  const RADIUS_M      = 200;
   // Drives the spinner on the Force Refresh button so the click feels
   // responsive and we can prevent rapid-fire double fetches.
   const [refreshing, setRefreshing]   = useState(false);
@@ -381,7 +410,7 @@ export default function LiveTracking() {
           // Colour from the collapsed bucket so the dot in the
           // sidebar/map matches the header tile and filter tab the
           // employee falls under.
-          color:      STATUS_COLOR[bucketOf(e.status)] || STATUS_COLOR.offline,
+          color:      STATUS_COLOR[bucketOf(e.status)] || STATUS_COLOR.offline,  // (live mode tile colour — left alone; sidebar uses e.bucket)
         }));
       setLiveEmployees(rows);
       setLastUpdated(new Date());
@@ -405,11 +434,27 @@ export default function LiveTracking() {
     return () => { cancelledRef.current = true; clearInterval(id); };
   }, [isLive, loadLive]);
 
-  const employees = liveEmployees;
+  // Resolve the office anchor lazily on every render so HR sees the
+  // office move with Pavithra if she ever clocks in from a new desk.
+  const anchorRow = liveEmployees.find(e =>
+    String(e.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId ||
+    OFFICE_ANCHOR.name.test(String(e.name || ''))
+  );
+  const effectiveOffice = (anchorRow && typeof anchorRow.lat === 'number' && typeof anchorRow.lng === 'number')
+    ? { lat: anchorRow.lat, lng: anchorRow.lng, radiusM: RADIUS_M, name: 'Office (' + (anchorRow.name || 'anchor') + ')' }
+    : office;
+
+  // Attach distance-to-office + the resolved bucket on every employee so
+  // we don't recompute it inline three times in the renderer.
+  const employees = liveEmployees.map(e => {
+    const dMeters = distMeters(e.lat, e.lng, effectiveOffice.lat, effectiveOffice.lng);
+    return { ...e, distMeters: dMeters, bucket: bucketOf(e.status, dMeters, effectiveOffice.radiusM) };
+  });
+
   const visible   = employees.filter(e => {
     // All filtering happens at the bucket level so the three header tiles
     // and three filter tabs always agree on what each label means.
-    const matchesFilter = filter === 'all' || bucketOf(e.status) === filter;
+    const matchesFilter = filter === 'all' || e.bucket === filter;
     const matchesSearch = !search ||
       e.name.toLowerCase().includes(search.toLowerCase()) ||
       e.employeeId.toLowerCase().includes(search.toLowerCase());
@@ -559,9 +604,9 @@ export default function LiveTracking() {
   // Buckets the header + filter tabs are built from.
   const counts = {
     total:   employees.length,
-    active:  employees.filter(e => bucketOf(e.status) === 'active').length,
-    office:  employees.filter(e => bucketOf(e.status) === 'office').length,
-    offline: employees.filter(e => bucketOf(e.status) === 'offline').length,
+    active:  employees.filter(e => e.bucket === 'active').length,
+    office:  employees.filter(e => e.bucket === 'office').length,
+    offline: employees.filter(e => e.bucket === 'offline').length,
   };
 
   return (
@@ -864,7 +909,7 @@ export default function LiveTracking() {
           <MapContainer
             // Default-centre on the Tesco Structures office (Ashok Nagar
             // Chennai) so the map opens looking at HQ instead of Mumbai.
-            center={[office.lat, office.lng]} zoom={13}
+            center={[effectiveOffice.lat, effectiveOffice.lng]} zoom={13}
             style={{ width: '100%', height: '100%' }}
             zoomControl={true} attributionControl={false}
           >
@@ -891,8 +936,8 @@ export default function LiveTracking() {
             <MapFlyTo target={selected} />
 
             {/* Office pin */}
-            <Marker position={[office.lat, office.lng]} icon={makeStartIcon()}>
-              <Popup>{office.name || 'Office'}</Popup>
+            <Marker position={[effectiveOffice.lat, effectiveOffice.lng]} icon={makeStartIcon()}>
+              <Popup>{effectiveOffice.name || 'Office'}</Popup>
             </Marker>
 
             {/* Travel polylines for travelling employees */}
@@ -903,7 +948,7 @@ export default function LiveTracking() {
                   key={`trail-${emp.id}`}
                   positions={emp.route.map((p) => [p.lat, p.lng])}
                   pathOptions={{
-                    color:     STATUS_COLOR[bucketOf(emp.status)] || '#9F7AEA',
+                    color:     STATUS_COLOR[emp.bucket] || '#9F7AEA',
                     weight:    selected?.id === emp.id ? 5 : 3,
                     opacity:   selected?.id === emp.id ? 0.95 : 0.65,
                     dashArray: '6 8',
