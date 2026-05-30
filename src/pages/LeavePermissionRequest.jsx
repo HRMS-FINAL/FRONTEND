@@ -127,7 +127,22 @@ export default function LeavePermissionRequest({ onBack }) {
   const filterTabs = ['permission', 'leave'];
 
   return (
-    <div className="emp-list-page">
+    // Override the global .emp-list-page rules (`flex: 1`, `min-height: 0`,
+    // `overflow-y: auto`) which cap the page to the viewport and force the
+    // table into an inner scroll. HR couldn't see the full Pending Leave
+    // Requests list because of that. With `flex: 'unset'`, `minHeight:
+    // 'auto'`, `height: 'auto'`, `overflow: 'visible'` the page grows to
+    // its content's natural height and the BROWSER WINDOW scrolls — every
+    // row is reachable just by scrolling the page itself.
+    <div
+      className="emp-list-page"
+      style={{
+        flex: 'unset',
+        minHeight: 'auto',
+        height: 'auto',
+        overflow: 'visible',
+      }}
+    >
       <div className="emp-list-header">
         <div className="ne-breadcrumb">
           <span className="ne-breadcrumb-link" onClick={onBack}>Dashboard</span>

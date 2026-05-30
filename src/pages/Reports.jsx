@@ -94,9 +94,9 @@ export default function Reports({ onBack }) {
     { label: 'Permission',     value: attendanceData.summary.totalHalfDay     || 0, icon: <Clock size={18} />,    color: '#9F7AEA', bg: '#FAF5FF' },
     { label: 'Absent Days',    value: attendanceData.summary.totalAbsent      || 0, icon: <XCircle size={18} />,  color: '#FC8181', bg: '#FFF5F5' },
   ] : reportId === 'employee' ? [
-    { label: 'Total Employees', value: employeeData.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
-    { label: 'Active Staff',    value: employeeData.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
-    { label: 'On Leave',        value: employeeData.filter(e => e.status === 'On Leave').length,                        icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
+    { label: 'Total Employees', value: employeeDataInRange.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
+    { label: 'Active Staff',    value: employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
+    { label: 'On Leave',        value: employeeDataInRange.filter(e => e.status === 'On Leave').length,                icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
   ] : [];
 
   // ── Chart data from real API ──────────────────────────────────
@@ -117,7 +117,7 @@ export default function Reports({ onBack }) {
     : reportId === 'employee'
     ? (() => {
         const deptMap = {};
-        employeeData.forEach(e => {
+        employeeDataInRange.forEach(e => {
           const dept = (typeof e.department === 'object' ? e.department?.name : e.department) || 'Unknown';
           if (!deptMap[dept]) deptMap[dept] = { period: dept, active: 0, leave: 0 };
           if (e.status === 'On Leave') deptMap[dept].leave++;
@@ -127,10 +127,29 @@ export default function Reports({ onBack }) {
       })()
     : [];
 
+  // ── Date-filtered Employee Master ─────────────────────────────
+  // An employee belongs in the report for the selected date range when:
+  //   • they joined on or before endDate (already on payroll), AND
+  //   • they hadn't left before startDate (still active during the span).
+  // Date strings from the API are ISO (YYYY-MM-DD), so plain string
+  // comparison works as a date comparison.
+  const employeeDataInRange = React.useMemo(() => {
+    if (reportId !== 'employee') return employeeData;
+    const start = String(startDate || '');
+    const end   = String(endDate   || '');
+    return employeeData.filter(e => {
+      const joined = String(e.joiningDate || '').slice(0, 10);
+      if (start && joined && joined > end)   return false;  // joined AFTER the range
+      const left   = String(e.terminationDate || e.exitDate || '').slice(0, 10);
+      if (left && start && left < start)     return false;  // left BEFORE the range
+      return true;
+    });
+  }, [employeeData, startDate, endDate, reportId]);
+
   // ── Table rows ────────────────────────────────────────────────
   const tableRows = reportId === 'attendance'
     ? (attendanceData?.rows || [])
-    : employeeData.filter(e => e.isActive !== false && e.status !== 'Terminated').map(e => {
+    : employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').map(e => {
         // Reject raw ObjectId strings — fall through to the denormalised
         // departmentName / designationTitle sidecar fields, then to '—'.
         const isHexId = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s);
