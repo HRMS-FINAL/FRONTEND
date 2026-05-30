@@ -82,9 +82,26 @@ function MapResizer({ sidebarOpen }) {
   return null;
 }
 
-/** Collapse the backend's raw status into HR's three buckets — keeps the
-    dashboard widget in sync with the full Live Tracking page. */
-function bucketOf(status) {
+// Haversine distance in metres. Mirror of LiveTracking.jsx so the
+// dashboard widget and the full Live Tracking page agree.
+function distMeters(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some(v => typeof v !== 'number' || !isFinite(v))) return Infinity;
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Collapse the backend's raw status into HR's three buckets. When a
+    GPS distance to the office is provided, anyone inside the radius is
+    forced into the 'office' bucket — keeps the dashboard widget in sync
+    with the full Live Tracking page (which uses the same rule). */
+function bucketOf(status, distToOfficeM, radiusM) {
+  if (typeof distToOfficeM === 'number' && distToOfficeM <= (radiusM || 200)) return 'office';
   if (status === 'office')                            return 'office';
   if (status === 'travelling' || status === 'active') return 'active';
   return 'offline';
@@ -97,6 +114,11 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // Live Tracking page uses, so counts/markers match exactly.
   const [employees, setEmployees] = useState([]);
   const [office,    setOffice]    = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
+  // The canonical office is wherever PAVITHRA is currently pinging from
+  // (she sits in the office). Match by first name OR employeeId so a
+  // typo in either side still works.  Mirror of LiveTracking.jsx.
+  const OFFICE_ANCHOR = { name: /^pavithra/i, employeeId: 'TES018' };
+  const RADIUS_M      = 200;
 
   const loadLive = React.useCallback(async () => {
     try {
@@ -104,7 +126,7 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
       const d = await r.json().catch(() => ({}));
       if (!d?.success || !Array.isArray(d.data)) return;
       if (d.office) setOffice(d.office);
-      const rows = d.data
+      const rawRows = d.data
         .filter(e => e.lat != null && e.lng != null)
         .map(e => ({
           id:         e._id,
@@ -120,10 +142,30 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
                         ? new Date(e.lastSeen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
                         : '—',
           initials:   (e.name || '?').split(' ').map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '??',
-          color:      bucketOf(e.status) === 'office' ? '#3b82f6'
-                    : bucketOf(e.status) === 'active' ? '#4CAA17'
-                    :                                   '#A0AEC0',
         }));
+
+      // Resolve the office anchor and compute bucket + colour for each row.
+      const anchor = rawRows.find(r =>
+        String(r.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId ||
+        OFFICE_ANCHOR.name.test(String(r.name || ''))
+      );
+      const officePt = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
+        ? { lat: anchor.lat, lng: anchor.lng, radiusM: RADIUS_M, name: 'Office (' + (anchor.name || 'anchor') + ')' }
+        : { ...office, radiusM: RADIUS_M };
+      // Persist the anchored office so the map centre + marker move.
+      setOffice(officePt);
+
+      const rows = rawRows.map(r => {
+        const distMTo = distMeters(r.lat, r.lng, officePt.lat, officePt.lng);
+        const bucket  = bucketOf(r.status, distMTo, officePt.radiusM);
+        return {
+          ...r,
+          bucket,
+          color: bucket === 'office' ? '#3b82f6'
+               : bucket === 'active' ? '#4CAA17'
+               :                       '#A0AEC0',
+        };
+      });
       setEmployees(rows);
     } catch { /* network — keep current */ }
   }, []);
@@ -144,9 +186,9 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
 
   // Counts use the three HR buckets so the badge numbers agree with the
   // full Live Tracking page's header tiles.
-  const active   = employees.filter(e => bucketOf(e.status) === 'active').length;
-  const office_  = employees.filter(e => bucketOf(e.status) === 'office').length;
-  const offline_ = employees.filter(e => bucketOf(e.status) === 'offline').length;
+  const active   = employees.filter(e => e.bucket === 'active').length;
+  const office_  = employees.filter(e => e.bucket === 'office').length;
+  const offline_ = employees.filter(e => e.bucket === 'offline').length;
 
   // When the user types into the search box, automatically fly the map to
   // the best match. The fly-to target is:
