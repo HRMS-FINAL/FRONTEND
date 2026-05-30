@@ -474,11 +474,16 @@ export default function LiveTracking() {
 
   // ddmmyyyy fragments used in the title / CSV.
   const fmtDDMMYYYY = (iso) => {
-    if (!iso) return '';
+  if (!iso) return '';
+  try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
-    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-  };
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  } catch { return String(iso); }
+};
 
   const reportActive = !isLive && search.trim().length > 0;
 
@@ -567,11 +572,11 @@ export default function LiveTracking() {
             <h1 className="page-title">{isLive ? 'Live Employee Tracking' : 'Historical Tracking'}</h1>
             <div className="live-status-indicator" style={!isLive ? { background: '#EDF2F7', color: '#4A5568', borderColor: '#E2E8F0' } : {}}>
               {isLive && <span className="live-dot" />}
-              {isLive ? 'Live Feed' : new Date(selectedDate).toLocaleDateString()}
+              {isLive ? 'Live Feed' : new Date(selectedDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}
             </div>
           </div>
           <p className="page-subtitle">
-            {isLive ? 'Monitoring real-time onsite staff movements and deployment status' : `Reviewing staff movements and routes from ${new Date(selectedDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`}
+            {isLive ? 'Monitoring real-time onsite staff movements and deployment status' : `Reviewing staff movements and routes from ${new Date(selectedDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')} to ${new Date(endDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}`}
           </p>
         </div>
         <div className="header-right">

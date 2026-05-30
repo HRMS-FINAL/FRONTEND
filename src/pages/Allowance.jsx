@@ -35,6 +35,10 @@ export default function Allowance({ onBack }) {
   const [petrolRequests, setPetrolRequests] = useState(cached.petrol);
   const [travelRequests, setTravelRequests] = useState(cached.travel);
   const [loading,        setLoading]        = useState(true);
+  // Approval modal — opens when HR clicks Approve so they can enter the
+  // amount they're signing off on (≤ requested amount). The rejected
+  // portion is computed automatically and shown to HR before submit.
+  const [approvalModal, setApprovalModal] = useState(null);   // { req, type } | null
 
   // Load + poll: refetch every 30s so newly-submitted mobile requests show
   // up without a page refresh. The /api/allowances response is already
@@ -81,7 +85,7 @@ export default function Allowance({ onBack }) {
   // HR Approve/Reject — optimistically flip locally, then PATCH the
   // mobile backend through the HRMS proxy. Backend fires an in-app
   // notification to the employee on a real status transition.
-  const handleAction = async (id, action, type) => {
+  const handleAction = async (id, action, type, extras = {}) => {
     const newStatus = action === 'approve' ? 'Approved' : 'Rejected';
     const setList   = type === 'petrol' ? setPetrolRequests : setTravelRequests;
     const sourceArr = type === 'petrol' ? petrolRequests   : travelRequests;
@@ -91,24 +95,70 @@ export default function Allowance({ onBack }) {
       showNotification('Cannot process — Manager has not approved yet.', 'error');
       return;
     }
-    setList(prev => prev.map(req => req.id === id ? { ...req, status: newStatus } : req));
+    // Compute the breakdown locally so the row reflects it instantly.
+    const requested      = Number(target?.amount) || 0;
+    const approvedAmount = action === 'approve'
+      ? Math.max(0, Math.min(Number(extras.approvedAmount) || 0, requested))
+      : 0;
+    const rejectedAmount = action === 'approve'
+      ? Math.max(0, requested - approvedAmount)
+      : requested;
+    setList(prev => prev.map(req => req.id === id
+      ? { ...req, status: newStatus, approvedAmount, rejectedAmount, amountComment: extras.amountComment || req.amountComment || '' }
+      : req));
     try {
       const res = await fetch(`${API}/allowances/${target?._id || id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          status:    newStatus.toLowerCase(),
-          reviewedBy:'HR',
+          status:        newStatus.toLowerCase(),
+          reviewedBy:    'HR',
+          approvedAmount,
+          amountComment: extras.amountComment || '',
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
-      showNotification(`Request ${id} ${newStatus}!`, action === 'approve' ? 'success' : 'error');
+      const breakdown = action === 'approve' && rejectedAmount > 0
+        ? ` (₹${approvedAmount.toLocaleString('en-IN')} approved · ₹${rejectedAmount.toLocaleString('en-IN')} rejected)`
+        : '';
+      showNotification(`Request ${id} ${newStatus}!${breakdown}`, action === 'approve' ? 'success' : 'error');
     } catch (err) {
       // Roll back optimistic update if the server rejected it.
       setList(prev => prev.map(req => req.id === id ? { ...req, status: target?.status || 'Pending' } : req));
       showNotification(`Could not save: ${err.message}`, 'error');
     }
+  };
+
+  // Open the Approval modal — HR enters the amount they're signing off
+  // on, the modal previews the rejected portion, then triggers
+  // handleAction('approve', …) with the breakdown.
+  const openApprovalModal = (req, type) => {
+    if (req?.managerStatus !== 'Approved') {
+      showNotification('Cannot process — Manager has not approved yet.', 'error');
+      return;
+    }
+    setApprovalModal({
+      req,
+      type,
+      approvedAmount: String(req.amount || ''),  // start with full claim
+      amountComment:  '',
+    });
+  };
+  const closeApprovalModal = () => setApprovalModal(null);
+  const submitApproval = () => {
+    if (!approvalModal) return;
+    const requested = Number(approvalModal.req.amount) || 0;
+    const approved  = Number(approvalModal.approvedAmount) || 0;
+    if (approved < 0 || approved > requested) {
+      showNotification(`Approved amount must be between 0 and ₹${requested.toLocaleString('en-IN')}`, 'error');
+      return;
+    }
+    handleAction(approvalModal.req.id, 'approve', approvalModal.type, {
+      approvedAmount: approved,
+      amountComment:  approvalModal.amountComment,
+    });
+    closeApprovalModal();
   };
 
   return (
@@ -240,7 +290,7 @@ export default function Allowance({ onBack }) {
                         {/* Manager status is set ONLY from ERM Web now —
                             HR no longer has inline approve/reject here. */}
                         {!req.managerStatus && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F1F5F9', color: '#64748B' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>
                             <Clock size={12} /> Awaiting Manager
                           </span>
                         )}
@@ -263,7 +313,7 @@ export default function Allowance({ onBack }) {
                         ) : req.managerStatus === 'Approved' ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button
-                              onClick={() => handleAction(req.id, 'approve', 'petrol')}
+                              onClick={() => openApprovalModal(req, 'petrol')}
                               style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                             >
                               Approve
@@ -276,7 +326,7 @@ export default function Allowance({ onBack }) {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>
                             <Clock size={12} /> Awaiting Manager
                           </span>
                         )}
@@ -351,7 +401,7 @@ export default function Allowance({ onBack }) {
                         {/* Manager status is set ONLY from ERM Web now —
                             HR no longer has inline approve/reject here. */}
                         {!req.managerStatus && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#F1F5F9', color: '#64748B' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>
                             <Clock size={12} /> Awaiting Manager
                           </span>
                         )}
@@ -372,7 +422,7 @@ export default function Allowance({ onBack }) {
                         ) : req.managerStatus === 'Approved' ? (
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button
-                              onClick={() => handleAction(req.id, 'approve', 'travel')}
+                              onClick={() => openApprovalModal(req, 'travel')}
                               style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
                             >
                               Approve
@@ -385,7 +435,7 @@ export default function Allowance({ onBack }) {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, background: '#FFFBEB', color: '#D97706' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>
                             <Clock size={12} /> Awaiting Manager
                           </span>
                         )}
@@ -405,6 +455,122 @@ export default function Allowance({ onBack }) {
 
       </div>
 
+      {/* Approval-amount modal — opens when HR clicks Approve. HR can
+          dial down the approved amount (e.g. when the GPS-derived
+          distance is less than what the employee typed) and the
+          rejected portion is computed live. The note is forwarded to
+          the employee in the in-app notification. */}
+      {approvalModal && (() => {
+        const requested = Number(approvalModal.req.amount) || 0;
+        const approved  = Number(approvalModal.approvedAmount) || 0;
+        const rejected  = Math.max(0, requested - approved);
+        const r = approvalModal.req;
+        return (
+          <div
+            onClick={closeApprovalModal}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(15,23,42,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff', borderRadius: 14, padding: 24,
+                width: '100%', maxWidth: 480,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', marginBottom: 4 }}>
+                Approve {approvalModal.type === 'petrol' ? 'Petrol' : 'Travel'} Claim
+              </div>
+              <div style={{ fontSize: 12, color: '#64748B', marginBottom: 18 }}>
+                {r.empName} · {r.from} → {r.to} · {r.distance} km
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>Requested</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', marginTop: 2 }}>
+                    ₹{requested.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#15803D', textTransform: 'uppercase', letterSpacing: 0.4 }}>Approved</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#15803D', marginTop: 2 }}>
+                    ₹{approved.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#B91C1C', textTransform: 'uppercase', letterSpacing: 0.4 }}>Rejected</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#B91C1C', marginTop: 2 }}>
+                    ₹{rejected.toLocaleString('en-IN')}
+                  </div>
+                </div>
+              </div>
+
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
+                Approved Amount (₹)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={requested}
+                value={approvalModal.approvedAmount}
+                onChange={(e) => setApprovalModal({ ...approvalModal, approvedAmount: e.target.value })}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 8,
+                  border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 14,
+                  boxSizing: 'border-box',
+                }}
+                placeholder={`max ₹${requested.toLocaleString('en-IN')}`}
+              />
+
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
+                Note (shown to employee, optional)
+              </label>
+              <textarea
+                value={approvalModal.amountComment}
+                onChange={(e) => setApprovalModal({ ...approvalModal, amountComment: e.target.value })}
+                rows={3}
+                placeholder="e.g. Approved at GPS-measured distance instead of claimed distance."
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 8,
+                  border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 16,
+                  boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit',
+                }}
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={closeApprovalModal}
+                  style={{
+                    padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: 'transparent', color: '#64748B',
+                    border: '1px solid #E2E8F0', cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitApproval}
+                  style={{
+                    padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 800,
+                    background: '#16A34A', color: '#fff',
+                    border: 'none', cursor: 'pointer',
+                  }}
+                >
+                  Approve {approved > 0 ? `₹${approved.toLocaleString('en-IN')}` : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

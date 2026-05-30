@@ -323,12 +323,13 @@ export default function LeavePermissionRequest({ onBack }) {
                       </span>
                     ) : (
                       <span style={{
-                        fontWeight: 700, fontSize: '10px',
-                        padding: '4px 8px', borderRadius: '6px',
-                        background: '#F7FAFC', color: '#64748B',
-                        border: '1px solid #E2E8F0', display: 'inline-block',
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        fontWeight: 700, fontSize: 11,
+                        padding: '4px 10px', borderRadius: 20,
+                        background: '#FFFBEB', color: '#D97706',
+                        border: '1px solid #FDE68A',
                       }}>
-                        Awaiting Manager
+                        <Clock size={12} /> Awaiting Manager
                       </span>
                     )}
                   </td>
@@ -396,13 +397,13 @@ export default function LeavePermissionRequest({ onBack }) {
                       // Manager hasn't acted yet → show a clear "awaiting"
                       // hint instead of disabled buttons that confused HR.
                       <span style={{
-                        fontSize: '11px', fontStyle: 'italic',
-                        color: 'var(--text-light)',
-                        padding: '6px 10px',
-                        background: '#F7FAFC',
-                        borderRadius: '6px',
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        fontWeight: 700, fontSize: 11,
+                        padding: '4px 10px', borderRadius: 20,
+                        background: '#FFFBEB', color: '#D97706',
+                        border: '1px solid #FDE68A',
                       }}>
-                        Awaiting Manager
+                        <Clock size={12} /> Awaiting Manager
                       </span>
                     )}
                   </td>

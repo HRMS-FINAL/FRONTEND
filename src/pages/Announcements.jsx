@@ -31,9 +31,9 @@ const mapApi = (a) => ({
   priority:  a.priority  || 'Low',
   author:    a.createdByName || a.author || 'HR',
   date: a.publishDate
-    ? new Date(a.publishDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+    ? (() => { const __d = new Date(a.publishDate); if (!__d || isNaN(__d.getTime?.() ?? new Date(__d).getTime())) return '—'; const __dd = (__d instanceof Date) ? __d : new Date(__d); const __day = String(__dd.getDate()).padStart(2,'0'); const __mo  = String(__dd.getMonth()+1).padStart(2,'0'); const __yr  = __dd.getFullYear(); return __day + '-' + __mo + '-' + __yr; })()
     : (a.createdAt
-        ? new Date(a.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+        ? (() => { const __d = new Date(a.createdAt); if (!__d || isNaN(__d.getTime?.() ?? new Date(__d).getTime())) return '—'; const __dd = (__d instanceof Date) ? __d : new Date(__d); const __day = String(__dd.getDate()).padStart(2,'0'); const __mo  = String(__dd.getMonth()+1).padStart(2,'0'); const __yr  = __dd.getFullYear(); return __day + '-' + __mo + '-' + __yr; })()
         : ''),
   isNew: a.createdAt ? (Date.now() - new Date(a.createdAt).getTime()) < 1000 * 60 * 60 * 24 * 3 : false,
   // Attachments — keep the same shape backend stores so the card can render

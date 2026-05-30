@@ -222,7 +222,7 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
       headStyles: { fillStyle: '#4CAA17' }
     });
     doc.text("Employee Directory Report", 14, 15);
-    doc.save(`Employees_${new Date().toLocaleDateString()}.pdf`);
+    doc.save(`Employees_${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.pdf`);
     showNotification("PDF downloaded successfully!", "success");
   };
 
@@ -239,7 +239,7 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     })));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Employees");
-    XLSX.writeFile(workbook, `Employees_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.writeFile(workbook, `Employees_${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.xlsx`);
     showNotification("Excel file exported!", "success");
   };
 

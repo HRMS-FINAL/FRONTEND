@@ -803,9 +803,16 @@ export default function Assets({ employees = [] }) {
   const closeModal    = () => { setShowModal(false);     setEditingAsset(null); };
 
   const formatDate = (d) => {
-    if (!d) return '—';
-    return new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  } catch { return String(iso); }
+};
 
   const topTypes = [
     { type: 'Laptop',          icon: <Laptop     size={20} /> },

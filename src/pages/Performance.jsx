@@ -65,9 +65,9 @@ export default function Performance({ onBack }) {
     doc.setFontSize(18);
     doc.text("Company-wide Performance Report", 14, 15);
     doc.setFontSize(10);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 20);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}`, 14, 20);
     
-    doc.save(`Performance_Report_${new Date().toLocaleDateString()}.pdf`);
+    doc.save(`Performance_Report_${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.pdf`);
     showNotification("Performance PDF downloaded!", "success");
   };
 

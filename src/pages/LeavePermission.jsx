@@ -422,7 +422,9 @@ export default function LeavePermission({ onBack }) {
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto', maxHeight: '440px', overflowY: 'auto' }}>
+          {/* Page-level scroll — no inner cap. HR can see every row without
+              the 440px viewport cramping the table. */}
+          <div style={{ overflowX: 'auto' }}>
             <table className="emp-table">
               <thead>
                 <tr>
