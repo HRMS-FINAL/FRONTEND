@@ -274,7 +274,33 @@ export default function Allowance({ onBack }) {
                           <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: 700 }}>· from GPS</div>
                         )}
                       </td>
-                      <td><div style={{ fontSize: '14px', fontWeight: 800, color: '#4CAA17' }}>₹{req.amount}</div></td>
+                      <td>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#4CAA17' }}>₹{Number(req.amount || 0).toLocaleString('en-IN')}</div>
+                        {/* After HR approves with a haircut, show the
+                            split inline so HR can audit at a glance. */}
+                        {req.status === 'Approved' && (Number(req.approvedAmount) > 0 || Number(req.rejectedAmount) > 0) && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#15803D' }}>
+                              ✓ Approved ₹{Number(req.approvedAmount || 0).toLocaleString('en-IN')}
+                            </span>
+                            {Number(req.rejectedAmount) > 0 && (
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#B91C1C' }}>
+                                ✗ Rejected ₹{Number(req.rejectedAmount).toLocaleString('en-IN')}
+                              </span>
+                            )}
+                            {req.amountComment && (
+                              <span style={{ fontSize: '10px', color: '#64748B', fontStyle: 'italic', marginTop: 2 }} title={req.amountComment}>
+                                {req.amountComment.length > 28 ? req.amountComment.slice(0, 28) + '…' : req.amountComment}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {req.status === 'Rejected' && (
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: '#B91C1C', marginTop: 4 }}>
+                            ✗ Fully rejected
+                          </div>
+                        )}
+                      </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
                         {req.managerStatus === 'Approved' && (
@@ -385,7 +411,33 @@ export default function Allowance({ onBack }) {
                           <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: 700 }}>· from GPS</div>
                         )}
                       </td>
-                      <td><div style={{ fontSize: '14px', fontWeight: 800, color: '#4299E1' }}>₹{req.amount}</div></td>
+                      <td>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#4299E1' }}>₹{Number(req.amount || 0).toLocaleString('en-IN')}</div>
+                        {/* After HR approves with a haircut, show the
+                            split inline so HR can audit at a glance. */}
+                        {req.status === 'Approved' && (Number(req.approvedAmount) > 0 || Number(req.rejectedAmount) > 0) && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#15803D' }}>
+                              ✓ Approved ₹{Number(req.approvedAmount || 0).toLocaleString('en-IN')}
+                            </span>
+                            {Number(req.rejectedAmount) > 0 && (
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#B91C1C' }}>
+                                ✗ Rejected ₹{Number(req.rejectedAmount).toLocaleString('en-IN')}
+                              </span>
+                            )}
+                            {req.amountComment && (
+                              <span style={{ fontSize: '10px', color: '#64748B', fontStyle: 'italic', marginTop: 2 }} title={req.amountComment}>
+                                {req.amountComment.length > 28 ? req.amountComment.slice(0, 28) + '…' : req.amountComment}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {req.status === 'Rejected' && (
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: '#B91C1C', marginTop: 4 }}>
+                            ✗ Fully rejected
+                          </div>
+                        )}
+                      </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
                         {req.managerStatus === 'Approved' && (
