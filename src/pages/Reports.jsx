@@ -83,6 +83,26 @@ export default function Reports({ onBack }) {
 
   const activeReport = REPORT_TYPES.find(r => r.id === reportId);
 
+  // ── Date-filtered Employee Master (must come BEFORE the metrics +
+  //    chart blocks that reference it — they live above the table) ───
+  // An employee belongs in the report for the selected date range when:
+  //   • they joined on or before endDate (already on payroll), AND
+  //   • they hadn't left before startDate (still active during the span).
+  // Date strings from the API are ISO (YYYY-MM-DD), so plain string
+  // comparison works as a date comparison.
+  const employeeDataInRange = React.useMemo(() => {
+    if (reportId !== 'employee') return employeeData;
+    const start = String(startDate || '');
+    const end   = String(endDate   || '');
+    return employeeData.filter(e => {
+      const joined = String(e.joiningDate || '').slice(0, 10);
+      if (start && joined && joined > end)   return false;  // joined AFTER the range
+      const left   = String(e.terminationDate || e.exitDate || '').slice(0, 10);
+      if (left && start && left < start)     return false;  // left BEFORE the range
+      return true;
+    });
+  }, [employeeData, startDate, endDate, reportId]);
+
   // ── Metrics ───────────────────────────────────────────────────
   const metrics = reportId === 'attendance' && attendanceData ? [
     { label: 'Total Present',  value: attendanceData.summary.totalPresent,   icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
@@ -126,25 +146,6 @@ export default function Reports({ onBack }) {
         return Object.values(deptMap).slice(0, 8);
       })()
     : [];
-
-  // ── Date-filtered Employee Master ─────────────────────────────
-  // An employee belongs in the report for the selected date range when:
-  //   • they joined on or before endDate (already on payroll), AND
-  //   • they hadn't left before startDate (still active during the span).
-  // Date strings from the API are ISO (YYYY-MM-DD), so plain string
-  // comparison works as a date comparison.
-  const employeeDataInRange = React.useMemo(() => {
-    if (reportId !== 'employee') return employeeData;
-    const start = String(startDate || '');
-    const end   = String(endDate   || '');
-    return employeeData.filter(e => {
-      const joined = String(e.joiningDate || '').slice(0, 10);
-      if (start && joined && joined > end)   return false;  // joined AFTER the range
-      const left   = String(e.terminationDate || e.exitDate || '').slice(0, 10);
-      if (left && start && left < start)     return false;  // left BEFORE the range
-      return true;
-    });
-  }, [employeeData, startDate, endDate, reportId]);
 
   // ── Table rows ────────────────────────────────────────────────
   const tableRows = reportId === 'attendance'

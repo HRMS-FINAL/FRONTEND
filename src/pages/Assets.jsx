@@ -5,6 +5,7 @@ import {
   ChevronRight, Package, CheckCircle2, AlertCircle, User, Hash, Smartphone
 } from 'lucide-react';
 import { allEmployees } from '../data/mockData';
+import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
 
@@ -665,6 +666,11 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
 
 // Main Assets Page
 export default function Assets({ employees = [] }) {
+  // Toast + confirm-dialog helpers. Without this, `confirmDialog` was
+  // undefined inside handleDelete and `await undefined` resolved to
+  // `undefined`, so `if (!(await ...))` returned early — that's why the
+  // delete icon "did nothing" silently.
+  const { showNotification, confirmDialog } = useNotification();
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
