@@ -859,15 +859,12 @@ export default function LiveTracking() {
         {/* Map Container — replaced by Travel Report panel when historical
             date range + emp filter are active. */}
         <div className="tracking-map-container">
-          {reportActive && (
-            <div style={{
-              position: 'absolute', top: 12, right: 12, bottom: 12,
-              width: 380, zIndex: 5,
-              background: '#fff', display: 'flex', flexDirection: 'column',
-              border: '1px solid var(--border-color)', borderRadius: 12,
-              overflow: 'hidden',
-              boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
-            }}>
+          {/* Travel report panel was here previously — moved BELOW the
+              map so HR can see the GPS polyline and the trip table at
+              the same time. The render block has been relocated after
+              the </div> that closes .tracking-map-container. */}
+          {reportActive && false && (
+            <div style={{ display: 'none' }}>
               <div style={{
                 padding: '14px 18px', borderBottom: '1px solid var(--border-color)',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1090,6 +1087,121 @@ export default function LiveTracking() {
             ))}
           </MapContainer>
         </div>
+
+        {/* Travel Report — rendered BELOW the map so the polyline + start/
+            end markers are visible at the same time as the trip table. */}
+        {reportActive && (
+          <div style={{
+            marginTop: 16,
+            background: '#fff',
+            border: '1px solid var(--border-color)',
+            borderRadius: 12,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              padding: '14px 18px', borderBottom: '1px solid var(--border-color)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#F8FAFC',
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#0F172A' }}>
+                  Travel Report
+                  {travelReport.emp ? ' — ' + travelReport.emp.name : ''}
+                  {travelReport.emp?.employeeId ? ' (' + travelReport.emp.employeeId + ')' : ''}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                  {fmtDDMMYYYY(selectedDate)} → {fmtDDMMYYYY(endDate)} · filter: <b>{search}</b>
+                </div>
+              </div>
+              <button
+                onClick={downloadTravelReportCsv}
+                disabled={travelReport.rows.length === 0}
+                style={{
+                  padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                  border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
+                  cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                }}
+              >
+                Download CSV
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
+              {(() => {
+                const rs = travelReport.rows;
+                const totalKm     = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+                const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
+                const trips       = rs.length;
+                const days        = new Set(rs.map(r => r.date)).size;
+                const tile = (lbl, val, color) => (
+                  <div key={lbl} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>{lbl}</div>
+                  </div>
+                );
+                return [
+                  tile('Trips', trips, '#0F172A'),
+                  tile('Days Travelled', days, '#0F172A'),
+                  tile('Total Distance', totalKm.toFixed(1) + ' km', '#4299E1'),
+                  tile('Total Amount', '₹' + totalAmount.toLocaleString('en-IN'), '#4CAA17'),
+                ];
+              })()}
+            </div>
+
+            <div style={{ padding: '10px 14px', overflowX: 'auto' }}>
+              {travelReport.loading && (
+                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading…</div>
+              )}
+              {!travelReport.loading && travelReport.rows.length === 0 && (
+                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>
+                  No travel records found for "{search}" between {fmtDDMMYYYY(selectedDate)} and {fmtDDMMYYYY(endDate)}.
+                </div>
+              )}
+              {!travelReport.loading && travelReport.rows.length > 0 && (
+                <table className="emp-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th><th>Type</th><th>From → To</th>
+                      <th>Distance</th><th>Amount</th><th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {travelReport.rows.map((r, i) => (
+                      <tr key={i}>
+                        <td><div style={{ fontSize: 12, fontWeight: 700 }}>{fmtDDMMYYYY(r.date)}</div></td>
+                        <td>
+                          <span style={{
+                            fontSize: 10, fontWeight: 800,
+                            padding: '3px 8px', borderRadius: 6,
+                            background: r.kind === 'petrol' ? '#F1F9EE' : '#EFF6FF',
+                            color:      r.kind === 'petrol' ? '#15803D' : '#1D4ED8',
+                            border: '1px solid ' + (r.kind === 'petrol' ? '#BBF7D0' : '#BFDBFE'),
+                            textTransform: 'uppercase', letterSpacing: 0.4,
+                          }}>{r.kind === 'petrol' ? 'Petrol' : 'Travel'}</span>
+                        </td>
+                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} → {r.to || '—'}</div></td>
+                        <td><div style={{ fontSize: 12 }}>{(Number(r.distance) || 0).toFixed(1)} km</div></td>
+                        <td><div style={{ fontSize: 12, fontWeight: 700, color: '#4CAA17' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div></td>
+                        <td>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            padding: '3px 8px', borderRadius: 6,
+                            background: r.status === 'Approved' ? '#F0FDF4'
+                                     : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
+                            color:      r.status === 'Approved' ? '#16A34A'
+                                     : r.status === 'Rejected' ? '#DC2626' : '#D97706',
+                          }}>{r.status || 'Pending'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

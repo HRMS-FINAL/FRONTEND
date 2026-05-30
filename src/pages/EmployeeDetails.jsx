@@ -168,7 +168,7 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
         id:    Date.now().toString(),
         name:  f.name,
         size:  (f.size / 1024).toFixed(1) + ' KB',
-        date:  new Date().toLocaleDateString('en-GB'),
+        date:  new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-'),
         type:  f.type || 'application/octet-stream',
         data:  ev.target.result,
       };

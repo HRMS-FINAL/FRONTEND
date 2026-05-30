@@ -232,7 +232,87 @@ export default function Allowance({ onBack }) {
       </div>
 
       <div style={{ padding: '24px' }}>
-        
+
+        {/* ── Summary tiles + download report ─────────────────────── */}
+        {(() => {
+          const rows = (allowanceType === 'petrol' ? petrolRequests : travelRequests);
+          const totalAmt    = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+          const approvedAmt = rows.reduce((s, r) => s + (r.status === 'Approved' ? (Number(r.approvedAmount) || Number(r.amount) || 0) : 0), 0);
+          const rejectedAmt = rows.reduce((s, r) => {
+            if (r.status === 'Rejected') return s + (Number(r.amount) || 0);
+            if (r.status === 'Approved') return s + (Number(r.rejectedAmount) || 0);
+            return s;
+          }, 0);
+          const pendingAmt  = rows.reduce((s, r) => s + (r.status !== 'Approved' && r.status !== 'Rejected' ? (Number(r.amount) || 0) : 0), 0);
+
+          const downloadCsv = () => {
+            const header = ['Request ID', 'Employee', 'Date', 'From', 'To', 'Distance (km)', 'Amount (₹)', 'Approved (₹)', 'Rejected (₹)', 'Status', 'Manager Status', 'Note'];
+            const lines  = [header.join(',')];
+            for (const r of rows) {
+              const cells = [
+                r.id || r._id || '',
+                r.empName || '',
+                r.date || '',
+                r.from || '', r.to || '',
+                Number(r.distance) || 0,
+                Number(r.amount)   || 0,
+                Number(r.approvedAmount) || 0,
+                Number(r.rejectedAmount) || 0,
+                r.status || '',
+                r.managerStatus || '',
+                String(r.amountComment || '').replace(/[",\n]/g, ' '),
+              ];
+              lines.push(cells.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(','));
+            }
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href = url;
+            a.download = (allowanceType === 'petrol' ? 'petrol' : 'travel') + '-allowance-report.csv';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          };
+
+          const tile = (lbl, amt, color, bg) => (
+            <div key={lbl} style={{
+              flex: '1 1 180px', background: bg, borderRadius: 12, padding: '14px 16px',
+              border: '1px solid var(--border-color)',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>{lbl}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color, marginTop: 4 }}>
+                ₹{Number(amt || 0).toLocaleString('en-IN')}
+              </div>
+            </div>
+          );
+
+          return (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                {tile('Total Amount',    totalAmt,    '#0F172A', '#F8FAFC')}
+                {tile('Approved Amount', approvedAmt, '#15803D', '#F0FDF4')}
+                {tile('Rejected Amount', rejectedAmt, '#B91C1C', '#FEF2F2')}
+                {tile('Pending Amount',  pendingAmt,  '#D97706', '#FFFBEB')}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={downloadCsv}
+                  disabled={rows.length === 0}
+                  style={{
+                    padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    background: '#F0FDF4', color: '#15803D',
+                    border: '1px solid #BBF7D0',
+                    cursor: rows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: rows.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Download {allowanceType === 'petrol' ? 'Petrol' : 'Travel'} Report (CSV)
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* PETROL APPROVALS TABLE */}
         {allowanceType === 'petrol' && (
           <div className="card">

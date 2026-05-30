@@ -105,9 +105,12 @@ export default function Reports({ onBack }) {
         // startDate/endDate (both as YYYY-MM-DD).
         const isPerm = String(lv.requestType || lv.type || '').toLowerCase().includes('permission');
         if (isPerm) {
-          const d = String(lv.date || '').slice(0, 10);
+          // The HRMS proxy emits a human-formatted `date` ("May 30, 2026")
+          // for display; the raw ISO sits on `permissionDate`. Prefer the
+          // ISO so the >= / <= range compare actually works.
+          const d = String(lv.permissionDate || lv.date || '').slice(0, 10);
           if (d && d >= startStr && d <= endStr) {
-            tally[empId] = (tally[empId] || 0) + 0.5;  // permission = half day
+            tally[empId] = (tally[empId] || 0) + 0.5;
           }
           continue;
         }

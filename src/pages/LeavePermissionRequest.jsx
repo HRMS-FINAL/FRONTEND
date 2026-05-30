@@ -347,29 +347,35 @@ export default function LeavePermissionRequest({ onBack }) {
                   <td style={{ textAlign: 'center' }}>
                     {rec.managerStatus === 'Rejected' ? (
                       // Manager rejected → Status column stays EMPTY.
-                      // HR has no action to take; the request is dead.
                       null
-                    ) : rec.status !== 'Pending' ? (
-                      <div style={{
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE',
-                        color: rec.status === 'Rejected' ? '#C53030' : '#2F855A',
-                        border: rec.status === 'Rejected' ? '1px solid #FED7D7' : '1px solid #C2E7B0',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        textAlign: 'left',
-                        gap: '4px',
-                        minWidth: '180px',
-                      }}>
-                        <div style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase' }}>
-                          {rec.status}
-                        </div>
-                        <div style={{ fontSize: '11px', fontWeight: 500, lineHeight: '1.4' }}>
-                          {rec.message}
-                        </div>
-                      </div>
+                    ) : rec.status === 'Approved' ? (
+                      <span
+                        title={rec.message || ''}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          fontWeight: 700, fontSize: 11,
+                          padding: '4px 10px', borderRadius: 20,
+                          minWidth: 120, boxSizing: 'border-box',
+                          background: '#F1F9EE', color: '#4CAA17',
+                          border: '1px solid #C2E7B0',
+                        }}
+                      >
+                        Approved
+                      </span>
+                    ) : rec.status === 'Rejected' ? (
+                      <span
+                        title={rec.message || ''}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          fontWeight: 700, fontSize: 11,
+                          padding: '4px 10px', borderRadius: 20,
+                          minWidth: 120, boxSizing: 'border-box',
+                          background: '#FFF5F5', color: '#C53030',
+                          border: '1px solid #FED7D7',
+                        }}
+                      >
+                        Rejected
+                      </span>
                     ) : rec.managerStatus === 'Approved' ? (
                       // Manager approved → HR can now Approve or Reject.
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>

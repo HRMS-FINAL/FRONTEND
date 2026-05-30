@@ -171,7 +171,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
       ['Employee ID',    emp.employeeId || ('EMP-100' + (emp.id || ''))],
       ['Date of Joining',emp.joiningDate || '—'],
       ['Pay Period',     monthLabel],
-      ['Pay Date',       new Date().toLocaleDateString('en-GB')],
+      ['Pay Date',       new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')],
     ];
     doc.setFontSize(10);
     summary.forEach((row, i) => {
@@ -493,7 +493,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                         <div>Employee ID</div><div>: {showSlip.employeeId || 'EMP-10' + showSlip.id}</div>
                         <div>Date of Joining</div><div>: {showSlip.joiningDate || '30/06/2020'}</div>
                         <div>Pay Period</div><div>: {monthLabel}</div>
-                        <div>Pay Date</div><div>: {new Date(payYear, payMonth - 1, 28).toLocaleDateString('en-GB')}</div>
+                        <div>Pay Date</div><div>: {new Date(payYear, payMonth - 1, 28).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}</div>
                       </div>
                     </div>
                     

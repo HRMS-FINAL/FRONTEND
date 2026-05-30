@@ -168,6 +168,48 @@ export default function DailyRoutes({ onBack }) {
                 style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%' }}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                // Build a CSV from the currently-filtered rows. Each row
+                // already carries date + employee + distance + allowance
+                // flag — exactly the columns HR needs for a daily summary.
+                const rows = filtered;
+                const header = ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out', 'Distance (km)', 'Filed Allowance'];
+                const lines = [header.join(',')];
+                for (const it of rows) {
+                  const cells = [
+                    date,
+                    it.employeeId || '',
+                    it.name || it.employeeName || '',
+                    it.department || it.dept || '',
+                    it.checkIn  || '',
+                    it.checkOut || '',
+                    Number(it.totalDistanceKm) || 0,
+                    it.hasAllowance ? 'Yes' : 'No',
+                  ];
+                  lines.push(cells.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(','));
+                }
+                const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href = url;
+                a.download = 'daily-routes_' + date + '.csv';
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}
+              disabled={filtered.length === 0}
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                background: '#F0FDF4', color: '#15803D',
+                border: '1px solid #BBF7D0',
+                cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: filtered.length === 0 ? 0.5 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Download Report (CSV)
+            </button>
           </div>
         </div>
       </div>
