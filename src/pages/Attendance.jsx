@@ -539,6 +539,7 @@ export default function Attendance({ onBack, employees = [] }) {
                     <td>
                       <span style={{ fontWeight: 700, fontSize: '10.5px', padding: '4px 10px', borderRadius: '6px' }}>{log.status}</span>
                     </td>
+                  
                   </tr>
                 ))}
                 {displayLogs.length === 0 && (
@@ -548,6 +549,40 @@ export default function Attendance({ onBack, employees = [] }) {
             </table>
           </div>
         </div>
+
+        {/* Selected log detail modal (optional, kept simple) */}
+        {selectedLog && (
+          <div
+            onClick={() => setSelectedLog(null)}
+            style={{
+              position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              zIndex: 1000,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 12, padding: 20, minWidth: 320, maxWidth: '90vw' }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>{selectedLog.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-light)', marginBottom: 12 }}>
+                {selectedLog.employeeId} · {selectedLog.role}
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+                <div><b>Status:</b> {selectedLog.status}</div>
+                <div><b>Check-In:</b> {selectedLog.checkIn || '—'}</div>
+                <div><b>Check-Out:</b> {selectedLog.checkOut || '—'}</div>
+                <div><b>Work Hours:</b> {selectedLog.workHours || '—'}</div>
+              </div>
+              <button
+                onClick={() => setSelectedLog(null)}
+                style={{ marginTop: 14, padding: '6px 14px', borderRadius: 8, background: '#0F172A', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

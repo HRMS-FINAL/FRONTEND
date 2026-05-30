@@ -311,55 +311,29 @@ export default function Dashboard({
               <div className="card-title">Department Headcount</div>
               <div className="card-subtitle">Employee distribution by team</div>
             </div>
-            <span className="card-action" onClick={() => setActiveView('department')} style={{ color: 'var(--primary)' }}>
-              View all <ChevronRight size={13} color="var(--primary)" />
+            <span className="card-action" onClick={() => setActiveView('department')} style={{ cursor: 'pointer' }}>
+              View all <ChevronRight size={13} />
             </span>
           </div>
-          <div className="dash-dept-list">
-            {deptData.length > 0 ? deptData.map((d, i) => (
-              <div className="dash-dept-item" key={i} onClick={() => setActiveView('department')}>
-                <div className="dash-dept-icon" style={{ background: d.color + '15', color: d.color }}>{d.name.charAt(0)}</div>
-                <div className="dash-dept-info">
-                  <div className="dash-dept-name">{d.name} Team</div>
-                  <div className="dash-dept-progress-wrap">
-                    <div className="dash-dept-progress-bar">
-                      <div className="dash-dept-progress-fill" style={{ width: `${(d.value / totalForChart * 100).toFixed(1)}%`, background: d.color }} />
-                    </div>
-                    <span className="dash-dept-pct">{(d.value / totalForChart * 100).toFixed(0)}%</span>
-                  </div>
-                </div>
-                <div className="dash-dept-count">
-                  <div className="count-val">{d.value}</div>
-                  <div className="count-lbl">Staff</div>
-                </div>
+
+          <div style={{ padding: 12 }}>
+            {deptData.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-light)', fontSize: 12 }}>
+                No department data yet.
               </div>
-            )) : (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-                {loading ? 'Loading...' : 'No departments yet.'}
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {deptData.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.color || '#94A3B8', flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>{d._id || d.name || '—'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-light)' }}>{d.value || d.count || 0}</div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
-
-        {/* Quick Actions */}
-        <div className="card">
-          <div className="card-header"><div className="card-title">Quick Actions</div></div>
-          <div className="quick-actions-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            {[
-              { label: 'Add Employee',              icon: <UserPlus size={18} />,   color: '#4CAA17', bg: '#F1F9EE', target: 'new-employee'     },
-              { label: 'Leave & Permission',         icon: <CalendarOff size={18} />,color: '#3b82f6', bg: '#eff6ff', target: 'leave-permission' },
-              { label: 'Live Tracking',              icon: <MapPin size={18} />,     color: '#f59e0b', bg: '#fffbeb', target: 'live-tracking'    },
-            ].map((qa, i) => (
-              <div key={i} className="quick-action-btn" onClick={() => setActiveView(qa.target)}>
-                <div className="quick-action-icon" style={{ background: qa.bg, color: qa.color }}>{qa.icon}</div>
-                <span>{qa.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Reminders widget removed per HR — the dashboard is now
-            focused purely on metrics + quick actions. */}
       </div>
     </div>
   );

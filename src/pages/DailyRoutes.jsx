@@ -35,6 +35,49 @@ function fmtTime(d) {
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ap}`;
   } catch { return '—'; }
 }
+// Small reusable stat tile so the four headline numbers all share the
+// same visual treatment without pulling in a separate component file.
+function StatTile({ label, value, color }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid var(--border-color)', borderRadius: 12, padding: '14px 16px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+function fmtDateDMY(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-');
+  return d && m && y ? `${d}-${m}-${y}` : String(iso);
+}
+
+// Haversine between two lat/lng pairs in metres. Same shape as the helper
+// in LiveTracking — kept local so this page has no cross-page imports.
+function distMeters(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some(v => typeof v !== 'number' || !isFinite(v))) return Infinity;
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+// Sum leg-by-leg haversine along a sequence of points. Legs > 50 km are
+// almost always GPS teleports from phone-sleep / re-acquire, so we drop
+// them to avoid hugely inflating the distance.
+function polylineKm(points) {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const m = distMeters(Number(a.lat), Number(a.lng), Number(b.lat), Number(b.lng));
+    if (isFinite(m) && m < 50_000) total += m;
+  }
+  return total / 1000;
+}
 
 export default function DailyRoutes({ onBack }) {
   const [date,    setDate]    = useState(todayISO());
@@ -46,6 +89,14 @@ export default function DailyRoutes({ onBack }) {
   // null when the modal is closed. Clicking "View Route" sets it,
   // closing the modal clears it back to null.
   const [routeRow, setRouteRow] = useState(null);
+  // Per-employee GPS distance computed from the actual polyline that the
+  // map renders. We fan out one /daily-route fetch per employee after the
+  // list loads — the backend's totalDistanceKm is unreliable (returns 0
+  // when the mobile aggregator missed pings) so we always recompute from
+  // the raw points HR is about to see on the map.
+  //
+  //   { [employeeId]: { km: number, points: number, loading: boolean } }
+  const [gpsByEmp, setGpsByEmp] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +160,68 @@ export default function DailyRoutes({ onBack }) {
     return () => { cancelled = true; };
   }, [date]);
 
+  // After the day's roster loads, fetch the polyline for every employee
+  // and compute distance from it. We bound concurrency at 4 so a roster
+  // of 50+ doesn't hammer the proxy. Results are merged into gpsByEmp;
+  // the table reads from there (preferring map-computed km over the
+  // backend's totalDistanceKm).
+  useEffect(() => {
+    let cancelled = false;
+    setGpsByEmp({});
+    if (!items.length || !date) return;
+    (async () => {
+      const queue = items.slice();
+      const workers = Array.from({ length: 4 }, async () => {
+        while (queue.length && !cancelled) {
+          const it = queue.shift();
+          const empId = it?.employeeId || it?.empId || '';
+          if (!empId) continue;
+          // Mark this row as loading so the table can show a spinner.
+          setGpsByEmp(prev => ({ ...prev, [empId]: { ...(prev[empId] || {}), loading: true } }));
+          try {
+            const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
+            const j = await r.json().catch(() => ({}));
+            // The mobile backend has been observed to wrap points under
+            // several keys depending on which path it took — try them all.
+            const pts = Array.isArray(j?.route)        ? j.route :
+                        Array.isArray(j?.points)       ? j.points :
+                        Array.isArray(j?.data?.route)  ? j.data.route :
+                        Array.isArray(j?.data?.points) ? j.data.points : [];
+            const norm = pts
+              .map(p => ({ lat: Number(p.lat ?? p.latitude), lng: Number(p.lng ?? p.longitude) }))
+              .filter(p => isFinite(p.lat) && isFinite(p.lng));
+            const km = polylineKm(norm);
+            if (cancelled) return;
+            setGpsByEmp(prev => ({ ...prev, [empId]: { km, points: norm.length, loading: false } }));
+          } catch {
+            if (cancelled) return;
+            setGpsByEmp(prev => ({ ...prev, [empId]: { km: 0, points: 0, loading: false } }));
+          }
+        }
+      });
+      await Promise.all(workers);
+    })();
+    return () => { cancelled = true; };
+  }, [items, date]);
+
+  // Pick the best distance for a row — prefer the polyline-computed value
+  // when it produced points, otherwise fall back to the backend's
+  // totalDistanceKm so we still show *something* on rows with no GPS.
+  const effectiveKm = (it) => {
+    const empId = it?.employeeId || it?.empId || '';
+    const g = gpsByEmp[empId];
+    if (g && g.points > 0) return g.km;
+    return Number(it?.totalDistanceKm) || 0;
+  };
+  const effectiveSource = (it) => {
+    const empId = it?.employeeId || it?.empId || '';
+    const g = gpsByEmp[empId];
+    if (g?.loading) return 'loading';
+    if (g?.points > 0) return 'map polyline';
+    if (Number(it?.totalDistanceKm) > 0) return it.distanceSource || 'backend';
+    return 'no GPS';
+  };
+
   const filtered = items.filter((it) => {
     if (!search) return true;
     const s = search.toLowerCase();
@@ -121,7 +234,10 @@ export default function DailyRoutes({ onBack }) {
     );
   });
 
-  const totalDistance = items.reduce((s, it) => s + (Number(it.totalDistanceKm) || 0), 0);
+  // Sum the polyline-computed distance — falls back to the backend value
+  // for rows where no GPS points were returned, so the headline tile
+  // still adds up to "something" rather than 0 when GPS is missing.
+  const totalDistance = items.reduce((s, it) => s + effectiveKm(it), 0);
   const withAllowance = items.filter((it) => it.hasAllowance).length;
 
   return (
@@ -179,14 +295,14 @@ export default function DailyRoutes({ onBack }) {
                 const lines = [header.join(',')];
                 for (const it of rows) {
                   const cells = [
-                    date,
+                    fmtDateDMY(date),
                     it.employeeId || '',
                     it.name || it.employeeName || '',
                     it.department || it.dept || '',
-                    it.checkIn  || '',
-                    it.checkOut || '',
-                    (Number(it.totalDistanceKm) || 0).toFixed(2),
-                    it.distanceSource || 'unknown',
+                    fmtTime(it.checkIn),
+                    fmtTime(it.checkOut),
+                    effectiveKm(it).toFixed(2),
+                    effectiveSource(it),
                     it.hasAllowance ? 'Yes' : 'No',
                     it.petrol?.distance ?? '',
                     it.travel?.distance ?? '',
@@ -256,10 +372,18 @@ export default function DailyRoutes({ onBack }) {
                   <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>No attendance records for {date}.</td></tr>
                 )}
                 {!loading && !error && filtered.map((it) => {
-                  const distance = Number(it.totalDistanceKm || 0);
-                  const sourceTag = it.distanceSource === 'gps'
+                  // Prefer the map-polyline distance over the backend value -
+                  // the backend value is regularly 0 even when the map has
+                  // 30+ GPS pings for the day.
+                  const distance = effectiveKm(it);
+                  const src      = effectiveSource(it);
+                  const sourceTag = src === 'map polyline'
+                    ? { text: 'map polyline', color: '#16A34A' }
+                    : src === 'loading'
+                    ? { text: '...', color: '#64748B' }
+                    : src === 'gps'
                     ? { text: 'GPS', color: '#16A34A' }
-                    : it.distanceSource === 'pins'
+                    : src === 'pins'
                     ? { text: 'pins only', color: '#D97706' }
                     : { text: 'no GPS', color: '#94A3B8' };
                   return (
@@ -303,23 +427,16 @@ export default function DailyRoutes({ onBack }) {
                       </td>
                       <td>
                         <button
-                          onClick={() => setRouteRow({
-                            employeeId:   it.employeeId,
-                            employeeName: it.name,
-                            date:         it.date,
-                          })}
-                          disabled={!it.employeeId}
+                          type="button"
+                          onClick={() => setRouteRow(it)}
+                          disabled={!(gpsByEmp[it.employeeId]?.points > 0) && !(Number(it.totalDistanceKm) > 0)}
                           style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '6px 12px', borderRadius: 6,
-                            background: it.employeeId ? '#EFF6FF' : '#F1F5F9',
-                            color:      it.employeeId ? '#1D4ED8' : '#94A3B8',
-                            border: '1px solid ' + (it.employeeId ? '#BFDBFE' : '#E2E8F0'),
-                            fontSize: 11, fontWeight: 700,
-                            cursor: it.employeeId ? 'pointer' : 'not-allowed',
+                            padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                            background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE',
+                            cursor: 'pointer',
                           }}
                         >
-                          <MapPin size={12} /> View Route
+                          View Route
                         </button>
                       </td>
                     </tr>
@@ -331,33 +448,14 @@ export default function DailyRoutes({ onBack }) {
         </div>
       </div>
 
-      {/* Route-map modal — opens when HR clicks "View Route" on any row.
-          Renders the polyline of every LocationPing on the selected date
-          on a Google-tile Leaflet map, so HR can see exactly where the
-          employee went. Empty `claim` prop because this view isn't tied
-          to an allowance request — it's a per-employee daily route. */}
-      <RouteMapModal
-        open={!!routeRow}
-        onClose={() => setRouteRow(null)}
-        employeeId={routeRow?.employeeId}
-        employeeName={routeRow?.employeeName}
-        date={routeRow?.date}
-        claim={null}
-      />
-    </div>
-  );
-}
-
-function StatTile({ label, value, color }) {
-  return (
-    <div style={{
-      background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12,
-      padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
+      {routeRow && (
+        <RouteMapModal
+          employeeId={routeRow.employeeId}
+          employeeName={routeRow.name}
+          date={date}
+          onClose={() => setRouteRow(null)}
+        />
+      )}
     </div>
   );
 }

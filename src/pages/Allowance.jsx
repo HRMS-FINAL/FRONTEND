@@ -689,43 +689,50 @@ export default function Allowance({ onBack }) {
                 placeholder={`max ₹${requested.toLocaleString('en-IN')}`}
               />
 
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
-                Note (shown to employee, optional)
-              </label>
+              {/* Auto-computed rejected portion */}
+              <div style={{
+                fontSize: 12, color: '#475569', marginBottom: 10,
+              }}>
+                Rejected portion (auto):{' '}
+                <b>₹{Math.max(0, Number(requested) - Number(approvalModal.approvedAmount || 0)).toLocaleString('en-IN')}</b>
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                Note to employee (optional)
+              </div>
               <textarea
-                value={approvalModal.amountComment}
-                onChange={(e) => setApprovalModal({ ...approvalModal, amountComment: e.target.value })}
                 rows={3}
-                placeholder="e.g. Approved at GPS-measured distance instead of claimed distance."
+                value={approvalModal.amountComment || ''}
+                onChange={(e) => setApprovalModal({ ...approvalModal, amountComment: e.target.value })}
                 style={{
                   width: '100%', padding: '10px 12px', borderRadius: 8,
                   border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 16,
-                  boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit',
+                  boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical',
                 }}
+                placeholder="Explain why this amount was approved/rejected…"
               />
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button
                   type="button"
-                  onClick={closeApprovalModal}
+                  onClick={() => setApprovalModal(null)}
                   style={{
-                    padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                    background: 'transparent', color: '#64748B',
-                    border: '1px solid #E2E8F0', cursor: 'pointer',
+                    padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1',
+                    cursor: 'pointer',
                   }}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={submitApproval}
+                  onClick={() => submitApproval(approvalModal)}
                   style={{
-                    padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 800,
-                    background: '#16A34A', color: '#fff',
-                    border: 'none', cursor: 'pointer',
+                    padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
                   }}
                 >
-                  Approve {approved > 0 ? `₹${approved.toLocaleString('en-IN')}` : ''}
+                  Confirm
                 </button>
               </div>
             </div>
