@@ -19,7 +19,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronRight, Calendar, Search, Navigation, MapPin } from 'lucide-react';
 import RouteMapModal from '../components/RouteMapModal';
 
-import { API } from '../config/api';
+import { API, apiFetch } from '../config/api';
 
 function todayISO() {
   return new Date().toISOString().split('T')[0];
@@ -96,6 +96,9 @@ export default function DailyRoutes({ onBack }) {
   // null when the modal is closed. Clicking "View Route" sets it,
   // closing the modal clears it back to null.
   const [routeRow, setRouteRow] = useState(null);
+  // Bumped by the Retry button so the load effect re-runs even though
+  // `date` is the same value.
+  const [retryNonce, setRetryNonce] = useState(0);
   // Per-employee GPS distance computed from the actual polyline that the
   // map renders. We fan out one /daily-route fetch per employee after the
   // list loads — the backend's totalDistanceKm is unreliable (returns 0
@@ -113,7 +116,10 @@ export default function DailyRoutes({ onBack }) {
       const url = `${API}/attendance/daily-routes?date=${encodeURIComponent(date)}`;
       console.log('[DailyRoutes] GET', url);
       try {
-        const r = await fetch(url);
+        // Use retry-aware fetch so a single Render cold-start (or 502
+        // from the proxy upstream) doesn't surface as a red error banner.
+        // First attempt times the backend wake-up window comfortably.
+        const r = await apiFetch(url);
         const j = await r.json().catch(() => ({}));
         console.log('[DailyRoutes] response', r.status, j);
         if (cancelled) return;
@@ -136,27 +142,19 @@ export default function DailyRoutes({ onBack }) {
           setItems(Array.isArray(j.items) ? j.items : []);
         }
       } catch (e) {
-        // "Failed to fetch" lands here — no response at all reached the
-        // browser. Most likely causes, in rough order of likelihood:
-        //   1. The HRMS backend is offline / cold-starting
-        //   2. CORS_ORIGINS on the backend doesn't include this domain
-        //   3. The VITE_API_URL baked into the build is wrong
-        //   4. Mixed content (https page → http API blocked by browser)
-        console.error('[DailyRoutes] fetch failed:', e);
+        // We already retried up to 4 times with backoff inside apiFetch.
+        // If we still land here the backend is genuinely unreachable —
+        // most often a Render free-tier wake-up that took longer than
+        // the retry window. Show a short, friendly message and let HR
+        // click to retry instead of the wall-of-text diagnostic.
+        console.error('[DailyRoutes] fetch failed after retries:', e);
         if (!cancelled) {
           const isHttps   = typeof window !== 'undefined' && window.location.protocol === 'https:';
           const apiHttp   = String(API || '').startsWith('http://');
           const mixedContent = isHttps && apiHttp;
-          let msg = `Could not reach the backend at ${API}. `;
-          if (mixedContent) {
-            msg += 'You are loading this page over HTTPS but the API URL is HTTP — the browser blocks that as "mixed content". Update VITE_API_URL to use https:// and rebuild.';
-          } else {
-            msg +=
-              'Three checks: ' +
-              '(1) open ' + API.replace(/\/api$/, '') + ' in a new tab — if it spins or shows an error, the backend is offline or cold-starting on Render (wait 30 sec and retry); ' +
-              '(2) open DevTools → Network and click the failed request — if you see "CORS" in the message, add this domain to CORS_ORIGINS on the backend env and redeploy; ' +
-              '(3) verify VITE_API_URL in .env.production matches your deployed backend.';
-          }
+          const msg = mixedContent
+            ? 'The page is loaded over HTTPS but the API URL is HTTP — the browser blocks that as "mixed content". Update VITE_API_URL to use https:// and rebuild.'
+            : 'The backend is still waking up after a short idle. Please wait a few seconds and click Retry.';
           setError(msg);
           setItems([]);
         }
@@ -165,7 +163,7 @@ export default function DailyRoutes({ onBack }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [date]);
+  }, [date, retryNonce]);
 
   // After the day's roster loads, fetch the polyline for every employee
   // and compute distance from it. We bound concurrency at 4 so a roster
@@ -186,7 +184,7 @@ export default function DailyRoutes({ onBack }) {
           // Mark this row as loading so the table can show a spinner.
           setGpsByEmp(prev => ({ ...prev, [empId]: { ...(prev[empId] || {}), loading: true } }));
           try {
-            const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`);
+            const r = await apiFetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`, {}, { retries: 2, baseDelayMs: 800 });
             const j = await r.json().catch(() => ({}));
             // The mobile backend returns points under `polyline` (same key
             // RouteMapModal reads). Older paths used `route` / `points` so
@@ -382,7 +380,17 @@ export default function DailyRoutes({ onBack }) {
                   <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>Loading routes…</td></tr>
                 )}
                 {!loading && error && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#DC2626', fontSize: 13 }}>Could not load: {error}</td></tr>
+                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#DC2626', fontSize: 13 }}>
+                    <div style={{ marginBottom: 12 }}>{error}</div>
+                    <button
+                      type="button"
+                      onClick={() => setRetryNonce(n => n + 1)}
+                      style={{
+                        padding: '6px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                        background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
+                      }}
+                    >Retry</button>
+                  </td></tr>
                 )}
                 {!loading && !error && filtered.length === 0 && (
                   <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>No attendance records for {date}.</td></tr>
@@ -457,7 +465,7 @@ export default function DailyRoutes({ onBack }) {
                         </button>
                       </td>
                     </tr>
-                  );
+                );
                 })}
               </tbody>
             </table>
