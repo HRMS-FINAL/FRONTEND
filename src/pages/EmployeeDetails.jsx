@@ -4,7 +4,8 @@ import autoTable from 'jspdf-autotable';
 import { 
   ChevronRight, Mail, Phone, MapPin, Calendar, 
   Briefcase, DollarSign, Clock, Shield, Star, 
-  FileText, Download, Edit2, ArrowLeft, X, Upload
+  FileText, Download, Edit2, ArrowLeft, X, Upload,
+  Package, Laptop, Monitor, Mouse, Keyboard, CreditCard, Cpu, Smartphone,
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
@@ -54,6 +55,11 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
     lopDays: 0, halfLopDays: 0,
   });
   const [documents, setDocuments] = useState([]);
+  // Company assets assigned to this employee — laptop, monitor, ID
+  // card, etc. Loaded from /api/assets and filtered by employeeId so
+  // HR sees the IT inventory linked to this person without leaving
+  // Employee Details.
+  const [assets, setAssets] = useState([]);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -129,6 +135,22 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
       const stored = JSON.parse(localStorage.getItem('emp_docs_' + employee.id) || '[]');
       if (!cancelled && Array.isArray(stored)) setDocuments(stored);
     } catch { /* ignore */ }
+
+    // Assigned company assets — fetch from /api/assets and filter to
+    // this employee's empId. Silent fail so the page still renders if
+    // the assets backend is unreachable.
+    (async () => {
+      try {
+        const empId = employee.employeeId || '';
+        if (!empId) { if (!cancelled) setAssets([]); return; }
+        const res  = await fetch(`${API}/assets`);
+        const data = await res.json();
+        if (cancelled || !data?.success || !Array.isArray(data.data)) return;
+        setAssets(data.data.filter(a => String(a.employeeId || '').toUpperCase() === String(empId).toUpperCase()));
+      } catch {
+        if (!cancelled) setAssets([]);
+      }
+    })();
 
     return () => { cancelled = true; };
   }, [employee?.id]);
@@ -416,6 +438,84 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               </div>
             </div>
           </div>
+
+          {/* Assigned Assets — read-only mirror of what the Assets page
+              shows for this employee. Hidden when the employee has no
+              assets so the sidebar doesn't waste vertical space. */}
+          {assets.length > 0 && (
+            <div className="card" style={{ padding: '24px' }}>
+              <h3 className="p-card-title" style={{ marginBottom: '6px', fontSize: '16px' }}>Assigned Assets</h3>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                {assets.length} {assets.length === 1 ? 'item' : 'items'} issued by HR
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {assets.map((a) => {
+                  const t = String(a.type || '').toLowerCase();
+                  const Icon =
+                    t.includes('laptop')          ? Laptop     :
+                    t.includes('monitor')         ? Monitor    :
+                    t.includes('mouse')           ? Mouse      :
+                    t.includes('keyboard')        ? Keyboard   :
+                    t.includes('id')              ? CreditCard :
+                    t.includes('pc')              ? Cpu        :
+                    (t.includes('mobile') || t.includes('phone')) ? Smartphone :
+                    Package;
+                  const tc =
+                    t.includes('laptop')          ? { bg: '#EBF4FD', color: '#4299E1' } :
+                    t.includes('monitor')         ? { bg: '#EDE9FE', color: '#9F7AEA' } :
+                    t.includes('mouse')           ? { bg: '#FEF3C7', color: '#D97706' } :
+                    t.includes('keyboard')        ? { bg: '#FCE7F3', color: '#ED64A6' } :
+                    t.includes('id')              ? { bg: '#F1F9EE', color: '#4CAA17' } :
+                    t.includes('pc')              ? { bg: '#E0F2FE', color: '#0284C7' } :
+                    (t.includes('mobile') || t.includes('phone')) ? { bg: '#E6FFFA', color: '#319795' } :
+                    { bg: '#F1F5F9', color: '#64748B' };
+                  // ID Card display name override — legacy rows may carry
+                  // a brand name like "DELL" even though the type is ID
+                  // Card; show "ID Card" instead.
+                  const name = /id ?card/i.test(a.type || '') ? 'ID Card' : (a.assetName || a.type || '—');
+                  return (
+                    <div
+                      key={a._id || a.assetId || a.serialNo}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '10px 12px', borderRadius: 10,
+                        background: 'var(--bg-main)',
+                      }}
+                    >
+                      <div style={{
+                        width: 34, height: 34, borderRadius: 8,
+                        background: tc.bg, color: tc.color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>
+                        <Icon size={18} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {name}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-light)', fontFamily: 'monospace' }}>
+                          {a.serialNo || a.assetId || '—'}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 800,
+                        padding: '3px 8px', borderRadius: 6,
+                        background:
+                          a.status === 'Available' ? '#F1F9EE' :
+                          a.status === 'Under Repair' ? '#FFF5F5' : '#EBF4FD',
+                        color:
+                          a.status === 'Available' ? '#4CAA17' :
+                          a.status === 'Under Repair' ? '#FC8181' : '#4299E1',
+                        textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap',
+                      }}>
+                        {a.status || 'Assigned'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </aside>
 
         <main className="emp-details-main" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

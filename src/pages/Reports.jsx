@@ -46,6 +46,11 @@ export default function Reports({ onBack }) {
   // ── API data ──────────────────────────────────────────────────
   const [attendanceData, setAttendanceData] = useState(null);
   const [employeeData, setEmployeeData]     = useState([]);
+  // Map of employeeId → total leave DAYS approved inside the picked
+  // date range. Computed from /api/leave-requests so the Employee
+  // Master report shows real leave usage instead of the synthetic
+  // "On Leave" status flag on the Employee record.
+  const [leaveByEmpId, setLeaveByEmpId]     = useState({});
   const [loading, setLoading]               = useState(false);
 
   // Fetch attendance report from API
@@ -76,9 +81,66 @@ export default function Reports({ onBack }) {
     }
   };
 
+  // Fetch approved leaves + permissions for the picked range and roll
+  // them up per employee. Counts each leave day (inclusive of both
+  // endpoints) so a 1-day Casual Leave shows up as 1, a 3-day Sick
+  // Leave as 3.  Permissions count as 0.5 (half-day equivalent).
+  const fetchLeavesForReport = async () => {
+    try {
+      // /api/leave-requests is the HRMS proxy that lists every mobile
+      // leave + permission with the populated employeeId.
+      const res  = await fetch(`${API}/leave-requests?limit=500&status=approved`);
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.items)) {
+        setLeaveByEmpId({});
+        return;
+      }
+      const startStr = String(startDate || '');
+      const endStr   = String(endDate   || '');
+      const tally = {};
+      for (const lv of data.items) {
+        const empId = lv.employeeId || lv.empId || lv.employee?.employeeId;
+        if (!empId) continue;
+        // Permission rows carry a single `date`; leave rows carry
+        // startDate/endDate (both as YYYY-MM-DD).
+        const isPerm = String(lv.requestType || lv.type || '').toLowerCase().includes('permission');
+        if (isPerm) {
+          const d = String(lv.date || '').slice(0, 10);
+          if (d && d >= startStr && d <= endStr) {
+            tally[empId] = (tally[empId] || 0) + 0.5;  // permission = half day
+          }
+          continue;
+        }
+        const ls = String(lv.startDate || lv.fromDate || '').slice(0, 10);
+        const le = String(lv.endDate   || lv.toDate   || '').slice(0, 10);
+        if (!ls || !le) continue;
+        // Clip the leave window to the picked range, then count days
+        // inclusive of both ends. ISO string compare doubles as date
+        // compare (YYYY-MM-DD sorts lexically).
+        const from = ls < startStr ? startStr : ls;
+        const to   = le > endStr   ? endStr   : le;
+        if (from > to) continue;  // leave doesn't overlap the range
+        const days =
+          Math.floor((new Date(to + 'T00:00:00').getTime() - new Date(from + 'T00:00:00').getTime()) / 86400000) + 1;
+        if (days > 0) tally[empId] = (tally[empId] || 0) + days;
+      }
+      setLeaveByEmpId(tally);
+    } catch (err) {
+      console.error('Failed to load leave report:', err);
+      setLeaveByEmpId({});
+    }
+  };
+
   useEffect(() => {
-    if (reportId === 'attendance') fetchAttendanceReport();
-    else fetchEmployees();
+    if (reportId === 'attendance') {
+      fetchAttendanceReport();
+    } else {
+      fetchEmployees();
+      // Pull live leave aggregates so the "On Leave" tile + the
+      // per-employee Leave Days column reflect real usage inside
+      // the picked range, not just the static status flag.
+      fetchLeavesForReport();
+    }
   }, [reportId, startDate, endDate]);
 
   const activeReport = REPORT_TYPES.find(r => r.id === reportId);
@@ -116,7 +178,13 @@ export default function Reports({ onBack }) {
   ] : reportId === 'employee' ? [
     { label: 'Total Employees', value: employeeDataInRange.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
     { label: 'Active Staff',    value: employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
-    { label: 'On Leave',        value: employeeDataInRange.filter(e => e.status === 'On Leave').length,                icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
+    // "On Leave" used to compare against the static `e.status === 'On
+    // Leave'` flag on the Employee directory — that was almost always 0.
+    // Replaced with a count of distinct employees who took any approved
+    // leave inside the picked date range (via leaveByEmpId), so the
+    // tile reflects real usage.
+    { label: 'On Leave',        value: Object.values(leaveByEmpId).filter(v => v > 0).length,                                  icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
+    { label: 'Leave Days',      value: Object.values(leaveByEmpId).reduce((s, v) => s + v, 0),                                  icon: <XCircle size={18} />,       color: '#9F7AEA', bg: '#FAF5FF' },
   ] : [];
 
   // ── Chart data from real API ──────────────────────────────────
@@ -140,8 +208,12 @@ export default function Reports({ onBack }) {
         employeeDataInRange.forEach(e => {
           const dept = (typeof e.department === 'object' ? e.department?.name : e.department) || 'Unknown';
           if (!deptMap[dept]) deptMap[dept] = { period: dept, active: 0, leave: 0 };
-          if (e.status === 'On Leave') deptMap[dept].leave++;
-          else deptMap[dept].active++;
+          // "On Leave" pulled from real leave usage in the range,
+          // not the static status flag.
+          const empId = e.employeeId || e._id;
+          const onLeave = (leaveByEmpId[empId] || 0) > 0;
+          if (onLeave) deptMap[dept].leave++;
+          else if (e.isActive !== false && e.status !== 'Terminated') deptMap[dept].active++;
         });
         return Object.values(deptMap).slice(0, 8);
       })()
@@ -162,8 +234,9 @@ export default function Reports({ onBack }) {
           if (typeof val === 'string' && val && !isHexId(val)) return val;
           return sidecar || '—';
         };
+        const empId = e.employeeId || e._id;
         return {
-          employeeId:   e.employeeId || e._id,
+          employeeId:   empId,
           employeeName: e.name || `${e.firstName || ''} ${e.lastName || ''}`.trim(),
           avatar:       ((e.firstName?.[0] || '') + (e.lastName?.[0] || '')).toUpperCase() || (e.name?.slice(0,2).toUpperCase() || '??'),
           color:        e.color || '#4299E1',
@@ -171,6 +244,8 @@ export default function Reports({ onBack }) {
           designation:  pickTitle(e.designation, e.designationTitle),
           manager:      e.assignedTo || '—',
           status:       e.status || 'Active',
+          // Real leave-day equivalents inside the picked range.
+          leaveDays:    leaveByEmpId[empId] || 0,
         };
       });
 
