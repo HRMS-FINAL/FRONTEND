@@ -18,6 +18,10 @@ export default function Dashboard({
   const [attendanceMonth, setAttendanceMonth] = useState('current');
   const [stats, setStats]   = useState(null);
   const [attToday, setAttToday] = useState(null);
+  // Selected calendar day — null means "today / live". When the user
+  // clicks any other day in the mini-calendar, this becomes a yyyy-mm-dd
+  // string and we refetch the day's attendance counts.
+  const [selectedDay, setSelectedDay] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch real dashboard stats + today's attendance. Re-fetch every 60s and
@@ -31,7 +35,9 @@ export default function Dashboard({
         .then(d => { if (!cancelled && d.success) setStats(d.stats); })
         .catch(err => console.error('[Dashboard] stats error:', err))
         .finally(() => { if (!cancelled) setLoading(false); });
-      fetch(`${API}/dashboard/attendance-today`)
+      // Fetch attendance for the selected day, or today when nothing is selected.
+      const qs = selectedDay ? `?date=${encodeURIComponent(selectedDay)}` : '';
+      fetch(`${API}/dashboard/attendance-today${qs}`)
         .then(r => r.json())
         .then(d => { if (!cancelled && d.success) setAttToday(d.data); })
         .catch(() => {});
@@ -46,7 +52,7 @@ export default function Dashboard({
     // the dashboard counts update immediately instead of waiting for the
     // 60-second tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employees.length]);
+  }, [employees.length, selectedDay]);
 
   // Live calendar
   const today       = new Date();
@@ -151,18 +157,40 @@ export default function Dashboard({
               ))}
               {(attendanceMonth === 'current' ? liveCalGrid : calGrid).map((day, idx) => {
                 const isCurrent = attendanceMonth === 'current';
-                // Empty calendar — no mock dots. Real per-day status will
-                // arrive from a future endpoint; for now we just show plain
-                // dates with "today" highlighted.
                 const mockStatus = '';
                 const isToday = isCurrent && day === todayDay;
+                // ISO date for this cell — used both to highlight the
+                // user's selection and to drive the backend refetch.
+                const cellMonth = isCurrent ? todayMonth : todayMonth - 1;
+                const cellYear  = isCurrent ? todayYear  : (todayMonth === 0 ? todayYear - 1 : todayYear);
+                const cellMonthAdj = isCurrent ? todayMonth : (todayMonth === 0 ? 11 : todayMonth - 1);
+                const iso = day
+                  ? `${cellYear}-${String(cellMonthAdj + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                  : null;
+                const isSelected = !!(day && selectedDay && selectedDay === iso);
                 return (
                   <div
                     key={idx}
                     className={`cal-day ${!day ? 'empty' : mockStatus}`}
-                    style={isToday ? { background: 'var(--primary)', borderRadius: '50%', color: 'white', fontWeight: 800, boxShadow: '0 0 0 3px rgba(76,170,23,0.25)' } : {}}
+                    onClick={() => {
+                      if (!day) return;
+                      // Click today again → clear (back to live).
+                      if (isToday && (!selectedDay || selectedDay === iso)) {
+                        setSelectedDay(null);
+                      } else {
+                        setSelectedDay(iso);
+                      }
+                    }}
+                    style={{
+                      cursor: day ? 'pointer' : 'default',
+                      ...(isToday
+                        ? { background: 'var(--primary)', borderRadius: '50%', color: 'white', fontWeight: 800, boxShadow: '0 0 0 3px rgba(76,170,23,0.25)' }
+                        : isSelected
+                        ? { background: '#E0F2FE', borderRadius: '50%', color: '#0369A1', fontWeight: 800, boxShadow: '0 0 0 2px #38BDF8' }
+                        : {}),
+                    }}
                   >
-                    <span className="day-num" style={isToday ? { color: 'white', fontWeight: 800 } : {}}>{day}</span>
+                    <span className="day-num" style={isToday ? { color: 'white', fontWeight: 800 } : isSelected ? { color: '#0369A1', fontWeight: 800 } : {}}>{day}</span>
                     {day && mockStatus && !isToday && <span className="day-dot" />}
                   </div>
                 );
@@ -170,12 +198,35 @@ export default function Dashboard({
             </div>
           </div>
 
+          {/* Selected-day label — switches between "Today" and the picked date. */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            {(() => {
+              if (!attToday) return 'Today';
+              if (!selectedDay) return 'Live · Today';
+              const [y, m, d] = String(attToday.date || selectedDay).split('-');
+              return `Stats for ${d}-${m}-${y}`;
+            })()}
+            {selectedDay && (
+              <button
+                type="button"
+                onClick={() => setSelectedDay(null)}
+                style={{
+                  marginLeft: 8, padding: '2px 8px', borderRadius: 10, fontSize: 10,
+                  background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1',
+                  cursor: 'pointer',
+                }}
+              >
+                Back to today
+              </button>
+            )}
+          </div>
           <div className="cal-stats">
             {(() => {
-              // When today's live attendance is available, show those four
-              // boxes (Present / Late / Leave / Perm). Otherwise fall back
-              // to whatever `calStats` was passed in.
-              const live = attToday && attendanceMonth === 'current'
+              // Always read from attToday (which now reflects the selected
+              // day when one is picked — see the fetch effect above). If
+              // the API hasn't responded yet, fall back to the parent's
+              // pre-computed calStats so the tiles never flash empty.
+              const live = attToday
                 ? [
                     { lbl: 'Present',  num: attToday.present    ?? 0, color: '#16a34a', bg: '#F0FDF4' },
                     { lbl: 'Late',     num: attToday.late       ?? 0, color: '#d97706', bg: '#FFFBEB' },

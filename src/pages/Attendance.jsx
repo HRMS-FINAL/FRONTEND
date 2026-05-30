@@ -212,11 +212,16 @@ export default function Attendance({ onBack, employees = [] }) {
     setFilterStatus(prev => prev === key ? 'all' : key);
   };
 
-  // Filtering based on search and sub-tab selection
+  // Filtering based on search and sub-tab selection.
+  // Defensive: any missing field would previously crash the .toLowerCase()
+  // call and silently leave the table unfiltered. Default all strings first.
   const displayLogs = dailyLogs.filter(log => {
-    const matchesSearch = log.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (log.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (log.role || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const q = String(searchQuery || '').trim().toLowerCase();
+    const name = String(log?.name        || '').toLowerCase();
+    const eid  = String(log?.employeeId  || '').toLowerCase();
+    const role = String(log?.role        || '').toLowerCase();
+    const dept = String(log?.department  || '').toLowerCase();
+    const matchesSearch = !q || name.includes(q) || eid.includes(q) || role.includes(q) || dept.includes(q);
 
     if (!matchesSearch) return false;
 
@@ -469,13 +474,13 @@ export default function Attendance({ onBack, employees = [] }) {
 
           {/* Filters & Search Row */}
           <div className="announcement-filters" style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-            <div className="topbar-search" style={{ flex: '0 0 130px', maxWidth: '130px' }}>
+            <div className="topbar-search" style={{ flex: '0 0 260px', maxWidth: '260px' }}>
               <Search size={13} />
               <input
-                placeholder="Search..."
+                placeholder="Search by name, ID, role or dept…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ fontSize: '11px' }}
+                style={{ fontSize: '12px' }}
               />
             </div>
 

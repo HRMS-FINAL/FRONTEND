@@ -50,6 +50,22 @@ function distMeters(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+// Sum the leg-by-leg haversine distance along a sequence of {lat, lng}
+// points — i.e. the length of the polyline that's drawn on the map. We
+// drop legs longer than 50 km because those are almost always GPS
+// teleports / phone-sleep artefacts that would otherwise inflate the
+// reported distance by hundreds of km.
+function polylineKm(points) {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const m = distMeters(Number(a.lat), Number(a.lng), Number(b.lat), Number(b.lng));
+    if (isFinite(m) && m < 50_000) total += m;
+  }
+  return total / 1000;
+}
+
 /**
  * Collapse the backend's raw statuses into the three HR buckets. When a
  * GPS distance to the office is supplied, anyone INSIDE the office
@@ -655,12 +671,21 @@ export default function LiveTracking() {
 
   // CSV export — kept dependency-free so we don't have to import xlsx here.
   const downloadTravelReportCsv = () => {
-    const header = ['Date', 'Type', 'From', 'To', 'Distance (km)', 'Amount (₹)', 'Status'];
+    const gpsKm = polylineKm(historicalRoute.points || []);
+    const header = ['Date', 'Type', 'From', 'To', 'Claimed Distance (km)', 'Amount (₹)', 'Status'];
     const rows = travelReport.rows.map(r => [
       fmtDDMMYYYY(r.date), r.kind === 'petrol' ? 'Petrol' : 'Travel',
       r.from || '', r.to || '', r.distance ?? 0, r.amount ?? 0, r.status || '',
     ]);
-    const csv = [header, ...rows]
+    // Trailing summary so HR can see, in the same file, the claimed total
+    // alongside the GPS-measured total computed from the map polyline.
+    const claimedTotal = travelReport.rows.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+    const summary = [
+      [],
+      ['', '', '', 'Claimed Total (km)', claimedTotal.toFixed(2)],
+      ['', '', '', 'GPS Distance from Map (km)', gpsKm.toFixed(2)],
+    ];
+    const csv = [header, ...rows, ...summary]
       .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
       .join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -1128,13 +1153,16 @@ export default function LiveTracking() {
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
               {(() => {
                 const rs = travelReport.rows;
-                const totalKm     = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+                const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
                 const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
                 const trips       = rs.length;
                 const days        = new Set(rs.map(r => r.date)).size;
+                // Distance measured from the rendered map polyline so HR
+                // can compare what the employee claimed vs. what GPS shows.
+                const gpsKm       = polylineKm(historicalRoute.points || []);
                 const tile = (lbl, val, color) => (
                   <div key={lbl} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
@@ -1144,7 +1172,8 @@ export default function LiveTracking() {
                 return [
                   tile('Trips', trips, '#0F172A'),
                   tile('Days Travelled', days, '#0F172A'),
-                  tile('Total Distance', totalKm.toFixed(1) + ' km', '#4299E1'),
+                  tile('Claimed Distance', claimedKm.toFixed(1) + ' km', '#4299E1'),
+                  tile('GPS Distance (map)', gpsKm.toFixed(1) + ' km', '#9F7AEA'),
                   tile('Total Amount', '₹' + totalAmount.toLocaleString('en-IN'), '#4CAA17'),
                 ];
               })()}

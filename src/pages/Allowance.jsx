@@ -29,6 +29,9 @@ export default function Allowance({ onBack }) {
 
   // State to toggle between Petrol Allowance ('petrol') and Travel Allowance ('travel')
   const [allowanceType, setAllowanceType] = useState('petrol');
+  // Per-employee filter — '' means "everyone". Drives both the visible table
+  // rows and the CSV download so HR can pull a single person's report.
+  const [employeeFilter, setEmployeeFilter] = useState('');
 
   // Seed both arrays from cache so neither tab is blank on refresh.
   const cached = readCache();
@@ -235,7 +238,15 @@ export default function Allowance({ onBack }) {
 
         {/* ── Summary tiles + download report ─────────────────────── */}
         {(() => {
-          const rows = (allowanceType === 'petrol' ? petrolRequests : travelRequests);
+          const allRows = (allowanceType === 'petrol' ? petrolRequests : travelRequests);
+          // Build the unique employee list from the currently-loaded rows.
+          // Falls back to id if no name is present so HR can still pick.
+          const employees = Array.from(
+            new Map(allRows.map(r => [r.empName || r.id || r._id, r.empName || r.id || r._id])).entries()
+          ).map(([k]) => k).filter(Boolean).sort();
+          const rows = employeeFilter
+            ? allRows.filter(r => (r.empName || r.id || r._id) === employeeFilter)
+            : allRows;
           const totalAmt    = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
           const approvedAmt = rows.reduce((s, r) => s + (r.status === 'Approved' ? (Number(r.approvedAmount) || Number(r.amount) || 0) : 0), 0);
           const rejectedAmt = rows.reduce((s, r) => {
@@ -268,7 +279,8 @@ export default function Allowance({ onBack }) {
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement('a');
             a.href = url;
-            a.download = (allowanceType === 'petrol' ? 'petrol' : 'travel') + '-allowance-report.csv';
+            const who = employeeFilter ? '-' + String(employeeFilter).replace(/[^a-zA-Z0-9]+/g, '_') : '';
+            a.download = (allowanceType === 'petrol' ? 'petrol' : 'travel') + '-allowance' + who + '-report.csv';
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           };
@@ -293,7 +305,24 @@ export default function Allowance({ onBack }) {
                 {tile('Rejected Amount', rejectedAmt, '#B91C1C', '#FEF2F2')}
                 {tile('Pending Amount',  pendingAmt,  '#D97706', '#FFFBEB')}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: '#475569' }}>
+                  Filter employee:
+                  <select
+                    value={employeeFilter}
+                    onChange={(e) => setEmployeeFilter(e.target.value)}
+                    style={{
+                      padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      border: '1px solid var(--border-color)', background: '#fff', color: '#0F172A',
+                      minWidth: 200,
+                    }}
+                  >
+                    <option value="">All employees</option>
+                    {employees.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
                   onClick={downloadCsv}
@@ -334,7 +363,7 @@ export default function Allowance({ onBack }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {petrolRequests.map(req => (
+                  {petrolRequests.filter(req => !employeeFilter || (req.empName || req.id || req._id) === employeeFilter).map(req => (
                     <tr key={req.id}>
                       <td><div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-light)' }}>{req.id}</div></td>
                       <td>
@@ -471,7 +500,7 @@ export default function Allowance({ onBack }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {travelRequests.map(req => (
+                  {travelRequests.filter(req => !employeeFilter || (req.empName || req.id || req._id) === employeeFilter).map(req => (
                     <tr key={req.id}>
                       <td><div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-light)' }}>{req.id}</div></td>
                       <td>

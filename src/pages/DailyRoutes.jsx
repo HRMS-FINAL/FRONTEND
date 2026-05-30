@@ -175,7 +175,7 @@ export default function DailyRoutes({ onBack }) {
                 // already carries date + employee + distance + allowance
                 // flag — exactly the columns HR needs for a daily summary.
                 const rows = filtered;
-                const header = ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out', 'Distance (km)', 'Filed Allowance'];
+                const header = ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out', 'GPS Distance (km)', 'Distance Source', 'Filed Allowance', 'Petrol Claimed (km)', 'Travel Claimed (km)'];
                 const lines = [header.join(',')];
                 for (const it of rows) {
                   const cells = [
@@ -185,8 +185,11 @@ export default function DailyRoutes({ onBack }) {
                     it.department || it.dept || '',
                     it.checkIn  || '',
                     it.checkOut || '',
-                    Number(it.totalDistanceKm) || 0,
+                    (Number(it.totalDistanceKm) || 0).toFixed(2),
+                    it.distanceSource || 'unknown',
                     it.hasAllowance ? 'Yes' : 'No',
+                    it.petrol?.distance ?? '',
+                    it.travel?.distance ?? '',
                   ];
                   lines.push(cells.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(','));
                 }
