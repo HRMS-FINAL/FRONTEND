@@ -35,7 +35,7 @@ const displayAssetName = (asset) => {
 };
 
 // Helpers
-const ASSET_TYPES = ['Laptop', 'Monitor', 'Mouse', 'Keyboard', 'ID Card', 'PC', 'Mobile with SIM'];
+const ASSET_TYPES = ['Laptop', 'Monitor', 'Mouse', 'Keyboard', 'ID Card', 'PC', 'Mobile with SIM', 'SIM Card'];
 
 const typeIcon = (type, size = 16) => {
   switch (type) {
@@ -46,6 +46,7 @@ const typeIcon = (type, size = 16) => {
     case 'ID Card':         return <CreditCard size={size} />;
     case 'PC':              return <Cpu        size={size} />;
     case 'Mobile with SIM': return <Smartphone size={size} />;
+    case 'SIM Card':        return <CreditCard size={size} />;
     default:                return <Package    size={size} />;
   }
 };
@@ -59,6 +60,7 @@ const typeColor = (type) => {
     case 'ID Card':         return { bg: '#F1F9EE', color: '#4CAA17' };
     case 'PC':              return { bg: '#E0F2FE', color: '#0284C7' };
     case 'Mobile with SIM': return { bg: '#E6FFFA', color: '#319795' };
+    case 'SIM Card':        return { bg: '#FFF7ED', color: '#C2410C' };
     default:                return { bg: '#F1F5F9', color: '#64748B' };
   }
 };

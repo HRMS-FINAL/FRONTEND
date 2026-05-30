@@ -163,7 +163,7 @@ export default function LeavePermissionRequest({ onBack }) {
         {/* Leave Requests Card */}
         <div 
           className={`stat-card attendance-stat-card ${activeTab === 'leave-requests' ? 'active-filter' : ''}`}
-          onClick={() => setActiveTab('leave-requests')}
+          onClick={() => { setActiveTab('leave-requests'); setFilterType(''); }}
           style={{ cursor: 'pointer' }}
         >
           <div className="stat-card-top">
@@ -183,7 +183,7 @@ export default function LeavePermissionRequest({ onBack }) {
         {/* Permission Requests Card */}
         <div 
           className={`stat-card attendance-stat-card ${activeTab === 'permission-requests' ? 'active-filter' : ''}`}
-          onClick={() => setActiveTab('permission-requests')}
+          onClick={() => { setActiveTab('permission-requests'); setFilterType(''); }}
           style={{ cursor: 'pointer' }}
         >
           <div className="stat-card-top">
@@ -256,9 +256,9 @@ export default function LeavePermissionRequest({ onBack }) {
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Type</th>
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Duration</th>
                 <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Date Range</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '25%' }}>Reason</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Manager Status</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'right' }}>Status</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '20%' }}>Reason</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '140px', textAlign: 'center' }}>Manager Status</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '140px', textAlign: 'center' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -314,33 +314,29 @@ export default function LeavePermissionRequest({ onBack }) {
                       {rec.reason}
                     </div>
                   </td>
-                  <td>
+                  <td style={{ textAlign: 'center' }}>
                     {/* Manager Status is now READ-ONLY here. The manager
                         does Approve/Reject from ERM Web; HRMS only mirrors
                         that decision and uses it to gate the Status column. */}
                     {rec.managerStatus === 'Approved' ? (
                       <span style={{
-                        fontWeight: 800, fontSize: '10px',
-                        padding: '4px 8px', borderRadius: '6px',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700, fontSize: 11, padding: '4px 10px', borderRadius: 20, minWidth: 120, boxSizing: 'border-box', 
                         background: '#F1F9EE', color: '#4CAA17',
-                        border: '1px solid #C2E7B0', display: 'inline-block',
+                        border: '1px solid #C2E7B0',
                       }}>
                         Approved
                       </span>
                     ) : rec.managerStatus === 'Rejected' ? (
                       <span style={{
-                        fontWeight: 800, fontSize: '10px',
-                        padding: '4px 8px', borderRadius: '6px',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700, fontSize: 11, padding: '4px 10px', borderRadius: 20, minWidth: 120, boxSizing: 'border-box', 
                         background: '#FFF5F5', color: '#C53030',
-                        border: '1px solid #FED7D7', display: 'inline-block',
+                        border: '1px solid #FED7D7',
                       }}>
                         Rejected
                       </span>
                     ) : (
                       <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        fontWeight: 700, fontSize: 11,
-                        padding: '4px 10px', borderRadius: 20,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700, fontSize: 11, padding: '4px 10px', borderRadius: 20, minWidth: 120, boxSizing: 'border-box', 
                         background: '#FFFBEB', color: '#D97706',
                         border: '1px solid #FDE68A',
                       }}>
@@ -348,7 +344,7 @@ export default function LeavePermissionRequest({ onBack }) {
                       </span>
                     )}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'center' }}>
                     {rec.managerStatus === 'Rejected' ? (
                       // Manager rejected → Status column stays EMPTY.
                       // HR has no action to take; the request is dead.
@@ -376,7 +372,7 @@ export default function LeavePermissionRequest({ onBack }) {
                       </div>
                     ) : rec.managerStatus === 'Approved' ? (
                       // Manager approved → HR can now Approve or Reject.
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                         <button
                           className="req-btn reject"
                           onClick={() => initiateAction(rec.id, 'Rejected')}
@@ -412,9 +408,7 @@ export default function LeavePermissionRequest({ onBack }) {
                       // Manager hasn't acted yet → show a clear "awaiting"
                       // hint instead of disabled buttons that confused HR.
                       <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        fontWeight: 700, fontSize: 11,
-                        padding: '4px 10px', borderRadius: 20,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700, fontSize: 11, padding: '4px 10px', borderRadius: 20, minWidth: 120, boxSizing: 'border-box', 
                         background: '#FFFBEB', color: '#D97706',
                         border: '1px solid #FDE68A',
                       }}>

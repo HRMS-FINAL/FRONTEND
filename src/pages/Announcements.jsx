@@ -76,6 +76,12 @@ export default function Announcements({ onBack }) {
   const menuRef = useRef(null);
 
   const [newPost, setNewPost] = useState({ title: '', content: '', category: 'General', priority: 'Low', attachments: [] });
+  // Search + category filter — both wired below so they actually narrow
+  // the visible list. The filter button opens a small dropdown of the
+  // categories present in the loaded announcements.
+  const [searchQuery,    setSearchQuery]    = useState('');
+  const [filterCategory, setFilterCategory] = useState('All');
+  const [filterOpen,     setFilterOpen]     = useState(false);
   const [postErrors, setPostErrors] = useState({});
   const [uploadingFile, setUploadingFile] = useState(false);
   // Cap one file at 5 MB before base64 inflation. The express.json limit
@@ -249,10 +255,47 @@ export default function Announcements({ onBack }) {
         <div className="announcement-filters">
           <div className="topbar-search" style={{ flex: 1, maxWidth: '400px' }}>
             <Search size={15} />
-            <input placeholder="Search announcements..." />
+            <input
+              placeholder="Search announcements..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-          <div className="emp-list-actions">
-            <button className="ne-btn-secondary"><Filter size={14} /> Filter</button>
+          <div className="emp-list-actions" style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="ne-btn-secondary"
+              onClick={() => setFilterOpen(v => !v)}
+            >
+              <Filter size={14} /> {filterCategory === 'All' ? 'Filter' : filterCategory}
+            </button>
+            {filterOpen && (
+              <div
+                onMouseLeave={() => setFilterOpen(false)}
+                style={{
+                  position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 30,
+                  background: '#fff', border: '1px solid #E2E8F0', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.08)', minWidth: 160, padding: 6,
+                }}
+              >
+                {['All', ...Array.from(new Set(announcements.map(a => a.category).filter(Boolean)))].map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => { setFilterCategory(cat); setFilterOpen(false); }}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '8px 12px', borderRadius: 6,
+                      background: filterCategory === cat ? '#F1F9EE' : 'transparent',
+                      color: filterCategory === cat ? '#15803D' : '#0F172A',
+                      border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -268,7 +311,19 @@ export default function Announcements({ onBack }) {
         )}
 
         <div className="announcement-grid">
-          {announcements.map(item => (
+          {announcements
+            .filter(item => {
+              // Category gate first — cheap and exact match.
+              if (filterCategory !== 'All' && String(item.category || '') !== filterCategory) return false;
+              // Search — match title or content (case-insensitive).
+              const q = searchQuery.trim().toLowerCase();
+              if (!q) return true;
+              return (
+                String(item.title   || '').toLowerCase().includes(q) ||
+                String(item.content || '').toLowerCase().includes(q)
+              );
+            })
+            .map(item => (
             <div className={`announcement-card ${(item.priority || 'low').toLowerCase()}`} key={item.id}>
               <div className="a-card-header">
                 <div className="a-category-tag">

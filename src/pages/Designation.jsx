@@ -17,14 +17,14 @@ function DesgIcon({ idx }) {
 }
 
 function mapApiDesg(d, i) {
-  const min = d.minSalary || '';
-  const max = d.maxSalary || '';
+  // Salary range was removed from the Designation directory — HR didn't
+  // want it visible here. Kept the function shape so existing call sites
+  // don't need changes.
   return {
     id:          d._id,
     title:       d.title,
     dept:        d.dept || d.department || '',
     count:       d.employeeCount || 0,
-    salaryRange: d.salaryRange || (min && max ? `$${min}k - $${max}k` : ''),
     iconIdx:     i % 5,
     color:       COLORS[i % COLORS.length],
   };
@@ -35,7 +35,7 @@ export default function Designation({ onBack }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal]     = useState(false);
   const [designations, setDesignations] = useState(MOCK_DESGS);
-  const [newRole, setNewRole] = useState({ title: '', dept: '', minSalary: '', maxSalary: '' });
+  const [newRole, setNewRole] = useState({ title: '', dept: '' });
   const [editTarget, setEditTarget] = useState(null);  // current designation being edited
   // Live department list — used to populate the Department dropdown
   // when adding or editing a designation. Pulled from /api/departments
@@ -81,20 +81,19 @@ export default function Designation({ onBack }) {
       title:       newRole.title,
       dept:        newRole.dept,
       count:       0,
-      salaryRange: newRole.minSalary && newRole.maxSalary ? `$${newRole.minSalary}k - $${newRole.maxSalary}k` : '',
       iconIdx:     designations.length % 5,
       color:       COLORS[designations.length % COLORS.length],
     };
     setDesignations(prev => [...prev, tempEntry]);
     showNotification(`Job role "${newRole.title}" added!`, 'success');
     setShowModal(false);
-    setNewRole({ title: '', dept: '', minSalary: '', maxSalary: '' });
+    setNewRole({ title: '', dept: '' });
     // Persist to API silently then re-sync
     try {
       await fetch(`${API}/designations`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ title: newRole.title.trim(), dept: newRole.dept, minSalary: newRole.minSalary, maxSalary: newRole.maxSalary }),
+        body:    JSON.stringify({ title: newRole.title.trim(), dept: newRole.dept }),
       });
       const res  = await fetch(`${API}/designations`);
       const data = await res.json();
@@ -112,7 +111,7 @@ export default function Designation({ onBack }) {
     } catch { /* silent */ }
   };
 
-  const handleEdit = (d) => setEditTarget({ ...d, minSalary: '', maxSalary: '' });
+  const handleEdit = (d) => setEditTarget({ ...d });
 
   const handleSaveEdit = async (e) => {
     e.preventDefault();
@@ -124,8 +123,6 @@ export default function Designation({ onBack }) {
         body:    JSON.stringify({
           title:     editTarget.title.trim(),
           dept:      editTarget.dept,
-          minSalary: editTarget.minSalary || undefined,
-          maxSalary: editTarget.maxSalary || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -199,7 +196,6 @@ export default function Designation({ onBack }) {
               <th>Job Title</th>
               <th>Department</th>
               <th>Employees</th>
-              <th>Salary Range</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -216,7 +212,6 @@ export default function Designation({ onBack }) {
                 </td>
                 <td><div className="emp-table-dept">{d.dept}</div></td>
                 <td><div className="emp-table-dept" style={{ color: 'var(--text-main)', fontWeight: '600' }}>{d.count} Staff</div></td>
-                <td><div className="emp-table-email">{d.salaryRange}</div></td>
                 <td>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button className="emp-table-btn" style={{ padding: '6px' }} onClick={() => handleEdit(d)}><Edit2 size={14} /></button>
@@ -266,16 +261,6 @@ export default function Designation({ onBack }) {
                     ))}
                   </select>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div className="ne-field">
-                    <label className="ne-label">Min Salary (k)</label>
-                    <input className="ne-input" type="number" value={editTarget.minSalary || ''} onChange={e => setEditTarget({ ...editTarget, minSalary: e.target.value })} />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Max Salary (k)</label>
-                    <input className="ne-input" type="number" value={editTarget.maxSalary || ''} onChange={e => setEditTarget({ ...editTarget, maxSalary: e.target.value })} />
-                  </div>
-                </div>
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button type="button" className="ne-btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
@@ -319,28 +304,6 @@ export default function Designation({ onBack }) {
                       deptOptions.map(d => <option key={d} value={d}>{d}</option>)
                     )}
                   </select>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div className="ne-field">
-                    <label className="ne-label">Min Salary (k)</label>
-                    <input
-                      className="ne-input"
-                      type="number"
-                      placeholder="e.g. 60"
-                      value={newRole.minSalary}
-                      onChange={e => setNewRole({ ...newRole, minSalary: e.target.value })}
-                    />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Max Salary (k)</label>
-                    <input
-                      className="ne-input"
-                      type="number"
-                      placeholder="e.g. 100"
-                      value={newRole.maxSalary}
-                      onChange={e => setNewRole({ ...newRole, maxSalary: e.target.value })}
-                    />
-                  </div>
                 </div>
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

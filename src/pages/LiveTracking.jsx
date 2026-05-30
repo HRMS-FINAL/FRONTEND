@@ -516,6 +516,10 @@ export default function LiveTracking() {
   // that lists every petrol + travel allowance for that employee inside
   // the range, plus totals.
   const [travelReport, setTravelReport] = useState({ loading: false, rows: [], emp: null });
+  // Historical GPS track for the searched employee across [selectedDate,
+  // endDate]. Fetched once per range change; rendered as a single
+  // polyline on the map under the report panel.
+  const [historicalRoute, setHistoricalRoute] = useState({ loading: false, points: [], startEnd: null });
 
   // ddmmyyyy fragments used in the title / CSV.
   const fmtDDMMYYYY = (iso) => {
@@ -577,6 +581,73 @@ export default function LiveTracking() {
         });
       } catch {
         if (!cancelled) setTravelReport({ loading: false, rows: [], emp: null });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reportActive, search, selectedDate, endDate]);
+
+  // Pull the daily GPS polyline for every date in the picked range and
+  // concat into one array so the map can render a single multi-day
+  // trail. Capped at 31 days so a wide range doesn't fan out into
+  // hundreds of HTTP calls.
+  useEffect(() => {
+    let cancelled = false;
+    if (!reportActive || !search.trim()) {
+      setHistoricalRoute({ loading: false, points: [], startEnd: null });
+      return;
+    }
+    (async () => {
+      setHistoricalRoute(p => ({ ...p, loading: true }));
+      try {
+        const empId = search.trim().toUpperCase();
+        const start = new Date(selectedDate);
+        const end   = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) {
+          setHistoricalRoute({ loading: false, points: [], startEnd: null });
+          return;
+        }
+        const dates = [];
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          dates.push(d.toISOString().slice(0, 10));
+        }
+        const capped = dates.slice(0, 31);
+
+        const allPoints = [];
+        let firstFix = null, lastFix = null;
+        await Promise.all(capped.map(async (date) => {
+          try {
+            const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${date}`);
+            const d = await r.json().catch(() => ({}));
+            if (cancelled || !d?.success) return;
+            const pts = Array.isArray(d.route) ? d.route :
+                        Array.isArray(d.points) ? d.points :
+                        Array.isArray(d.data?.route) ? d.data.route :
+                        Array.isArray(d.data?.points) ? d.data.points : [];
+            for (const p of pts) {
+              const lat = Number(p.lat ?? p.latitude);
+              const lng = Number(p.lng ?? p.longitude);
+              if (isFinite(lat) && isFinite(lng)) {
+                allPoints.push({ lat, lng, date });
+                if (!firstFix) firstFix = { lat, lng, date };
+                lastFix = { lat, lng, date };
+              }
+            }
+          } catch { /* per-day fetch errors are non-fatal */ }
+        }));
+
+        // Sort by date so the polyline draws in time order rather than
+        // jumping around if the per-day fetches resolve out of order.
+        allPoints.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+        if (!cancelled) {
+          setHistoricalRoute({
+            loading: false,
+            points: allPoints,
+            startEnd: firstFix && lastFix ? { from: firstFix, to: lastFix } : null,
+          });
+        }
+      } catch {
+        if (!cancelled) setHistoricalRoute({ loading: false, points: [], startEnd: null });
       }
     })();
     return () => { cancelled = true; };
@@ -790,10 +861,12 @@ export default function LiveTracking() {
         <div className="tracking-map-container">
           {reportActive && (
             <div style={{
-              position: 'absolute', inset: 0, zIndex: 5,
+              position: 'absolute', top: 12, right: 12, bottom: 12,
+              width: 380, zIndex: 5,
               background: '#fff', display: 'flex', flexDirection: 'column',
-              border: '1px solid var(--border-color)', borderRadius: 8,
+              border: '1px solid var(--border-color)', borderRadius: 12,
               overflow: 'hidden',
+              boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
             }}>
               <div style={{
                 padding: '14px 18px', borderBottom: '1px solid var(--border-color)',
@@ -939,6 +1012,32 @@ export default function LiveTracking() {
             <Marker position={[effectiveOffice.lat, effectiveOffice.lng]} icon={makeStartIcon()}>
               <Popup>{effectiveOffice.name || 'Office'}</Popup>
             </Marker>
+
+            {/* Historical track for the searched employee across the
+                picked date range. Plotted only in historical mode and
+                when we actually have at least 2 GPS samples. */}
+            {reportActive && historicalRoute.points.length >= 2 && (
+              <Polyline
+                positions={historicalRoute.points.map(p => [p.lat, p.lng])}
+                pathOptions={{
+                  color: '#3B82F6',
+                  weight: 4,
+                  opacity: 0.85,
+                  dashArray: '8 6',
+                  lineCap: 'round',
+                }}
+              />
+            )}
+            {reportActive && historicalRoute.startEnd && (
+              <>
+                <Marker position={[historicalRoute.startEnd.from.lat, historicalRoute.startEnd.from.lng]}>
+                  <Popup>Start · {historicalRoute.startEnd.from.date}</Popup>
+                </Marker>
+                <Marker position={[historicalRoute.startEnd.to.lat, historicalRoute.startEnd.to.lng]}>
+                  <Popup>End · {historicalRoute.startEnd.to.date}</Popup>
+                </Marker>
+              </>
+            )}
 
             {/* Travel polylines for travelling employees */}
             {visible
