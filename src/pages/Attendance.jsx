@@ -40,17 +40,15 @@ export default function Attendance({ onBack, employees = [] }) {
   }, [viewYear, viewMonth]);
 
   const monthLabel = `${MONTH_NAMES[viewMonth]} ${viewYear}`;
+  // YYYY-MM-DD for the /attendance/logs?date=... API. This is a *query
+  // parameter*, not a UI string, so it stays in ISO. The dd-mm-yyyy
+  // display format is applied separately wherever a user-visible date
+  // is rendered.
   const fmtDate = (d) => {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    return `${dd}-${mm}-${yyyy}`;
-  } catch { return String(iso); }
-};
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    return `${viewYear}-${mm}-${dd}`;
+  };
 
   // Fetch API logs for selected day (silently — falls back to mock if empty/error)
   useEffect(() => {

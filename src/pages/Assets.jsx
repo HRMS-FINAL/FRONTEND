@@ -802,7 +802,7 @@ export default function Assets({ employees = [] }) {
   const openEditModal = (a) => { setEditingAsset(a);     setShowModal(true); };
   const closeModal    = () => { setShowModal(false);     setEditingAsset(null); };
 
-  const formatDate = (d) => {
+  const formatDate = (iso) => {
   if (!iso) return '';
   try {
     const d = new Date(iso);
