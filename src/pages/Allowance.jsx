@@ -412,23 +412,79 @@ export default function Allowance({ onBack }) {
                           </div>
                         )}
                       </td>
-                      {/* Approved ₹ */}
+                      {/* Approved ₹ — shows the manager's split as soon as
+                          they act; gets re-stamped by HR if HR cuts a
+                          different amount. The "by Manager" tag tells HR
+                          who the current number came from. */}
                       <td>
-                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
-                          {req.status === 'Approved'
-                            ? '₹' + Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')
-                            : '—'}
-                        </div>
+                        {(() => {
+                          const hrDone      = req.status === 'Approved' || req.status === 'Rejected';
+                          const mgrApproved = req.managerStatus === 'Approved';
+                          const mgrRejected = req.managerStatus === 'Rejected';
+                          if (req.status === 'Approved') {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                                  ₹{Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#15803D', fontWeight: 700, marginTop: 2 }}>by HR</div>
+                              </>
+                            );
+                          }
+                          if (mgrApproved && !hrDone && Number(req.approvedAmount) >= 0) {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                                  ₹{Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          if (mgrRejected) {
+                            return <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>₹0</div>;
+                          }
+                          return <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>—</div>;
+                        })()}
                       </td>
-                      {/* Rejected ₹ */}
+                      {/* Rejected ₹ — mirrors the approved column's source. */}
                       <td>
-                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
-                          {req.status === 'Approved' && Number(req.rejectedAmount) > 0
-                            ? '₹' + Number(req.rejectedAmount).toLocaleString('en-IN')
-                            : req.status === 'Rejected'
-                            ? '₹' + Number(req.amount || 0).toLocaleString('en-IN')
-                            : '—'}
-                        </div>
+                        {(() => {
+                          const claim = Number(req.amount) || 0;
+                          if (req.status === 'Approved') {
+                            const rej = Number(req.rejectedAmount) || 0;
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                                  {rej > 0 ? '₹' + rej.toLocaleString('en-IN') : '—'}
+                                </div>
+                                {rej > 0 && <div style={{ fontSize: '10px', color: '#B91C1C', fontWeight: 700, marginTop: 2 }}>by HR</div>}
+                              </>
+                            );
+                          }
+                          if (req.status === 'Rejected') {
+                            return <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>₹{claim.toLocaleString('en-IN')}</div>;
+                          }
+                          if (req.managerStatus === 'Approved' && Number(req.rejectedAmount) > 0) {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                                  ₹{Number(req.rejectedAmount).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          if (req.managerStatus === 'Rejected') {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>₹{claim.toLocaleString('en-IN')}</div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          return <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>—</div>;
+                        })()}
                       </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
@@ -569,23 +625,79 @@ export default function Allowance({ onBack }) {
                           </div>
                         )}
                       </td>
-                      {/* Approved ₹ */}
+                      {/* Approved ₹ — shows the manager's split as soon as
+                          they act; gets re-stamped by HR if HR cuts a
+                          different amount. The "by Manager" tag tells HR
+                          who the current number came from. */}
                       <td>
-                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
-                          {req.status === 'Approved'
-                            ? '₹' + Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')
-                            : '—'}
-                        </div>
+                        {(() => {
+                          const hrDone      = req.status === 'Approved' || req.status === 'Rejected';
+                          const mgrApproved = req.managerStatus === 'Approved';
+                          const mgrRejected = req.managerStatus === 'Rejected';
+                          if (req.status === 'Approved') {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                                  ₹{Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#15803D', fontWeight: 700, marginTop: 2 }}>by HR</div>
+                              </>
+                            );
+                          }
+                          if (mgrApproved && !hrDone && Number(req.approvedAmount) >= 0) {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                                  ₹{Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          if (mgrRejected) {
+                            return <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>₹0</div>;
+                          }
+                          return <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>—</div>;
+                        })()}
                       </td>
-                      {/* Rejected ₹ */}
+                      {/* Rejected ₹ — mirrors the approved column's source. */}
                       <td>
-                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
-                          {req.status === 'Approved' && Number(req.rejectedAmount) > 0
-                            ? '₹' + Number(req.rejectedAmount).toLocaleString('en-IN')
-                            : req.status === 'Rejected'
-                            ? '₹' + Number(req.amount || 0).toLocaleString('en-IN')
-                            : '—'}
-                        </div>
+                        {(() => {
+                          const claim = Number(req.amount) || 0;
+                          if (req.status === 'Approved') {
+                            const rej = Number(req.rejectedAmount) || 0;
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                                  {rej > 0 ? '₹' + rej.toLocaleString('en-IN') : '—'}
+                                </div>
+                                {rej > 0 && <div style={{ fontSize: '10px', color: '#B91C1C', fontWeight: 700, marginTop: 2 }}>by HR</div>}
+                              </>
+                            );
+                          }
+                          if (req.status === 'Rejected') {
+                            return <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>₹{claim.toLocaleString('en-IN')}</div>;
+                          }
+                          if (req.managerStatus === 'Approved' && Number(req.rejectedAmount) > 0) {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                                  ₹{Number(req.rejectedAmount).toLocaleString('en-IN')}
+                                </div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          if (req.managerStatus === 'Rejected') {
+                            return (
+                              <>
+                                <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>₹{claim.toLocaleString('en-IN')}</div>
+                                <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 700, marginTop: 2 }}>by Manager</div>
+                              </>
+                            );
+                          }
+                          return <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>—</div>;
+                        })()}
                       </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
@@ -653,68 +765,40 @@ export default function Allowance({ onBack }) {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* Approval-amount modal — opens when HR clicks Approve. HR can
-          dial down the approved amount (e.g. when the GPS-derived
-          distance is less than what the employee typed) and the
-          rejected portion is computed live. The note is forwarded to
-          the employee in the in-app notification. */}
+      {/* ââ HR Approval modal: enter the partial-approve amount âââ */}
       {approvalModal && (() => {
-        const requested = Number(approvalModal.req.amount) || 0;
+        const requested = Number(approvalModal.req?.amount) || 0;
         const approved  = Number(approvalModal.approvedAmount) || 0;
         const rejected  = Math.max(0, requested - approved);
-        const r = approvalModal.req;
         return (
           <div
             onClick={closeApprovalModal}
             style={{
-              position: 'fixed', inset: 0, zIndex: 1000,
-              background: 'rgba(15,23,42,0.45)',
+              position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 24,
+              zIndex: 1000, padding: 16,
             }}
           >
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
-                background: '#fff', borderRadius: 14, padding: 24,
-                width: '100%', maxWidth: 480,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+                background: '#fff', borderRadius: 14, padding: 22,
+                width: 'min(440px, 100%)',
+                boxShadow: '0 18px 48px rgba(0,0,0,0.25)',
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', marginBottom: 4 }}>
-                Approve {approvalModal.type === 'petrol' ? 'Petrol' : 'Travel'} Claim
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', marginBottom: 4 }}>
+                Approve allowance
               </div>
-              <div style={{ fontSize: 12, color: '#64748B', marginBottom: 18 }}>
-                {r.empName} · {r.from} → {r.to} · {r.distance} km
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-                <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>Requested</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', marginTop: 2 }}>
-                    ₹{requested.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#15803D', textTransform: 'uppercase', letterSpacing: 0.4 }}>Approved</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#15803D', marginTop: 2 }}>
-                    ₹{approved.toLocaleString('en-IN')}
-                  </div>
-                </div>
-                <div style={{ background: '#FEF2F2', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#B91C1C', textTransform: 'uppercase', letterSpacing: 0.4 }}>Rejected</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#B91C1C', marginTop: 2 }}>
-                    ₹{rejected.toLocaleString('en-IN')}
-                  </div>
-                </div>
+              <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14 }}>
+                Claim amount: <b>₹{requested.toLocaleString('en-IN')}</b>
               </div>
 
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 6 }}>
-                Approved Amount (₹)
-              </label>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                Approved amount (≤ ₹{requested.toLocaleString('en-IN')})
+              </div>
               <input
                 type="number"
                 min={0}
@@ -729,12 +813,15 @@ export default function Allowance({ onBack }) {
                 placeholder={`max ₹${requested.toLocaleString('en-IN')}`}
               />
 
-              {/* Auto-computed rejected portion */}
               <div style={{
-                fontSize: 12, color: '#475569', marginBottom: 10,
+                fontSize: 12, color: '#475569', marginBottom: 12,
+                padding: '8px 10px', borderRadius: 8, background: '#F8FAFC',
+                border: '1px solid #E2E8F0',
               }}>
                 Rejected portion (auto):{' '}
-                <b>₹{Math.max(0, Number(requested) - Number(approvalModal.approvedAmount || 0)).toLocaleString('en-IN')}</b>
+                <b style={{ color: rejected > 0 ? '#B91C1C' : '#15803D' }}>
+                  ₹{rejected.toLocaleString('en-IN')}
+                </b>
               </div>
 
               <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
@@ -749,21 +836,19 @@ export default function Allowance({ onBack }) {
                   border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 16,
                   boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical',
                 }}
-                placeholder="Explain why this amount was approved/rejected…"
+                placeholder="Why this amount was approved/rejected..."
               />
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button
                   type="button"
-                  onClick={() => setApprovalModal(null)}
+                  onClick={closeApprovalModal}
                   style={{
                     padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1',
                     cursor: 'pointer',
                   }}
-                >
-                  Cancel
-                </button>
+                >Cancel</button>
                 <button
                   type="button"
                   onClick={() => submitApproval(approvalModal)}
@@ -771,9 +856,7 @@ export default function Allowance({ onBack }) {
                     padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
                   }}
-                >
-                  Confirm
-                </button>
+                >Confirm</button>
               </div>
             </div>
           </div>
