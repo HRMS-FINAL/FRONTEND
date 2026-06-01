@@ -40,6 +40,35 @@ export default function Department({ onBack }) {
   const [newDept, setNewDept] = useState({ name: '', manager: '' });
   const [editTarget, setEditTarget] = useState(null);
   const [openMenu, setOpenMenu]     = useState(null);  // id whose 3-dot menu is open
+  // List of every existing manager — anyone whose name appears in some
+  // employee's `assignedTo` field is treated as a manager. We fetch it
+  // once on mount and use it to power the Department Manager dropdown
+  // in both the Add and Edit drawers below.
+  const [managers, setManagers] = useState([]);
+  useEffect(() => {
+    fetch(`${API}/employees?limit=200`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d?.success || !Array.isArray(d.employees)) return;
+        // Names referenced as someone's assignedTo, deduped + sorted.
+        const referenced = new Set(
+          d.employees
+            .map(e => String(e.assignedTo || '').trim())
+            .filter(Boolean)
+        );
+        // Also include any employee whose `role` looks managerial so
+        // the dropdown isn't empty in fresh setups.
+        for (const e of d.employees) {
+          if (String(e.role || '').toLowerCase() === 'admin' ||
+              String(e.designation || '').toLowerCase().includes('manager')) {
+            const nm = (e.name || ((e.firstName || '') + ' ' + (e.lastName || '')).trim()).trim();
+            if (nm) referenced.add(nm);
+          }
+        }
+        setManagers(Array.from(referenced).sort((a, b) => a.localeCompare(b)));
+      })
+      .catch(() => { /* dropdown stays empty — non-fatal */ });
+  }, []);
 
   // Silently load from API on mount
   useEffect(() => {
@@ -297,11 +326,19 @@ export default function Department({ onBack }) {
                 </div>
                 <div className="ne-field" style={{ marginTop: '16px' }}>
                   <label className="ne-label">Department Manager</label>
-                  <input
+                  <select
                     className="ne-input"
                     value={editTarget.manager || ''}
                     onChange={e => setEditTarget({ ...editTarget, manager: e.target.value })}
-                  />
+                  >
+                    <option value="">— Select a manager —</option>
+                    {managers.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                    {editTarget.manager && !managers.includes(editTarget.manager) && (
+                      <option value={editTarget.manager}>{editTarget.manager} (current)</option>
+                    )}
+                  </select>
                 </div>
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -336,12 +373,16 @@ export default function Department({ onBack }) {
                 </div>
                 <div className="ne-field" style={{ marginTop: '16px' }}>
                   <label className="ne-label">Department Manager</label>
-                  <input
+                  <select
                     className="ne-input"
-                    placeholder="e.g. John Doe"
                     value={newDept.manager}
                     onChange={e => setNewDept({ ...newDept, manager: e.target.value })}
-                  />
+                  >
+                    <option value="">— Select a manager —</option>
+                    {managers.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

@@ -31,15 +31,26 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
   const onEditProfile = (emp) => {
     setEditingEmp(emp);
     setEditForm({
-      name: emp.name || '',
-      email: emp.email || '',
-      role: emp.role || '',
-      dept: emp.dept || '',
-      manager: emp.manager || '',
-      status: emp.status || '',
-      salary: emp.salary || '',
-      joiningDate: emp.joiningDate || '',
-      accessRole: emp.accessRole || 'Employee'
+      name:           emp.name           || '',
+      email:          emp.email          || '',
+      role:           emp.role           || '',
+      dept:           emp.dept           || '',
+      manager:        emp.manager        || '',
+      status:         emp.status         || '',
+      salary:         emp.salary         || '',
+      joiningDate:    emp.joiningDate    || '',
+      accessRole:     emp.accessRole     || 'Employee',
+      // Extended onboarding fields — surfaced in the edit drawer below
+      // so HR can keep them current without re-creating the employee.
+      phone:          emp.phone          || '',
+      dob:            emp.dob            || '',
+      gender:         emp.gender         || '',
+      bloodGroup:     emp.bloodGroup     || '',
+      employmentType: emp.employmentType || '',
+      street:         emp.address?.street  || emp.street  || '',
+      city:           emp.address?.city    || emp.city    || '',
+      state:          emp.address?.state   || emp.state   || '',
+      country:        emp.address?.country || emp.country || '',
     });
   };
 
@@ -73,13 +84,28 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
         body: JSON.stringify({
           firstName,
           lastName,
-          email:       emailClean,
-          designation: editForm.role,
-          department:  editForm.dept,
-          assignedTo:  editForm.manager,
-          status:      editForm.status,
-          salary:      editForm.salary,
-          joiningDate: editForm.joiningDate,
+          email:          emailClean,
+          designation:    editForm.role,
+          department:     editForm.dept,
+          assignedTo:     editForm.manager,
+          status:         editForm.status,
+          salary:         editForm.salary,
+          joiningDate:    editForm.joiningDate,
+          // Extended fields — phone, personal info, address. The backend
+          // Employee model already has all of these — we just weren't
+          // sending them, so HR edits to (say) phone number silently
+          // dropped before reaching Mongo.
+          phone:          editForm.phone,
+          dob:            editForm.dob,
+          gender:         editForm.gender,
+          bloodGroup:     editForm.bloodGroup,
+          employmentType: editForm.employmentType,
+          address: {
+            street:  editForm.street,
+            city:    editForm.city,
+            state:   editForm.state,
+            country: editForm.country,
+          },
         }),
       });
     } catch (err) {
@@ -513,24 +539,141 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                 {/* Form Group: Email */}
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email Address</label>
-                  <input 
-                    type="email" 
-                    value={editForm.email} 
+                  <input
+                    type="email"
+                    value={editForm.email}
                     onChange={e => setEditForm(prev => ({ ...prev, email: e.target.value }))}
-                    className="filter-input-small" 
-                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }} 
+                    className="filter-input-small"
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
                     required
                   />
                 </div>
 
+                {/* Phone + Date of Birth */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  {/* Form Group: Department */}
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Phone</label>
+                    <input
+                      type="tel"
+                      value={editForm.phone || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                      placeholder="e.g. 9876543210"
+                    />
+                  </div>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date of Birth</label>
+                    <input
+                      type="date"
+                      value={editForm.dob || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, dob: e.target.value }))}
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Gender + Blood Group */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Gender</label>
+                    <select
+                      value={editForm.gender || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, gender: e.target.value }))}
+                      className="filter-select"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
+                    >
+                      <option value="">— Select —</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Blood Group</label>
+                    <select
+                      value={editForm.bloodGroup || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, bloodGroup: e.target.value }))}
+                      className="filter-select"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
+                    >
+                      <option value="">— Select —</option>
+                      {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(bg => (
+                        <option key={bg} value={bg}>{bg}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Employment Type */}
+                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Employment Type</label>
+                  <select
+                    value={editForm.employmentType || ''}
+                    onChange={e => setEditForm(prev => ({ ...prev, employmentType: e.target.value }))}
+                    className="filter-select"
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="Full-time">Full-time</option>
+                    <option value="Part-time">Part-time</option>
+                    <option value="Contract">Contract</option>
+                    <option value="Intern">Intern</option>
+                  </select>
+                </div>
+
+                {/* Address */}
+                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Street</label>
+                  <input
+                    type="text"
+                    value={editForm.street || ''}
+                    onChange={e => setEditForm(prev => ({ ...prev, street: e.target.value }))}
+                    className="filter-input-small"
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>City</label>
+                    <input
+                      type="text"
+                      value={editForm.city || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, city: e.target.value }))}
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>State</label>
+                    <input
+                      type="text"
+                      value={editForm.state || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, state: e.target.value }))}
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Country</label>
+                    <input
+                      type="text"
+                      value={editForm.country || ''}
+                      onChange={e => setEditForm(prev => ({ ...prev, country: e.target.value }))}
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Department</label>
-                    <select 
-                      value={editForm.dept} 
+                    <select
+                      value={editForm.dept}
                       onChange={e => setEditForm(prev => ({ ...prev, dept: e.target.value }))}
-                      className="filter-select" 
+                      className="filter-select"
                       style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
                     >
                       {departments.map(dept => (
@@ -538,14 +681,12 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                       ))}
                     </select>
                   </div>
-
-                  {/* Form Group: Designation */}
                   <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Designation</label>
-                    <select 
-                      value={editForm.role} 
+                    <select
+                      value={editForm.role}
                       onChange={e => setEditForm(prev => ({ ...prev, role: e.target.value }))}
-                      className="filter-select" 
+                      className="filter-select"
                       style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
                     >
                       {roles.map(role => (
@@ -555,127 +696,52 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                   </div>
                 </div>
 
-                {/* Form Group: Assigned Manager */}
-                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Assigned Manager</label>
-                  <select 
-                    value={editForm.manager} 
-                    onChange={e => setEditForm(prev => ({ ...prev, manager: e.target.value }))}
-                    className="filter-select" 
-                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
-                  >
-                    <option value="">No Manager / Self</option>
-                    <option value="Alex Morrison">Alex Morrison (HR Manager)</option>
-                    {candidateManagers.map(mgrName => (
-                      mgrName !== 'Alex Morrison' && (
-                        <option key={mgrName} value={mgrName}>{mgrName}</option>
-                      )
-                    ))}
-                  </select>
-                </div>
-
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  {/* Form Group: Salary */}
                   <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Salary ($ / mo)</label>
-                    <input 
-                      type="number" 
-                      value={editForm.salary} 
-                      onChange={e => setEditForm(prev => ({ ...prev, salary: parseFloat(e.target.value) || '' }))}
-                      className="filter-input-small" 
-                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }} 
-                    />
+                    <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</label>
+                    <select
+                      value={editForm.status}
+                      onChange={e => setEditForm(prev => ({ ...prev, status: e.target.value }))}
+                      className="filter-select"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="On Leave">On Leave</option>
+                      <option value="Terminated">Terminated</option>
+                    </select>
                   </div>
-
-                  {/* Form Group: Joining Date */}
                   <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Joining Date</label>
-                    <input 
-                      type="date" 
-                      value={editForm.joiningDate} 
+                    <input
+                      type="date"
+                      value={editForm.joiningDate || ''}
                       onChange={e => setEditForm(prev => ({ ...prev, joiningDate: e.target.value }))}
-                      className="filter-input-small" 
-                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }} 
+                      className="filter-input-small"
+                      style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
                     />
                   </div>
                 </div>
 
-                {/* Form Group: Status */}
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</label>
-                  <select 
-                    value={editForm.status} 
-                    onChange={e => setEditForm(prev => ({ ...prev, status: e.target.value }))}
-                    className="filter-select" 
-                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Resigned">Resigned</option>
-                    <option value="On Leave">On Leave</option>
-                  </select>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Salary (annual)</label>
+                  <input
+                    type="number"
+                    value={editForm.salary || ''}
+                    onChange={e => setEditForm(prev => ({ ...prev, salary: e.target.value }))}
+                    className="filter-input-small"
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
+                  />
                 </div>
-
-                {/* Form Group: Access Role */}
-                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>System Access Role</label>
-                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center', height: '40px', background: '#F8FAFC', padding: '0 12px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-main)' }}>
-                      <input 
-                        type="radio" 
-                        name="accessRole" 
-                        value="Employee" 
-                        checked={editForm.accessRole === 'Employee'} 
-                        onChange={() => setEditForm(prev => ({ ...prev, accessRole: 'Employee' }))} 
-                        style={{ accentColor: 'var(--primary)', width: '16px', height: '16px' }}
-                      />
-                      Employee
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-main)' }}>
-                      <input 
-                        type="radio" 
-                        name="accessRole" 
-                        value="Manager" 
-                        checked={editForm.accessRole === 'Manager'} 
-                        onChange={() => setEditForm(prev => ({ ...prev, accessRole: 'Manager' }))} 
-                        style={{ accentColor: 'var(--primary)', width: '16px', height: '16px' }}
-                      />
-                      Manager
-                    </label>
-                  </div>
-                </div>
-
               </div>
-
-              {/* Drawer Footer Actions */}
-              <div className="edit-panel-footer" style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fafafa' }}>
-                <button 
-                  type="button" 
-                  onClick={() => setEditingEmp(null)} 
-                  className="ne-btn-secondary"
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="ne-btn-primary"
-                  style={{ padding: '8px 20px', fontSize: '13px', background: 'var(--primary)', color: 'white', border: '1px solid var(--primary-dark)' }}
-                >
-                  Save Changes
-                </button>
+              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" className="ne-btn-secondary" onClick={() => setEditingEmp(null)}>Cancel</button>
+                <button type="submit" className="ne-btn-primary">Save Changes</button>
               </div>
             </form>
           </div>
         </>
       )}
-
-      <style>{`
-        .edit-panel-overlay { position: fixed; top:0; left:0; width:100vw; height:100vh; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); z-index: 999; opacity: 0; animation: editFadeIn 0.2s forwards ease-out; }
-        .edit-panel { position: fixed; top:0; right:-480px; width:480px; height:100vh; background:white; box-shadow: -10px 0 30px rgba(0,0,0,0.15); z-index:1000; display:flex; flex-direction:column; animation: editSlideIn 0.3s forwards cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes editFadeIn { to { opacity: 1; } }
-        @keyframes editSlideIn { to { right: 0; } }
-        .edit-form-group input:focus, .edit-form-group select:focus { border-color: var(--primary) !important; outline: none; box-shadow: 0 0 0 3px rgba(76, 170, 23, 0.15) !important; }
-      `}</style>
     </div>
   );
 }

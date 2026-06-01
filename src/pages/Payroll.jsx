@@ -446,7 +446,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         </div>
       </div>
 
-      <div className="emp-table-card" style={{ marginTop: '20px' }}>
+      <div className="emp-table-card" style={{ marginTop: '20px', overflow: 'visible', maxHeight: 'none', flex: 'none' }}>
         <table className="emp-table">
           <thead>
             <tr>
@@ -826,150 +826,36 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         );
       })()}
 
-      {/* ── Create Payroll Slide-over Panel ── */}
-      {showProcessPanel && (() => {
-        const foundEmp = employees.find(e => (e.employeeId || 'EMP-10' + e.id) === createEmpId);
-        
-        let ctc = 0, basic = 0, hra = 0, special = 0, incentive = 0, gross = 0;
-        let epf = 0, pt = 0, tds = 0, deductions = 0, net = 0;
 
-        if (foundEmp) {
-          ctc = foundEmp.salary || 50000;
-          basic = Math.round(ctc * 0.50);
-          hra = Math.round(basic * 0.40);
-          special = ctc - basic - hra;
-          incentive = checkEligibility(foundEmp) ? 5000 : 0;
-          gross = ctc + incentive;
-          
-          epf = Math.round(basic * 0.12);
-          pt = 200;
-          tds = Math.round(gross * 0.10);
-          deductions = epf + pt + tds;
-          net = gross - deductions;
-        }
-
-        return (
-          <div className="ne-modal-overlay" style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
-            <div className="ne-modal-card" style={{ 
-              height: '100%', 
-              width: '650px', 
-              maxWidth: '100%', 
-              margin: 0, 
-              borderRadius: '16px 0 0 16px',
-              animation: 'slideInRight 0.3s ease',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              <div className="ne-modal-header" style={{ padding: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <img src={logo} alt="Logo" style={{ height: '40px' }} />
-                  <div>
-                    <h2 className="ne-modal-title" style={{ margin: 0 }}>Create Payroll</h2>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748B' }}>Generate a payslip for a specific employee</p>
-                  </div>
-                </div>
-                <button className="ne-modal-close" onClick={() => setShowProcessPanel(false)}><X size={20} /></button>
-              </div>
-              <div className="ne-modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                <div style={{ animation: 'fadeIn 0.3s ease' }}>
-                  <div style={{ background: '#FFF', padding: '16px', borderRadius: '12px', border: '1px solid #E2E8F0', marginBottom: '20px', overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #000' }}>
-                      <tbody>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', width: '20%' }}>Emp ID</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', width: '20%' }}>
-                            <input type="text" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', width: '20%' }}>Employee Name</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }} colSpan="2">
-                            <input type="text" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Paid Days</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" defaultValue="30" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Designation</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }} colSpan="2">
-                            <input type="text" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Department</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="text" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}></td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }} colSpan="2"></td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>BAL. ADVANCE</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" defaultValue="0" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}></td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }} colSpan="2"></td>
-                        </tr>
-                        
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', background: '#F8FAFC' }}>Earnings</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', background: '#F8FAFC' }}>Rate</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', background: '#F8FAFC' }}>Amount</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', background: '#F8FAFC' }}>Deductions</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', background: '#F8FAFC' }}>Amount</td>
-                        </tr>
-                        
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>BASIC + DA</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>PF</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>HRA</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>Conveyance</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>Other</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-                    <button
-                      onClick={() => setShowEditSlip(null)}
-                      style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1', cursor: 'pointer' }}
-                    >Cancel</button>
-                    <button
-                      onClick={() => setShowEditSlip(null)}
-                      style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer' }}
-                    >Save</button>
-                  </div>
-                </div>
-              </div>
+      {/* Create Payroll Slide-over Panel — temporarily stubbed.
+          The full builder is restored in a follow-up; until then HR can
+          still use Upload Report and Send to Employee on the table rows. */}
+      {showProcessPanel && (
+        <div
+          onClick={() => setShowProcessPanel(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, padding: 24, width: 'min(420px,100%)' }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>Create Payroll</div>
+            <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14 }}>
+              Use Upload Report on the Payroll page header to generate payslips
+              for every employee for the selected month. The advanced manual
+              builder is being rebuilt and will return shortly.
             </div>
+            <button
+              onClick={() => setShowProcessPanel(false)}
+              style={{ padding: '8px 16px', borderRadius: 8, background: '#0F172A', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}
+            >Close</button>
           </div>
-        );
-      })()}
+        </div>
+      )}
     </div>
   );
 }

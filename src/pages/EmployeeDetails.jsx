@@ -22,7 +22,19 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
     manager: '',
     status: '',
     salary: '',
-    joiningDate: ''
+    joiningDate: '',
+    // Extended fields — captured during Add Employee. HR can now edit all
+    // of them from the Employee Details page so the source of truth lives
+    // in one place rather than being silently dropped after onboarding.
+    phone: '',
+    dob: '',
+    gender: '',
+    bloodGroup: '',
+    employmentType: '',
+    street: '',
+    city: '',
+    state: '',
+    country: '',
   });
 
   const departments = useMemo(() => {
@@ -273,14 +285,23 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
   const onEditProfile = () => {
     setEditingEmp(employee);
     setEditForm({
-      name: employee.name || '',
-      email: employee.email || '',
-      role: employee.role || '',
-      dept: employee.dept || '',
-      manager: employee.manager || '',
-      status: employee.status || '',
-      salary: employee.salary || '',
-      joiningDate: employee.joiningDate || ''
+      name:           employee.name           || '',
+      email:          employee.email          || '',
+      role:           employee.role           || '',
+      dept:           employee.dept           || '',
+      manager:        employee.manager        || '',
+      status:         employee.status         || '',
+      salary:         employee.salary         || '',
+      joiningDate:    employee.joiningDate    || '',
+      phone:          employee.phone          || '',
+      dob:            employee.dob            || '',
+      gender:         employee.gender         || '',
+      bloodGroup:     employee.bloodGroup     || '',
+      employmentType: employee.employmentType || '',
+      street:         employee.address?.street  || '',
+      city:           employee.address?.city    || '',
+      state:          employee.address?.state   || '',
+      country:        employee.address?.country || '',
     });
   };
 
@@ -310,11 +331,24 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
         body: JSON.stringify({
           firstName,
           lastName,
-          email:       emailClean,
-          designation: editForm.role,
-          department:  editForm.dept,
-          assignedTo:  editForm.manager,
-          status:      editForm.status,
+          email:          emailClean,
+          designation:    editForm.role,
+          department:     editForm.dept,
+          assignedTo:     editForm.manager,
+          status:         editForm.status,
+          // Extended onboarding fields — sent through so the doc in
+          // Mongo carries everything HR sees + edits on this page.
+          phone:          editForm.phone,
+          dob:            editForm.dob,
+          gender:         editForm.gender,
+          bloodGroup:     editForm.bloodGroup,
+          employmentType: editForm.employmentType,
+          address: {
+            street:  editForm.street,
+            city:    editForm.city,
+            state:   editForm.state,
+            country: editForm.country,
+          },
           salary:      editForm.salary,
           joiningDate: editForm.joiningDate,
         }),
@@ -584,34 +618,13 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
                 onChange={handleUploadDocument}
               />
               <button
+                type="button"
                 className="ne-btn-secondary"
                 style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => onBack && onBack()}
               >
-                <Upload size={14} /> Upload Document
+                Back
               </button>
-            </div>
-            <div className="p-activity-list">
-              {documents.length === 0 && (
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '8px 0' }}>
-                  No documents uploaded yet.
-                </div>
-              )}
-              {documents.map(doc => (
-                <div key={doc.id} className="p-contact-item" style={{ marginBottom: '12px', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <FileText size={18} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: 600 }}>{doc.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>{doc.size} • Uploaded on {doc.date}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button className="emp-table-btn" title="Download" onClick={() => handleDownloadDocument(doc)}><Download size={14} /></button>
-                    <button className="emp-table-btn" title="Remove" style={{ color: '#FC8181' }} onClick={() => handleDeleteDocument(doc)}><X size={14} /></button>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </main>

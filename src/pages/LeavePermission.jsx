@@ -367,8 +367,8 @@ export default function LeavePermission({ onBack }) {
           <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
-                {activeTab === 'leave' && `Employees on Leave: May ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}, 2024`}
-                {activeTab === 'permission' && `Employees on Permission: May ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}, 2024`}
+                {activeTab === 'leave' && `Employees on Leave: ${MONTH_NAMES[viewMonth]} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}, ${viewYear}`}
+                {activeTab === 'permission' && `Employees on Permission: ${MONTH_NAMES[viewMonth]} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}, ${viewYear}`}
               </h3>
               <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: 'var(--text-light)' }}>
                 Showing active records matching selected calendar date.

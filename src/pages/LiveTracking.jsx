@@ -4,6 +4,8 @@ import L from 'leaflet';
 import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import '../tracking.css';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { API } from '../config/api';
 
 // Live tracking now starts empty — populated from the mobile backend's
@@ -701,6 +703,120 @@ export default function LiveTracking() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  // Professional PDF — header band, employee + date range info, summary
+  // tiles, then a striped table of trips. Mirrors the on-screen Travel
+  // Report layout so HR can hand the PDF to finance without reformatting.
+  const downloadTravelReportPdf = () => {
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const M = 40;
+      let y = 50;
+
+      // Header band
+      doc.setFillColor(76, 170, 23);   // brand green
+      doc.rect(0, 0, pageW, 64, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(255, 255, 255);
+      doc.text('TESCO STRUCTURES — Travel Report', M, 38);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('HR · Live Tracking · Field Operations', M, 54);
+
+      y = 100;
+      // Subject line — employee + date range
+      const emp = travelReport.emp || {};
+      const empName = emp.name || 'All Employees';
+      const empId   = emp.employeeId ? ` · ${emp.employeeId}` : '';
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${empName}${empId}`, M, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `Period: ${fmtDDMMYYYY(selectedDate)}  →  ${fmtDDMMYYYY(endDate)}` +
+        `   |   Generated: ${fmtDDMMYYYY(new Date().toISOString().slice(0,10))}`,
+        M, y + 16
+      );
+
+      // Summary tiles
+      const rs = travelReport.rows;
+      const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+      const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
+      const trips       = rs.length;
+      const days        = new Set(rs.map(r => r.date)).size;
+      const gpsKm       = polylineKm(historicalRoute.points || []);
+
+      const tiles = [
+        { lbl: 'Trips',             val: String(trips) },
+        { lbl: 'Days Travelled',    val: String(days) },
+        { lbl: 'Claimed Distance',  val: claimedKm.toFixed(1) + ' km' },
+        { lbl: 'GPS Distance',      val: gpsKm.toFixed(1) + ' km' },
+        { lbl: 'Total Amount',      val: '₹ ' + totalAmount.toLocaleString('en-IN') },
+      ];
+      const tileW = (pageW - M * 2 - 4 * 8) / 5;
+      const tileY = y + 38;
+      tiles.forEach((t, i) => {
+        const x = M + i * (tileW + 8);
+        doc.setDrawColor(226, 232, 240);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, tileY, tileW, 52, 6, 6, 'FD');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.setFont('helvetica', 'bold');
+        doc.text(t.lbl.toUpperCase(), x + 10, tileY + 16);
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42);
+        doc.text(t.val, x + 10, tileY + 38);
+      });
+
+      // Table of trips
+      const head = [['Date', 'Type', 'From → To', 'Distance', 'Amount', 'Status']];
+      const body = rs.map(r => [
+        fmtDDMMYYYY(r.date),
+        r.kind === 'petrol' ? 'Petrol' : 'Travel',
+        `${r.from || '—'} → ${r.to || '—'}`,
+        ((Number(r.distance) || 0).toFixed(1) + ' km'),
+        '₹ ' + Number(r.amount || 0).toLocaleString('en-IN'),
+        r.status || 'Pending',
+      ]);
+      autoTable(doc, {
+        startY:  tileY + 70,
+        head, body,
+        theme:   'striped',
+        styles:  { fontSize: 9, cellPadding: 6 },
+        headStyles: { fillColor: '#4CAA17', textColor: '#fff', fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 70 },
+          1: { cellWidth: 55 },
+          3: { halign: 'right', cellWidth: 70 },
+          4: { halign: 'right', cellWidth: 80 },
+          5: { cellWidth: 70 },
+        },
+      });
+
+      // Footer
+      const finalY = doc.lastAutoTable?.finalY || tileY + 100;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Tesco Structures HRMS · GPS distance computed from Live Tracking pings · ` +
+        `Page 1 of ${doc.internal.getNumberOfPages()}`,
+        M, finalY + 24
+      );
+
+      const file = `travel-report_${(emp.employeeId || 'employee').replace(/[^a-zA-Z0-9]+/g, '_')}_${selectedDate}_${endDate}.pdf`;
+      doc.save(file);
+    } catch (err) {
+      console.error('[downloadTravelReportPdf]', err);
+      alert('Could not generate PDF: ' + (err?.message || 'unknown error'));
+    }
+  };
+
   // Buckets the header + filter tabs are built from.
   const counts = {
     total:   employees.length,
@@ -1143,18 +1259,32 @@ export default function LiveTracking() {
                   {fmtDDMMYYYY(selectedDate)} → {fmtDDMMYYYY(endDate)} · filter: <b>{search}</b>
                 </div>
               </div>
-              <button
-                onClick={downloadTravelReportCsv}
-                disabled={travelReport.rows.length === 0}
-                style={{
-                  padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-                  border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
-                  cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: travelReport.rows.length === 0 ? 0.5 : 1,
-                }}
-              >
-                Download CSV
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={downloadTravelReportPdf}
+                  disabled={travelReport.rows.length === 0}
+                  style={{
+                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                    border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#1D4ED8',
+                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Download PDF
+                </button>
+                <button
+                  onClick={downloadTravelReportCsv}
+                  disabled={travelReport.rows.length === 0}
+                  style={{
+                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                    border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
+                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Download CSV
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
@@ -1164,8 +1294,6 @@ export default function LiveTracking() {
                 const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
                 const trips       = rs.length;
                 const days        = new Set(rs.map(r => r.date)).size;
-                // Distance measured from the rendered map polyline so HR
-                // can compare what the employee claimed vs. what GPS shows.
                 const gpsKm       = polylineKm(historicalRoute.points || []);
                 const tile = (lbl, val, color) => (
                   <div key={lbl} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
@@ -1185,7 +1313,7 @@ export default function LiveTracking() {
 
             <div style={{ padding: '10px 14px', overflowX: 'auto' }}>
               {travelReport.loading && (
-                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading…</div>
+                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading...</div>
               )}
               {!travelReport.loading && travelReport.rows.length === 0 && (
                 <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>
@@ -1196,7 +1324,7 @@ export default function LiveTracking() {
                 <table className="emp-table">
                   <thead>
                     <tr>
-                      <th>Date</th><th>Type</th><th>From → To</th>
+                      <th>Date</th><th>Type</th><th>From -> To</th>
                       <th>Distance</th><th>Amount</th><th>Status</th>
                     </tr>
                   </thead>
@@ -1214,7 +1342,7 @@ export default function LiveTracking() {
                             textTransform: 'uppercase', letterSpacing: 0.4,
                           }}>{r.kind === 'petrol' ? 'Petrol' : 'Travel'}</span>
                         </td>
-                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} → {r.to || '—'}</div></td>
+                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} -> {r.to || '—'}</div></td>
                         <td><div style={{ fontSize: 12 }}>{(Number(r.distance) || 0).toFixed(1)} km</div></td>
                         <td><div style={{ fontSize: 12, fontWeight: 700, color: '#4CAA17' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div></td>
                         <td>
@@ -1223,7 +1351,7 @@ export default function LiveTracking() {
                             padding: '3px 8px', borderRadius: 6,
                             background: r.status === 'Approved' ? '#F0FDF4'
                                      : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
-                                                        color:      r.status === 'Approved' ? '#16A34A'
+                            color:      r.status === 'Approved' ? '#16A34A'
                                      : r.status === 'Rejected' ? '#DC2626' : '#D97706',
                           }}>{r.status || 'Pending'}</span>
                         </td>

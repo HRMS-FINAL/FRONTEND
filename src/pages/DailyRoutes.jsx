@@ -17,6 +17,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { ChevronRight, Calendar, Search, Navigation, MapPin } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import RouteMapModal from '../components/RouteMapModal';
 
 import { API, apiFetch } from '../config/api';
@@ -254,6 +256,102 @@ export default function DailyRoutes({ onBack }) {
   const totalDistance = items.reduce((s, it) => s + effectiveKm(it), 0);
   const withAllowance = items.filter((it) => it.hasAllowance).length;
 
+  // Professional PDF — branded header, summary tiles, striped table.
+  const downloadPdf = () => {
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const M = 40;
+
+      // Header band
+      doc.setFillColor(76, 170, 23);
+      doc.rect(0, 0, pageW, 64, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(255, 255, 255);
+      doc.text('TESCO STRUCTURES — Daily Routes Report', M, 38);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text('HR · Daily GPS distance audit · Field Operations', M, 54);
+
+      // Subject line
+      let y = 100;
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Routes for ${fmtDateDMY(date)}`, M, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `${filtered.length} employees${search ? ` · filtered: "${search}"` : ''}` +
+        `   |   Generated: ${fmtDateDMY(new Date().toISOString().slice(0,10))}`,
+        M, y + 16
+      );
+
+      // Summary tiles
+      const tiles = [
+        { lbl: 'Employees',           val: String(items.length) },
+        { lbl: 'Filed Allowance',     val: String(withAllowance) },
+        { lbl: 'Auto-tracked Only',   val: String(items.length - withAllowance) },
+        { lbl: 'Total km (all)',      val: totalDistance.toFixed(1) + ' km' },
+      ];
+      const tileW = (pageW - M * 2 - 3 * 8) / 4;
+      const tileY = y + 38;
+      tiles.forEach((t, i) => {
+        const x = M + i * (tileW + 8);
+        doc.setDrawColor(226, 232, 240);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, tileY, tileW, 52, 6, 6, 'FD');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.setFont('helvetica', 'bold');
+        doc.text(t.lbl.toUpperCase(), x + 10, tileY + 16);
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42);
+        doc.text(t.val, x + 10, tileY + 38);
+      });
+
+      // Body table
+      const head = [['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Distance', 'Source', 'Allowance']];
+      const body = filtered.map((it) => [
+        it.employeeId || '—',
+        it.name || it.employeeName || '—',
+        it.designation || '—',
+        fmtTime(it.checkIn),
+        fmtTime(it.checkOut),
+        effectiveKm(it).toFixed(2) + ' km',
+        effectiveSource(it),
+        it.hasAllowance ? 'Yes' : 'No',
+      ]);
+      autoTable(doc, {
+        startY:  tileY + 70,
+        head, body,
+        theme:   'striped',
+        styles:  { fontSize: 9, cellPadding: 6 },
+        headStyles: { fillColor: '#4CAA17', textColor: '#fff', fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          5: { halign: 'right', cellWidth: 60 },
+          7: { halign: 'center', cellWidth: 60 },
+        },
+      });
+
+      const finalY = doc.lastAutoTable?.finalY || tileY + 100;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Tesco Structures HRMS · GPS distance from Live Tracking polyline · ` +
+        `Page 1 of ${doc.internal.getNumberOfPages()}`,
+        M, finalY + 24
+      );
+      doc.save(`daily-routes_${date}.pdf`);
+    } catch (err) {
+      console.error('[downloadPdf]', err);
+      alert('Could not generate PDF: ' + (err?.message || 'unknown error'));
+    }
+  };
+
   return (
     <div className="emp-list-page">
       <div className="emp-list-header">
@@ -298,6 +396,21 @@ export default function DailyRoutes({ onBack }) {
                 style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%' }}
               />
             </div>
+            <button
+              type="button"
+              onClick={downloadPdf}
+              disabled={filtered.length === 0}
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                background: '#EFF6FF', color: '#1D4ED8',
+                border: '1px solid #BFDBFE',
+                cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: filtered.length === 0 ? 0.5 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Download PDF
+            </button>
             <button
               type="button"
               onClick={() => {

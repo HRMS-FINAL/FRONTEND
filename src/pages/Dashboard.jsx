@@ -103,9 +103,15 @@ export default function Dashboard({
               <div className="stat-icon-wrap" style={{ background: s.bg }}>
                 <s.Icon size={20} color={s.color} />
               </div>
-              <div className={`stat-trend-badge ${s.up ? 'up' : 'down'}`}>
-                {s.trend}
-              </div>
+              {/* Hide the trend badge when the backend has nothing real
+                  to report — placeholders like "0+" and "—" looked like
+                  bugs more than data. We only render when there's a
+                  meaningful number/percentage in s.trend. */}
+              {s.trend && s.trend !== '—' && s.trend !== '-' && s.trend !== '0+' && s.trend !== '0%' && (
+                <div className={`stat-trend-badge ${s.up ? 'up' : 'down'}`}>
+                  {s.trend}
+                </div>
+              )}
             </div>
             <div>
               <div className="stat-value">{s.value}</div>
@@ -136,19 +142,9 @@ export default function Dashboard({
             </select>
           </div>
 
-          <div className="calendar-legend" style={{ margin: '12px 0 20px 0' }}>
-            {[
-              { lbl: 'Present', color: '#22c55e' },
-              { lbl: 'Late',    color: '#f59e0b' },
-              { lbl: 'Leave',   color: '#ef4444' },
-              { lbl: 'Perm',    color: '#94a3b8' },
-            ].map(l => (
-              <div key={l.lbl} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.color }} />
-                {l.lbl}
-              </div>
-            ))}
-          </div>
+          {/* Calendar legend removed for HRMS — the per-day status dots
+              apply to a single employee's calendar, which belongs in the
+              ERM Mobile / ERM Web apps, not the HR-wide dashboard. */}
 
           <div className="mini-calendar">
             <div className="cal-grid">
@@ -313,7 +309,7 @@ export default function Dashboard({
           {[
             { label: 'Add Employee',     Icon: UserPlus,      view: 'new-employee',    color: '#4CAA17', bg: '#F0FDF4' },
             { label: 'Run Payroll',      Icon: ClipboardList, view: 'payroll',         color: '#2563EB', bg: '#EFF6FF' },
-            { label: 'Live Tracking',    Icon: MapPin,        view: 'live-tracking',   color: '#9F7AEA', bg: '#F5F3FF' },
+            { label: 'Complaints',       Icon: MapPin,        view: 'complaint',       color: '#9F7AEA', bg: '#F5F3FF' },
             { label: 'Approve Leaves',   Icon: Check,         view: 'leave-permission',color: '#D97706', bg: '#FFFBEB' },
             { label: 'Mark Attendance',  Icon: Clock,         view: 'attendance',      color: '#DC2626', bg: '#FEF2F2' },
             { label: 'Announcements',    Icon: UserCheck,     view: 'announcements',   color: '#0EA5E9', bg: '#F0F9FF' },
