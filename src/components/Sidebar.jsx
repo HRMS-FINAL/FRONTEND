@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, ChevronRight, TrendingUp, DollarSign, 
   CalendarCheck, BarChart2, Settings, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard 
 } from 'lucide-react';
-import logo from '../assets/logo.png';
+import logo from '../assets/logo2.png';
 import logo2 from '../assets/logo2.png';
 
 export default function Sidebar({ 

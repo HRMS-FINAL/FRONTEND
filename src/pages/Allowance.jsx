@@ -136,16 +136,22 @@ export default function Allowance({ onBack }) {
     return (
       <div style={{ overflowX: 'auto' }}>
         <table className="emp-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+          {/* Column widths tuned so the two right-most pills ("Awaiting
+              Manager" / Approved / Rejected) never overlap. Each pill is
+              ~120 px wide; giving the Manager Status + Status columns
+              ~15% each guarantees they sit on their own line at any
+              viewport ≥ 1280 px. Earlier widths (11% each) clipped the
+              pill text and made the two columns look merged. */}
           <colgroup>
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '11%' }} />
+            <col style={{ width: '8%' }} />   {/* Request ID    */}
+            <col style={{ width: '13%' }} />  {/* Employee      */}
+            <col style={{ width: '15%' }} />  {/* Route         */}
+            <col style={{ width: '7%' }} />   {/* Distance      */}
+            <col style={{ width: '9%' }} />   {/* Claim Amount  */}
+            <col style={{ width: '9%' }} />   {/* Approved ₹    */}
+            <col style={{ width: '9%' }} />   {/* Rejected ₹    */}
+            <col style={{ width: '15%' }} />  {/* Manager Status*/}
+            <col style={{ width: '15%' }} />  {/* Status        */}
           </colgroup>
           <thead>
             <tr>
@@ -213,15 +219,15 @@ export default function Allowance({ onBack }) {
                         Manager" pill (same width / shape as the green
                         and red variants so the column never jumps). */}
                     {mgrApproved ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', minWidth: 130, boxSizing: 'border-box' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', minWidth: 110, boxSizing: 'border-box' }}>
                         <CheckCircle size={12} /> Approved
                       </span>
                     ) : mgrRejected ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FEF2F2', color: '#DC2626', minWidth: 130, boxSizing: 'border-box' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FEF2F2', color: '#DC2626', minWidth: 110, boxSizing: 'border-box' }}>
                         <XCircle size={12} /> Rejected
                       </span>
                     ) : (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', minWidth: 130, boxSizing: 'border-box' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', minWidth: 110, boxSizing: 'border-box' }}>
                         <Clock size={12} /> Awaiting Manager
                       </span>
                     )}
@@ -491,10 +497,14 @@ export default function Allowance({ onBack }) {
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 16, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
                 placeholder="Why this amount was approved/rejected..." />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" onClick={closeApprovalModal}
-                  style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1', cursor: 'pointer' }}>Cancel</button>
-                <button type="button" onClick={submitApproval}
-                  style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer' }}>Confirm</button>
+                <button type="button" onClick={closeApprovalModal} style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: '#fff', color: '#475569', border: '1px solid #E2E8F0', cursor: 'pointer'
+                }}>Cancel</button>
+                <button type="button" onClick={submitApproval} style={{
+                  padding: '8px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer'
+                }}>Confirm Approve</button>
               </div>
             </div>
           </div>
