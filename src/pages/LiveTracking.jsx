@@ -1324,7 +1324,7 @@ export default function LiveTracking() {
                 <table className="emp-table">
                   <thead>
                     <tr>
-                      <th>Date</th><th>Type</th><th>From -> To</th>
+                      <th>Date</th><th>Type</th><th>From → To</th>
                       <th>Distance</th><th>Amount</th><th>Status</th>
                     </tr>
                   </thead>
@@ -1342,7 +1342,7 @@ export default function LiveTracking() {
                             textTransform: 'uppercase', letterSpacing: 0.4,
                           }}>{r.kind === 'petrol' ? 'Petrol' : 'Travel'}</span>
                         </td>
-                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} -> {r.to || '—'}</div></td>
+                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} → {r.to || '—'}</div></td>
                         <td><div style={{ fontSize: 12 }}>{(Number(r.distance) || 0).toFixed(1)} km</div></td>
                         <td><div style={{ fontSize: 12, fontWeight: 700, color: '#4CAA17' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div></td>
                         <td>
