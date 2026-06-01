@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
-import L from 'leaflet';
+// ─────────────────────────────────────────────────────────────────────────────
+// Map stack migrated from react-leaflet → @react-google-maps/api on 2026-06.
+// The previous TileLayer pointed at the unofficial Google tile endpoint
+// (https://{s}.google.com/vt/lyrs=…) which has no SLA — switching to the
+// official SDK with VITE_GOOGLE_MAPS_API_KEY makes tiles and overlays
+// supported, properly billed, and stable.
+// ─────────────────────────────────────────────────────────────────────────────
+import { GoogleMap, useJsApiLoader, MarkerF, PolylineF, InfoWindowF, OverlayViewF } from '@react-google-maps/api';
 import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 import '../tracking.css';
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -103,123 +110,304 @@ const BIKE_SVG = (color, px) => `
   </svg>`;
 
 /**
- * Map marker with the employee's name baked in. We draw a coloured pin
- * (status colour) PLUS a name pill that sits to the right of the pin so
- * HR can scan the map and see who is where without clicking each marker.
- * Selected employee gets a slightly larger pin + bolder label.
- *
- * When the employee's last ping carries a vehicle-speed sample (≥ ~3 m/s)
- * the dot turns into a bicycle glyph so HR can spot "Aman is on a bike"
- * at a glance instead of inspecting the popup.
+ * NameMarkerOverlay — renders a coloured pin + name pill as an HTML
+ * overlay on the Google Map. Replaces the L.divIcon-based marker we
+ * used with react-leaflet. The visual design is preserved: coloured
+ * dot, initials (or bike glyph when speed sample > VEHICLE_SPEED_MPS),
+ * and a name pill sitting to the right.
  */
-function makeNameMarker(emp, isSelected) {
+function NameMarkerOverlay({ emp, isSelected, onClick }) {
+  if (typeof emp?.lat !== 'number' || typeof emp?.lng !== 'number') return null;
+
   const color   = STATUS_COLOR[emp.status] || '#9F7AEA';
-  const ring    = isSelected
-    ? `box-shadow: 0 0 0 4px ${color}33, 0 4px 14px rgba(0,0,0,0.25);`
-    : 'box-shadow: 0 3px 10px rgba(0,0,0,0.18);';
   const size    = isSelected ? 36 : 30;
-  // `speed` is in m/s, sent by the mobile ping. When present and fast
-  // enough, render the bike glyph instead of the initials.
   const moving  = typeof emp.speed === 'number' && emp.speed >= VEHICLE_SPEED_MPS;
-
-  const inner   = moving
-    ? BIKE_SVG('#fff', Math.round(size * 0.62))
-    : `<span style="color:#fff; font-weight:800; font-size:${isSelected ? 12 : 11}px;">${(emp.initials || '?').slice(0, 2)}</span>`;
-
-  const dot = `
-    <div style="
-      width:${size}px; height:${size}px; border-radius:50%;
-      background:${color}; border:3px solid #fff; ${ring}
-      display:flex; align-items:center; justify-content:center;
-      flex-shrink:0;
-    ">${inner}</div>`;
-
-  // Append a tiny speed pill when moving so the speed is visible at a
-  // glance: "Aman   24 km/h".
   const speedKmh = moving ? Math.round(emp.speed * 3.6) : null;
-  const speedPill = moving
-    ? `<span style="
-         margin-left:4px; padding:2px 6px; border-radius:8px;
-         background:${color}; color:#fff; font-size:10px; font-weight:700;
-         line-height:1.1; white-space:nowrap;
-       ">${speedKmh} km/h</span>`
-    : '';
 
-  const label = `
-    <div style="
-      background:#fff; padding:4px 10px; border-radius:14px;
-      border:1px solid ${color}66;
-      font-size:11px; font-weight:700; color:#1a1a1a;
-      margin-left:6px; white-space:nowrap;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      max-width:180px; overflow:hidden; text-overflow:ellipsis;
-      display:inline-flex; align-items:center;
-    ">${(emp.name || '').replace(/</g, '&lt;')}${speedPill}</div>`;
-
-  return L.divIcon({
-    className: '',
-    html: `<div style="display:flex; align-items:center;">${dot}${label}</div>`,
-    iconSize:   [220, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor:[0, -(size / 2) - 4],
-  });
+  return (
+    <OverlayViewF
+      position={{ lat: emp.lat, lng: emp.lng }}
+      mapPaneName="overlayMouseTarget"
+      getPixelPositionOffset={(w, h) => ({ x: -(size / 2), y: -(size / 2) })}
+    >
+      <div
+        onClick={onClick}
+        style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <div style={{
+          width: size, height: size, borderRadius: '50%',
+          background: color, border: '3px solid #fff',
+          boxShadow: isSelected
+            ? `0 0 0 4px ${color}33, 0 4px 14px rgba(0,0,0,0.25)`
+            : '0 3px 10px rgba(0,0,0,0.18)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          {moving ? (
+            <span dangerouslySetInnerHTML={{ __html: BIKE_SVG('#fff', Math.round(size * 0.62)) }} />
+          ) : (
+            <span style={{ color: '#fff', fontWeight: 800, fontSize: isSelected ? 12 : 11 }}>
+              {(emp.initials || '?').slice(0, 2)}
+            </span>
+          )}
+        </div>
+        <div style={{
+          background: '#fff', padding: '4px 10px', borderRadius: 14,
+          border: `1px solid ${color}66`,
+          fontSize: 11, fontWeight: 700, color: '#1a1a1a',
+          marginLeft: 6, whiteSpace: 'nowrap',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis',
+          display: 'inline-flex', alignItems: 'center',
+        }}>
+          {emp.name || ''}
+          {moving && (
+            <span style={{
+              marginLeft: 4, padding: '2px 6px', borderRadius: 8,
+              background: color, color: '#fff',
+              fontSize: 10, fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap',
+            }}>{speedKmh} km/h</span>
+          )}
+        </div>
+      </div>
+    </OverlayViewF>
+  );
 }
 
+// makeStartIcon returns a Google-style icon descriptor (symbol path)
+// for the office/start pin. Uses CIRCLE because OverlayView for a static
+// office pin would be overkill.
 function makeStartIcon() {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4CAA17" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
-    </svg>`;
-  return L.divIcon({
-    className: '',
-    html: `<div style="background: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2); border: 2px solid #4CAA17;">${svg}</div>`,
-    iconSize:   [32, 32],
-    iconAnchor: [16, 32],
-  });
+  if (typeof window === 'undefined' || !window.google?.maps) return undefined;
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor: '#4CAA17',
+    fillOpacity: 1,
+    strokeColor: '#fff',
+    strokeWeight: 3,
+    scale: 11,
+  };
 }
 
-function makePersonIcon(color) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2">
-      <circle cx="12" cy="8" r="5" />
-      <path d="M20 21a8 8 0 0 0-16 0" />
-    </svg>`;
-  return L.divIcon({
-    className: '',
-    html: `<div style="background: ${color}; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 3px solid white;">${svg}</div>`,
-    iconSize:   [40, 40],
-    iconAnchor: [20, 20],
-  });
-}
-
+// Generic coloured-circle icon for waypoint markers (start/end of a
+// historical route). Replaces the leaflet div-icon variant.
 function makeIcon(color, isSelected) {
-  const size = isSelected ? 44 : 36;
-  const iconColor = color || 'var(--primary)';
-  const ring = isSelected
-    ? `<circle cx="22" cy="22" r="20" fill="none" stroke="${iconColor}" stroke-width="3" opacity="0.35"/>`
-    : '';
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 44 44">
-      ${ring}
-      <circle cx="22" cy="22" r="14" fill="${iconColor}" opacity="0.18"/>
-      <circle cx="22" cy="22" r="9"  fill="${iconColor}"/>
-      <circle cx="22" cy="22" r="4"  fill="white"/>
-    </svg>`;
-  return L.divIcon({
-    className: '',
-    html: svg,
-    iconSize:   [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor:[0, -(size / 2) - 4],
-  });
+  if (typeof window === 'undefined' || !window.google?.maps) return undefined;
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor: color || '#0EA5E9',
+    fillOpacity: 1,
+    strokeColor: '#fff',
+    strokeWeight: 3,
+    scale: isSelected ? 12 : 9,
+  };
 }
 
-function MapFlyTo({ target }) {
-  const map = useMap();
+/**
+ * LiveTrackingGoogleMap — wraps the Google Maps SDK, lazily loads the
+ * JS API via VITE_GOOGLE_MAPS_API_KEY and renders:
+ *   • Office pin
+ *   • Travel polylines (one per visible travelling employee)
+ *   • Per-employee name+pin OverlayView markers
+ *   • Historical polyline + start/end pins when "View Report" is active
+ *
+ * This component was extracted from LiveTracking.jsx during the
+ * 2026-06 react-leaflet → @react-google-maps/api migration so the
+ * Google-specific imperative APIs (fitBounds, panTo, the JS-API
+ * loader flag) live in one place. The parent passes everything down
+ * as props — no shared state lives here.
+ */
+function LiveTrackingGoogleMap({
+  effectiveOffice,
+  mapType,
+  selected,
+  setSelected,
+  reportActive,
+  historicalRoute,
+  visible,
+}) {
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    id: 'tesco-hrms-google-maps',
+  });
+
+  const mapRef = useRef(null);
+  const [activePopup, setActivePopup] = useState(null);  // { position, emp }
+
+  // Fly to the explicitly-selected employee when it changes.
   useEffect(() => {
-    if (target) map.flyTo([target.lat, target.lng], 15, { duration: 1.2 });
-  }, [target, map]);
-  return null;
+    if (!isLoaded || !mapRef.current) return;
+    if (selected && isFinite(selected.lat) && isFinite(selected.lng)) {
+      mapRef.current.panTo({ lat: selected.lat, lng: selected.lng });
+      mapRef.current.setZoom(15);
+    }
+  }, [isLoaded, selected?.id, selected?.lat, selected?.lng]);
+
+  // Auto-fit bounds when the historical route arrives, so the whole
+  // employee trail is visible without the user having to zoom out.
+  useEffect(() => {
+    if (!isLoaded || !mapRef.current || !window.google?.maps) return;
+    if (!reportActive) return;
+    const pts = (historicalRoute?.points || []).filter(
+      (p) => isFinite(p?.lat) && isFinite(p?.lng)
+    );
+    if (pts.length < 2) return;
+    const bounds = new window.google.maps.LatLngBounds();
+    pts.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+    mapRef.current.fitBounds(bounds, 80);
+  }, [isLoaded, reportActive, historicalRoute?.points?.length]);
+
+  const mapTypeId = mapType === 'satellite'
+    ? 'hybrid'
+    : mapType === 'terrain'
+      ? 'terrain'
+      : 'roadmap';
+
+  // ── Friendly fallbacks ──────────────────────────────────────────────
+  if (!GOOGLE_MAPS_API_KEY) {
+    return (
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, padding: 24, textAlign: 'center', color: '#92400E', background: '#FFFBEB', fontSize: 13 }}>
+        <strong>VITE_GOOGLE_MAPS_API_KEY is not configured</strong>
+        <span style={{ fontSize: 12 }}>Add it to .env (local) or to your deployment env vars and redeploy.</span>
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, padding: 24, textAlign: 'center', color: '#B91C1C', background: '#FEF2F2', fontSize: 13 }}>
+        <strong>Google Maps failed to load</strong>
+        <span style={{ fontSize: 12 }}>Make sure "Maps JavaScript API" is enabled and the HTTP-referrer restriction includes this domain.</span>
+      </div>
+    );
+  }
+  if (!isLoaded) {
+    return (
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B', background: '#F8FAFC', fontSize: 13 }}>
+        Loading Google Maps…
+      </div>
+    );
+  }
+
+  return (
+    <GoogleMap
+      mapContainerStyle={{ width: '100%', height: '100%' }}
+      center={{ lat: effectiveOffice.lat, lng: effectiveOffice.lng }}
+      zoom={13}
+      mapTypeId={mapTypeId}
+      onLoad={(m) => { mapRef.current = m; }}
+      options={{
+        streetViewControl: false,
+        fullscreenControl: false,
+        mapTypeControl: false,
+        styles: [
+          { featureType: 'poi',     elementType: 'labels', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+        ],
+      }}
+    >
+      {/* Office pin */}
+      <MarkerF
+        position={{ lat: effectiveOffice.lat, lng: effectiveOffice.lng }}
+        icon={makeStartIcon()}
+        title={effectiveOffice.name || 'Office'}
+      />
+
+      {/* Historical track for the searched employee across the picked
+          date range. Plotted only in historical mode and when we have
+          at least 2 GPS samples. */}
+      {reportActive && historicalRoute?.points?.length >= 2 && (
+        <PolylineF
+          path={historicalRoute.points.map((p) => ({ lat: p.lat, lng: p.lng }))}
+          options={{
+            strokeColor:   '#3B82F6',
+            strokeOpacity: 0.85,
+            strokeWeight:  4,
+          }}
+        />
+      )}
+      {reportActive && historicalRoute?.startEnd && (
+        <>
+          <MarkerF
+            position={{ lat: historicalRoute.startEnd.from.lat, lng: historicalRoute.startEnd.from.lng }}
+            icon={makeIcon('#16A34A', false)}
+            label={{ text: 'S', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+            title={`Start · ${historicalRoute.startEnd.from.date}`}
+          />
+          <MarkerF
+            position={{ lat: historicalRoute.startEnd.to.lat, lng: historicalRoute.startEnd.to.lng }}
+            icon={makeIcon('#DC2626', false)}
+            label={{ text: 'E', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+            title={`End · ${historicalRoute.startEnd.to.date}`}
+          />
+        </>
+      )}
+
+      {/* Travel polylines for travelling employees */}
+      {visible
+        .filter((emp) => Array.isArray(emp.route) && emp.route.length >= 2)
+        .map((emp) => (
+          <PolylineF
+            key={`trail-${emp.id}`}
+            path={emp.route.map((p) => ({ lat: p.lat, lng: p.lng }))}
+            options={{
+              strokeColor:   STATUS_COLOR[emp.bucket] || '#9F7AEA',
+              strokeWeight:  selected?.id === emp.id ? 5 : 3,
+              strokeOpacity: selected?.id === emp.id ? 0.95 : 0.65,
+            }}
+          />
+        ))}
+
+      {/* Employee markers — one per visible row, labelled with name. We
+          use OverlayView for the rich pin+pill design (matching the
+          original leaflet div-icon look). Clicking either the pin or
+          the pill selects the employee in the side panel. */}
+      {visible
+        .filter((emp) => isFinite(emp.lat) && isFinite(emp.lng))
+        .map((emp) => (
+          <NameMarkerOverlay
+            key={emp.id}
+            emp={emp}
+            isSelected={selected?.id === emp.id}
+            onClick={() => {
+              setSelected(emp);
+              setActivePopup({
+                position: { lat: emp.lat, lng: emp.lng },
+                emp,
+              });
+            }}
+          />
+        ))}
+
+      {/* InfoWindow shown on click — mirrors the leaflet <Popup> content */}
+      {activePopup && (
+        <InfoWindowF
+          position={activePopup.position}
+          onCloseClick={() => setActivePopup(null)}
+        >
+          <div style={{ minWidth: 160 }}>
+            <div style={{ fontWeight: 800, fontSize: 13, color: '#1a1a1a' }}>{activePopup.emp.name}</div>
+            <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+              {activePopup.emp.role || '—'}{activePopup.emp.employeeId ? ` · ${activePopup.emp.employeeId}` : ''}
+            </div>
+            <div style={{
+              display: 'inline-block', marginTop: 6,
+              padding: '2px 8px', borderRadius: 10,
+              background: (STATUS_COLOR[activePopup.emp.status] || '#9F7AEA') + '22',
+              color: STATUS_COLOR[activePopup.emp.status] || '#9F7AEA',
+              fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}>{STATUS_LABEL[activePopup.emp.status] || activePopup.emp.status}</div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 6 }}>
+              <MapPin size={10} style={{ verticalAlign: 'middle' }} /> {activePopup.emp.site}
+            </div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
+              <Clock size={10} style={{ verticalAlign: 'middle' }} /> Last ping: {activePopup.emp.lastSeen}
+            </div>
+          </div>
+        </InfoWindowF>
+      )}
+    </GoogleMap>
+  );
 }
 
 const EmployeeDetailOverlay = ({ emp, onClose }) => {
@@ -1180,116 +1368,15 @@ export default function LiveTracking() {
               </div>
             </div>
           )}
-          <MapContainer
-            // Default-centre on the Tesco Structures office (Ashok Nagar
-            // Chennai) so the map opens looking at HQ instead of Mumbai.
-            center={[effectiveOffice.lat, effectiveOffice.lng]} zoom={13}
-            style={{ width: '100%', height: '100%' }}
-            zoomControl={true} attributionControl={false}
-          >
-            {/* Google Maps Tile Layers */}
-            {mapType === 'roadmap' && (
-              <TileLayer
-                url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-                subdomains={['mt0','mt1','mt2','mt3']}
-              />
-            )}
-            {mapType === 'satellite' && (
-              <TileLayer
-                url="https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"
-                subdomains={['mt0','mt1','mt2','mt3']}
- />
-            )}
-            {mapType === 'terrain' && (
-              <TileLayer
-                url="https://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"
-                subdomains={['mt0','mt1','mt2','mt3']}
-              />
-            )}
-
-            <MapFlyTo target={selected} />
-
-            {/* Office pin */}
-            <Marker position={[effectiveOffice.lat, effectiveOffice.lng]} icon={makeStartIcon()}>
-              <Popup>{effectiveOffice.name || 'Office'}</Popup>
-            </Marker>
-
-            {/* Historical track for the searched employee across the
-                picked date range. Plotted only in historical mode and
-                when we actually have at least 2 GPS samples. */}
-            {reportActive && historicalRoute.points.length >= 2 && (
-              <Polyline
-                positions={historicalRoute.points.map(p => [p.lat, p.lng])}
-                pathOptions={{
-                  color: '#3B82F6',
-                  weight: 4,
-                  opacity: 0.85,
-                  dashArray: '8 6',
-                  lineCap: 'round',
-                }}
-              />
-            )}
-            {reportActive && historicalRoute.startEnd && (
-              <>
-                <Marker position={[historicalRoute.startEnd.from.lat, historicalRoute.startEnd.from.lng]}>
-                  <Popup>Start · {historicalRoute.startEnd.from.date}</Popup>
-                </Marker>
-                <Marker position={[historicalRoute.startEnd.to.lat, historicalRoute.startEnd.to.lng]}>
-                  <Popup>End · {historicalRoute.startEnd.to.date}</Popup>
-                </Marker>
-              </>
-            )}
-
-            {/* Travel polylines for travelling employees */}
-            {visible
-              .filter((emp) => Array.isArray(emp.route) && emp.route.length >= 2)
-              .map((emp) => (
-                <Polyline
-                  key={`trail-${emp.id}`}
-                  positions={emp.route.map((p) => [p.lat, p.lng])}
-                  pathOptions={{
-                    color:     STATUS_COLOR[emp.bucket] || '#9F7AEA',
-                    weight:    selected?.id === emp.id ? 5 : 3,
-                    opacity:   selected?.id === emp.id ? 0.95 : 0.65,
-                    dashArray: '6 8',
-                    lineCap:   'round',
-                  }}
-                />
-              ))}
-
-            {/* Employee markers — one per visible row, labelled with name */}
-            {visible.map((emp) => (
-              <Marker
-                key={emp.id}
-                position={[emp.lat, emp.lng]}
-                icon={makeNameMarker(emp, selected?.id === emp.id)}
-                eventHandlers={{ click: () => setSelected(emp) }}
-              >
-                <Popup>
-                  <div style={{ minWidth: 160 }}>
-                    <div style={{ fontWeight: 800, fontSize: 13, color: '#1a1a1a' }}>{emp.name}</div>
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                      {emp.role || '—'}{emp.employeeId ? ` · ${emp.employeeId}` : ''}
-                    </div>
-                    <div style={{
-                      display: 'inline-block', marginTop: 6,
-                      padding: '2px 8px', borderRadius: 10,
-                      background: STATUS_COLOR[emp.status] + '22',
-                      color: STATUS_COLOR[emp.status],
-                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-                      letterSpacing: 0.4,
-                    }}>{STATUS_LABEL[emp.status] || emp.status}</div>
-                    <div style={{ fontSize: 11, color: '#777', marginTop: 6 }}>
-                      <MapPin size={10} style={{ verticalAlign: 'middle' }} /> {emp.site}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
-                      <Clock size={10} style={{ verticalAlign: 'middle' }} /> Last ping: {emp.lastSeen}
-                    </div>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
+          <LiveTrackingGoogleMap
+            effectiveOffice={effectiveOffice}
+            mapType={mapType}
+            selected={selected}
+            setSelected={setSelected}
+            reportActive={reportActive}
+            historicalRoute={historicalRoute}
+            visible={visible}
+          />
         </div>
 
         {/* Travel Report — rendered BELOW the map so the polyline + start/
@@ -1374,62 +1461,60 @@ export default function LiveTracking() {
                 );
                 return [
                   tile('Trips', trips, '#0F172A'),
-                  tile('Days Travelled', days, '#0F172A'),
-                  tile('Claimed Distance', claimedKm.toFixed(1) + ' km', '#4299E1'),
-                  tile('GPS Distance (map)', gpsKm.toFixed(1) + ' km', '#9F7AEA'),
-                  tile('Total Amount', '₹' + totalAmount.toLocaleString('en-IN'), '#4CAA17'),
+                  tile('Days', days, '#0F172A'),
+                  tile('Claimed (km)', claimedKm.toFixed(2), '#2563EB'),
+                  tile('Amount (₹)', `₹${totalAmount.toFixed(2)}`, '#16A34A'),
+                  tile('GPS (km)', gpsKm.toFixed(2), '#7C3AED'),
                 ];
               })()}
             </div>
 
-            <div style={{ padding: '10px 14px', overflowX: 'auto' }}>
-              {travelReport.loading && (
-                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading...</div>
-              )}
-              {!travelReport.loading && travelReport.rows.length === 0 && (
-                <div style={{ padding: 30, textAlign: 'center', color: '#64748B', fontSize: 13 }}>
-                  No travel records found for "{search}" between {fmtDDMMYYYY(selectedDate)} and {fmtDDMMYYYY(endDate)}.
+            {/* Trip list table — one row per claim in the date range */}
+            <div style={{ padding: 14 }}>
+              {travelReport.rows.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#64748B', padding: '20px 8px', textAlign: 'center' }}>
+                  No trips recorded for {travelReport.employeeName || 'this employee'} in the picked date range.
                 </div>
-              )}
-              {!travelReport.loading && travelReport.rows.length > 0 && (
-                <table className="emp-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th><th>Type</th><th>From → To</th>
-                      <th>Distance</th><th>Amount</th><th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {travelReport.rows.map((r, i) => (
-                      <tr key={i}>
-                        <td><div style={{ fontSize: 12, fontWeight: 700 }}>{fmtDDMMYYYY(r.date)}</div></td>
-                        <td>
-                          <span style={{
-                            fontSize: 10, fontWeight: 800,
-                            padding: '3px 8px', borderRadius: 6,
-                            background: r.kind === 'petrol' ? '#F1F9EE' : '#EFF6FF',
-                            color:      r.kind === 'petrol' ? '#15803D' : '#1D4ED8',
-                            border: '1px solid ' + (r.kind === 'petrol' ? '#BBF7D0' : '#BFDBFE'),
-                            textTransform: 'uppercase', letterSpacing: 0.4,
-                          }}>{r.kind === 'petrol' ? 'Petrol' : 'Travel'}</span>
-                        </td>
-                        <td><div style={{ fontSize: 12 }}>{r.from || '—'} → {r.to || '—'}</div></td>
-                        <td><div style={{ fontSize: 12 }}>{(Number(r.distance) || 0).toFixed(1)} km</div></td>
-                        <td><div style={{ fontSize: 12, fontWeight: 700, color: '#4CAA17' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div></td>
-                        <td>
-                          <span style={{
-                            fontSize: 10, fontWeight: 700,
-                            padding: '3px 8px', borderRadius: 6,
-                            background: r.status === 'Approved' ? '#F0FDF4'
-                                     : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
-                            color:      r.status === 'Approved' ? '#16A34A'
-                                     : r.status === 'Rejected' ? '#DC2626' : '#D97706',
-                          }}>{r.status || 'Pending'}</span>
-                        </td>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Date</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>From → To</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Distance (km)</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Amount (₹)</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {travelReport.rows.map((r, idx) => (
+                        <tr key={idx}>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{r.date}</td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>
+                            {(r.fromLocation || '—')} → {(r.toLocation || '—')}
+                          </td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
+                            {Number(r.distance || 0).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
+                            ₹{Number(r.amount || 0).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>
+                            <span style={{
+                              display: 'inline-block', padding: '2px 8px', borderRadius: 10,
+                              fontSize: 10, fontWeight: 700,
+                              background: r.status === 'Approved' ? '#ECFDF5'
+                                       : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
+                              color:      r.status === 'Approved' ? '#16A34A'
+                                       : r.status === 'Rejected' ? '#DC2626' : '#D97706',
+                            }}>{r.status || 'Pending'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>

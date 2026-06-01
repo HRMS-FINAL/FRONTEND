@@ -1,85 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
+// Dashboard live-tracking widget — migrated from react-leaflet to the
+// official Google Maps JS SDK (2026-06). Tiles now come through
+// VITE_GOOGLE_MAPS_API_KEY instead of the unofficial Google tile URL.
+import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { Search, X as CloseIcon, Activity, Clock, ChevronRight, Phone, MessageSquare, Users, MapPin } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 import { API } from './config/api';
 
-// ── Employee tracking data (simulated – Mumbai coordinates) ──────
-const EMPLOYEES = [
-  { id: 1, name: 'Liam Foster',   employeeId: 'EMP-1001', role: 'Site Engineer',    dept: 'Engineering', status: 'active',  lat: 19.0760, lng: 72.8777, site: 'HQ – Nariman Point',      lastSeen: 'Just now',   initials: 'LF', color: '#4299E1' },
-  { id: 2, name: 'Zoe Martinez',  employeeId: 'EMP-1002', role: 'UX Designer',      dept: 'Design',      status: 'active',  lat: 19.0596, lng: 72.8295, site: 'Studio – Bandra',         lastSeen: '2 min ago',  initials: 'ZM', color: '#9F7AEA' },
-  { id: 3, name: 'Ryan Patel',    employeeId: 'EMP-1003', role: 'Project Manager',  dept: 'Operations',  status: 'active',  lat: 19.1136, lng: 72.8697, site: 'Goregaon Tech Park',      lastSeen: '1 min ago',  initials: 'RP', color: '#4CAA17' },
-  { id: 4, name: 'Alex Thompson', employeeId: 'EMP-1004', role: 'Data Analyst',     dept: 'Engineering', status: 'idle',    lat: 19.0330, lng: 72.8654, site: 'Client Site – Worli',     lastSeen: '8 min ago',  initials: 'AT', color: '#ECC94B' },
-  { id: 5, name: 'Ethan Brown',   employeeId: 'EMP-1005', role: 'DevOps Engineer',  dept: 'Engineering', status: 'active',  lat: 19.0215, lng: 72.8472, site: 'Data Centre – Prabhadevi',lastSeen: 'Just now',   initials: 'EB', color: '#FC8181' },
-  { id: 6, name: 'Priya Sharma',  employeeId: 'EMP-1008', role: 'Sales Executive',  dept: 'Sales',       status: 'active',  lat: 19.0728, lng: 72.8826, site: 'Client Meet – CST',       lastSeen: '3 min ago',  initials: 'PS', color: '#38B2AC' },
-  { id: 7, name: 'Arjun Mehta',   employeeId: 'EMP-1029', role: 'Field Technician', dept: 'Operations',  status: 'offline', lat: 19.0454, lng: 72.8927, site: 'Warehouse – Kurla',       lastSeen: '45 min ago', initials: 'AM', color: '#ED8936' },
-  { id: 8, name: 'Sara Kapoor',   employeeId: 'EMP-1035', role: 'QA Engineer',      dept: 'Engineering', status: 'active',  lat: 19.1197, lng: 72.9086, site: 'Lab – Powai',             lastSeen: 'Just now',   initials: 'SK', color: '#667eea' },
-];
-
-const RECENT_ACTIVITIES = [
-  { id: 1, name: 'Liam Foster',   action: 'reached',  site: 'HQ – Nariman Point',      time: 'Just now',   initials: 'LF', color: '#4299E1' },
-  { id: 2, name: 'Zoe Martinez',  action: 'moved to', site: 'Studio – Bandra',         time: '2 min ago',  initials: 'ZM', color: '#9F7AEA' },
-  { id: 3, name: 'Ryan Patel',    action: 'reached',  site: 'Goregaon Tech Park',      time: '5 min ago',  initials: 'RP', color: '#4CAA17' },
-  { id: 4, name: 'Alex Thompson', action: 'left',     site: 'Client Site – Worli',     time: '12 min ago', initials: 'AT', color: '#ECC94B' },
-  { id: 5, name: 'Priya Sharma',  action: 'reached',  site: 'Client Meet – CST',       time: '15 min ago', initials: 'PS', color: '#38B2AC' },
-];
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 const STATUS_COLOR = { active: '#4CAA17', idle: '#ECC94B', offline: '#A0AEC0' };
 const STATUS_LABEL = { active: 'Active', idle: 'Idle', offline: 'Offline' };
 
-// ── Custom SVG marker ────────────────────────────────────────────
+// Build a Google Maps SymbolPath.CIRCLE icon descriptor.
 function makeIcon(color, isSelected) {
-  const size = isSelected ? 40 : 32;
-  const iconColor = 'var(--primary)'; // Use primary color for markers
-  const ring = isSelected
-    ? `<circle cx="22" cy="22" r="20" fill="none" stroke="${iconColor}" stroke-width="3" opacity="0.35"/>`
-    : '';
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 44 44">
-      ${ring}
-      <circle cx="22" cy="22" r="14" fill="${iconColor}" opacity="0.18"/>
-      <circle cx="22" cy="22" r="9"  fill="${iconColor}"/>
-      <circle cx="22" cy="22" r="4"  fill="white"/>
-    </svg>`;
-  return L.divIcon({
-    className: '',
-    html: svg,
-    iconSize:   [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor:[0, -(size / 2) - 4],
-  });
-}
-
-// ── Auto-pan to selected employee ────────────────────────────────
-// Watches the target's identity (id) and coords; re-flies only when the
-// chosen employee changes OR they move > a few metres. Without this the
-// 2-minute poll would re-create the target object every refresh and the
-// map would replay the fly animation needlessly.
-function MapFlyTo({ target }) {
-  const map = useMap();
-  const lastKey = useRef('');
-  useEffect(() => {
-    if (!target) { lastKey.current = ''; return; }
-    const key = `${target.id}|${target.lat?.toFixed(4)}|${target.lng?.toFixed(4)}`;
-    if (key === lastKey.current) return;
-    lastKey.current = key;
-    map.flyTo([target.lat, target.lng], 15, { duration: 0.8 });
-  }, [target, map]);
-  return null;
-}
-
-// ── Compact card (fits in middle-row beside Employee Overview) ────
-// Helper to resize map when sidebar toggles
-function MapResizer({ sidebarOpen }) {
-  const map = useMap();
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [sidebarOpen, map]);
-  return null;
+  if (typeof window === 'undefined' || !window.google?.maps) return undefined;
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor:   color || '#9F7AEA',
+    fillOpacity: 1,
+    strokeColor: '#fff',
+    strokeWeight: 3,
+    scale: isSelected ? 12 : 9,
+  };
 }
 
 // Haversine distance in metres. Mirror of LiveTracking.jsx so the
@@ -110,6 +52,7 @@ function bucketOf(status, distToOfficeM, radiusM) {
 export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   const [selected, setSelected] = useState(null);
   const [search, setSearch]     = useState('');
+  const [activePopup, setActivePopup] = useState(null);
   // Live data fetched from /api/live-tracking — same endpoint the full
   // Live Tracking page uses, so counts/markers match exactly.
   const [employees, setEmployees] = useState([]);
@@ -118,6 +61,13 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // (she sits in the office). Mirror of LiveTracking.jsx.
   const OFFICE_ANCHOR = { name: /^ranganayagi/i };
   const RADIUS_M      = 200;
+
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    id: 'tesco-hrms-google-maps',
+  });
+
+  const mapRef = useRef(null);
 
   const loadLive = React.useCallback(async () => {
     try {
@@ -151,7 +101,6 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
       const officePt = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
         ? { lat: anchor.lat, lng: anchor.lng, radiusM: RADIUS_M, name: 'Office (' + (anchor.name || 'anchor') + ')' }
         : { ...office, radiusM: RADIUS_M };
-      // Persist the anchored office so the map centre + marker move.
       setOffice(officePt);
 
       const rows = rawRows.map(r => {
@@ -169,34 +118,34 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
     } catch { /* network — keep current */ }
   }, []);
 
-  // Initial load + 2-minute auto-refresh (matches the mobile ping cadence).
   useEffect(() => {
     loadLive();
     const id = setInterval(loadLive, 2 * 60 * 1000);
     return () => clearInterval(id);
   }, [loadLive]);
 
-  // Filter on the search term — matches name OR employeeId.
+  // Resize the Google map when the sidebar toggles. The SDK handles
+  // resize automatically once the container dimensions update, but
+  // panning to the office centre ensures the view doesn't drift.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const t = setTimeout(() => {
+      mapRef.current?.panTo({ lat: office.lat, lng: office.lng });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [sidebarOpen, office.lat, office.lng]);
+
   const filteredEmployees = employees.filter(e => {
     if (!search) return true;
     const term = search.toLowerCase();
     return e.name.toLowerCase().includes(term) || (e.employeeId || '').toLowerCase().includes(term);
   });
 
-  // Counts use the three HR buckets so the badge numbers agree with the
-  // full Live Tracking page's header tiles.
   const active   = employees.filter(e => e.bucket === 'active').length;
   const office_  = employees.filter(e => e.bucket === 'office').length;
   const offline_ = employees.filter(e => e.bucket === 'offline').length;
 
-  // When the user types into the search box, automatically fly the map to
-  // the best match. The fly-to target is:
-  //   1. whatever the user explicitly clicked (`selected`), else
-  //   2. an exact employeeId / name hit, else
-  //   3. the first filtered row (if any).
-  // Without this, search only narrowed the marker list but the map kept
-  // pointing at the office centre — HR had to manually pan to find the
-  // person they just searched for.
+  // Auto-fly to the searched employee.
   const flyTarget = (() => {
     if (selected) return selected;
     if (!search.trim()) return null;
@@ -207,6 +156,13 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
     );
     return exact || filteredEmployees[0] || null;
   })();
+
+  useEffect(() => {
+    if (!mapRef.current || !flyTarget) return;
+    if (!isFinite(flyTarget.lat) || !isFinite(flyTarget.lng)) return;
+    mapRef.current.panTo({ lat: flyTarget.lat, lng: flyTarget.lng });
+    mapRef.current.setZoom(15);
+  }, [flyTarget?.id, flyTarget?.lat, flyTarget?.lng]);
 
   return (
     <div className="card compact-map-card">
@@ -233,44 +189,70 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
       </div>
 
       <div className="compact-map-wrap">
-        <MapContainer
-          center={[office.lat, office.lng]}
-          zoom={12}
-          style={{ width: '100%', height: '320px' }}
-          zoomControl={false}
-          attributionControl={false}
-          scrollWheelZoom={false}
-        >
-          <MapResizer sidebarOpen={sidebarOpen} />
-          <TileLayer
-            url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-            subdomains={['mt0','mt1','mt2','mt3']}
-          />
-          <MapFlyTo target={flyTarget} />
-
-          {filteredEmployees.map(emp => (
-            <Marker
-              key={emp.id}
-              position={[emp.lat, emp.lng]}
-              icon={makeIcon(emp.color, (selected?.id || flyTarget?.id) === emp.id)}
-              eventHandlers={{ click: () => setSelected(emp) }}
-            >
-              <Popup className="compact-info-popup" closeButton={false}>
-                <div className="cip-container">
-                  <div className="cip-name">{emp.name}</div>
-                  <div className="cip-checkin">
-                    <MapPin size={12} />
-                    <span>{emp.site}</span>
+        {!GOOGLE_MAPS_API_KEY && (
+          <div style={{ width: '100%', height: '320px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6, padding: 24, textAlign: 'center', color: '#92400E', background: '#FFFBEB', fontSize: 13 }}>
+            <strong>VITE_GOOGLE_MAPS_API_KEY is not configured</strong>
+            <span style={{ fontSize: 12 }}>Set it in .env / your deployment env vars to enable Google Maps.</span>
+          </div>
+        )}
+        {GOOGLE_MAPS_API_KEY && loadError && (
+          <div style={{ width: '100%', height: '320px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B91C1C', background: '#FEF2F2', fontSize: 13 }}>
+            Failed to load Google Maps — check your API key + referrer restriction.
+          </div>
+        )}
+        {GOOGLE_MAPS_API_KEY && !loadError && !isLoaded && (
+          <div style={{ width: '100%', height: '320px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B', background: '#F8FAFC', fontSize: 13 }}>
+            Loading Google Maps…
+          </div>
+        )}
+        {GOOGLE_MAPS_API_KEY && isLoaded && !loadError && (
+          <GoogleMap
+            mapContainerStyle={{ width: '100%', height: '320px' }}
+            center={{ lat: office.lat, lng: office.lng }}
+            zoom={12}
+            onLoad={(m) => { mapRef.current = m; }}
+            options={{
+              zoomControl: false,
+              scrollwheel: false,
+              streetViewControl: false,
+              fullscreenControl: false,
+              mapTypeControl: false,
+              styles: [
+                { featureType: 'poi',     elementType: 'labels', stylers: [{ visibility: 'off' }] },
+                { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+              ],
+            }}
+          >
+            {filteredEmployees.map(emp => (
+              <MarkerF
+                key={emp.id}
+                position={{ lat: emp.lat, lng: emp.lng }}
+                icon={makeIcon(emp.color, (selected?.id || flyTarget?.id) === emp.id)}
+                title={emp.name}
+                onClick={() => {
+                  setSelected(emp);
+                  setActivePopup(emp);
+                }}
+              />
+            ))}
+            {activePopup && (
+              <InfoWindowF
+                position={{ lat: activePopup.lat, lng: activePopup.lng }}
+                onCloseClick={() => setActivePopup(null)}
+              >
+                <div style={{ padding: '6px 8px', minWidth: 150 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{activePopup.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    <MapPin size={11} /> {activePopup.site}
                   </div>
-                  <div className="cip-checkin">
-                    <Clock size={12} />
-                    <span>Last ping: {emp.lastSeen}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    <Clock size={11} /> Last ping: {activePopup.lastSeen}
                   </div>
                 </div>
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
+              </InfoWindowF>
+            )}
+          </GoogleMap>
+        )}
 
         <div className="map-count-badge">
           <span style={{ color: STATUS_COLOR.active }}>●</span> {active} active now
@@ -285,9 +267,7 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
             onChange={(e) => setSearch(e.target.value)}
             autoComplete="off"
           />
-          {/* Native autocomplete — lists EVERY checked-in employee
-              (the backend filters out anyone who's checked out), so HR
-              can pick from a menu instead of typing. */}
+          {/* Native autocomplete — lists EVERY checked-in employee */}
           <datalist id="dash-track-employees">
             {employees.map(e => (
               <option key={e.id} value={e.employeeId || e.name}>
@@ -348,52 +328,13 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
           50% { opacity: 0.5; transform: scale(1.2); }
           100% { opacity: 1; transform: scale(1); }
         }
-
-        /* --- COMPACT INFO POPUP STYLES --- */
-        .compact-info-popup .leaflet-popup-content-wrapper {
-          padding: 0;
-          border-radius: 12px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-          width: 180px;
-          border: 1px solid #e2e8f0;
-        }
-        .compact-info-popup .leaflet-popup-content {
-          margin: 0;
-          width: 100% !important;
-        }
-        .cip-container {
-          padding: 12px 14px;
-          background: white;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .cip-name {
-          font-size: 14px;
-          font-weight: 700;
-          color: #0f172a;
-        }
-        .cip-checkin {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 11px;
-          font-weight: 500;
-          color: #64748b;
-        }
-        .cip-checkin svg {
-          color: var(--primary);
-        }
       `}} />
     </div>
   );
 }
 
-// The legacy default export (a self-contained full-page tracking view)
-// is no longer used — pages/LiveTracking.jsx is the real live tracking
-// page now. The placeholder below keeps the existing import contract so
-// any leftover `import LiveTrackingMap from './LiveTrackingMap'` still
-// resolves to a renderable component.
+// Placeholder default export — the legacy full-page tracking view has
+// moved to pages/LiveTracking.jsx.
 export default function LiveTrackingMap() {
   return (
     <div style={{ padding: 24, color: 'var(--text-light)', fontSize: 13 }}>

@@ -206,20 +206,24 @@ export default function Allowance({ onBack }) {
                         : '—'}
                     </div>
                   </td>
-                  <td>
+                  <td style={{ textAlign: 'center' }}>
+                    {/* Manager Status is set ONLY from the ERM Web manager
+                        view — HRMS shows a read-only pill. Until the
+                        manager acts, the cell carries the "Awaiting
+                        Manager" pill (same width / shape as the green
+                        and red variants so the column never jumps). */}
                     {mgrApproved ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F0FDF4', color: '#16A34A' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F0FDF4', color: '#16A34A', minWidth: 130, boxSizing: 'border-box' }}>
                         <CheckCircle size={12} /> Approved
                       </span>
                     ) : mgrRejected ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FEF2F2', color: '#DC2626', minWidth: 130, boxSizing: 'border-box' }}>
                         <XCircle size={12} /> Rejected
                       </span>
                     ) : (
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => handleManagerAction(req.id, type, 'Approved')} style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Approve</button>
-                        <button onClick={() => handleManagerAction(req.id, type, 'Rejected')} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reject</button>
-                      </div>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', minWidth: 130, boxSizing: 'border-box' }}>
+                        <Clock size={12} /> Awaiting Manager
+                      </span>
                     )}
                   </td>
                   <td>

@@ -7,32 +7,29 @@
  * modal opens, fetches /api/attendance/daily-route?employeeId=…&date=…
  * via the HRMS proxy, and renders:
  *   • A polyline of every LocationPing in time order.
- *   • Markers for the START (green pin) and END (red pin) of the day.
+ *   • Markers for the START (green) and END (red) of the day.
  *   • Optional from/to pins the employee marked on the allowance form.
  *   • Computed total km + the employee's claimed km.
  *
- * Design notes for robustness
- * ───────────────────────────
- * Earlier versions of this modal used a `<FitToBounds>` child that called
- * useMap() and fitBounds() inside an effect. That child could throw on
- * first render (before MapContainer fully mounts) and would cascade up to
- * a blank page. This version avoids that entirely by:
- *   1. Mounting the map only AFTER data arrives (or the request fails).
- *      Before data, we render a friendly loading panel — no map at all.
- *   2. Using a `key` on the MapContainer so when (employeeId, date)
- *      changes we remount cleanly instead of trying to mutate bounds in
- *      place.
- *   3. Wrapping the map subtree in a tiny class-based ErrorBoundary so
- *      even if Leaflet itself throws, HR sees a usable message instead
- *      of a white screen.
+ * Migration to official Google Maps SDK (2026-06)
+ * ───────────────────────────────────────────────
+ * Previously this used react-leaflet pointing at the unofficial Google
+ * tile URL https://{s}.google.com/vt/lyrs=m&… — that endpoint has no SLA
+ * and Google can disable it any time. We now use @react-google-maps/api
+ * with VITE_GOOGLE_MAPS_API_KEY so tiles, markers and polylines are
+ * served by the official Maps JavaScript API.
+ *
+ * The public component contract is unchanged: open / onClose /
+ * employeeId / employeeName / date / claim — every caller (Allowance,
+ * DailyRoutes, LiveTracking) continues to work without modification.
  */
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import React, { useEffect, useState, useRef } from 'react';
+import { GoogleMap, useJsApiLoader, MarkerF, PolylineF, InfoWindowF } from '@react-google-maps/api';
 import { X } from 'lucide-react';
 
 import { API } from '../config/api';
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 // ─── Route response cache ─────────────────────────────────────────────
 // 2-minute TTL so reopening the same row's modal is instant.
@@ -86,29 +83,6 @@ export function prefetchDailyRoute(employeeId, date) {
   fetchRoute(employeeId, date).catch(() => {});
 }
 
-// ─── Pin builders ─────────────────────────────────────────────────────
-function makePin(label, color) {
-  const html = `
-    <div style="
-      width:28px;height:36px;position:relative;
-      display:flex;align-items:center;justify-content:center;
-    ">
-      <div style="
-        width:28px;height:28px;border-radius:50%;
-        background:${color};color:#fff;
-        display:flex;align-items:center;justify-content:center;
-        font-size:11px;font-weight:800;
-        box-shadow:0 2px 6px rgba(0,0,0,0.3);
-        border:2px solid #fff;
-      ">${label}</div>
-    </div>`;
-  return L.divIcon({ html, className: '', iconSize: [28, 36], iconAnchor: [14, 34] });
-}
-const startIcon = makePin('A', '#16A34A');
-const endIcon   = makePin('B', '#DC2626');
-const fromIcon  = makePin('F', '#2563EB');
-const toIcon    = makePin('T', '#7C3AED');
-
 function fmtDateTime(d) {
   if (!d) return '—';
   try {
@@ -121,7 +95,26 @@ function fmtDateTime(d) {
   } catch { return '—'; }
 }
 
-// ─── Error boundary so Leaflet bugs don't blank the page ──────────────
+// ─── Coloured circle markers via Google's SymbolPath ──────────────────
+// We can't use makePin() like leaflet did — Google Maps doesn't support
+// arbitrary HTML markers without OverlayView. Instead we use Google's
+// SymbolPath.CIRCLE with a coloured fill + white outline + label text.
+function makeMarkerIcon(color) {
+  // Returns an Icon config that @react-google-maps/api accepts. We
+  // evaluate window.google lazily because this runs on first render —
+  // before the JS API has had time to load and attach window.google.
+  if (typeof window === 'undefined' || !window.google?.maps) return undefined;
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor:   color,
+    fillOpacity: 1,
+    strokeColor: '#fff',
+    strokeWeight: 3,
+    scale: 11,
+  };
+}
+
+// ─── Error boundary so map crashes don't blank the modal ──────────────
 class MapErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { err: null }; }
   static getDerivedStateFromError(err) { return { err }; }
@@ -150,6 +143,15 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [data,    setData]    = useState(null);
+  const [activePin, setActivePin] = useState(null);  // which marker has its InfoWindow open
+
+  // Google Maps SDK loader — single instance per tab.
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    id: 'tesco-hrms-google-maps',
+  });
+
+  const mapRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -163,13 +165,12 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
     setLoading(true);
     setError('');
     setData(null);
+    setActivePin(null);
     fetchRoute(employeeId, date)
       .then((j) => { if (!cancelled) { setData(j); setLoading(false); } })
       .catch((e) => { if (!cancelled) { setError(e?.message || 'Network error'); setLoading(false); } });
     return () => { cancelled = true; };
   }, [open, employeeId, date]);
-
-  if (!open) return null;
 
   // Pull out polyline + compute map center/bounds. All defensive — if
   // anything in `data` is unexpected we fall back to safe defaults so
@@ -183,26 +184,41 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
   // Office default — Tesco Structures HQ, Ashok Nagar, Chennai
   const OFFICE = { lat: 13.0412, lng: 80.2127 };
   const center = hasPath
-    ? [polyline[0].lat, polyline[0].lng]
+    ? { lat: polyline[0].lat, lng: polyline[0].lng }
     : (claim?.fromLat && claim?.fromLng
-        ? [claim.fromLat, claim.fromLng]
-        : [OFFICE.lat, OFFICE.lng]);
+        ? { lat: claim.fromLat, lng: claim.fromLng }
+        : { lat: OFFICE.lat,   lng: OFFICE.lng });
 
-  // Bounds — only used to size the initial mount of MapContainer. We
-  // remount via `key` when (employeeId, date) changes, so we don't need
-  // to mutate bounds dynamically.
-  let bounds = null;
-  if (hasPath) {
-    bounds = polyline.map((p) => [p.lat, p.lng]);
-    if (claim?.fromLat && claim?.fromLng) bounds.push([claim.fromLat, claim.fromLng]);
-    if (claim?.toLat   && claim?.toLng)   bounds.push([claim.toLat,   claim.toLng]);
-  }
+  // Re-fit bounds whenever the row (employeeId+date) or polyline length
+  // changes. We can't pass a `bounds` prop to GoogleMap so we do the fit
+  // imperatively against the saved map instance.
+  useEffect(() => {
+    if (!isLoaded || !mapRef.current || !window.google?.maps) return;
+    const pts = [];
+    for (const p of polyline) pts.push({ lat: p.lat, lng: p.lng });
+    if (claim?.fromLat && claim?.fromLng) pts.push({ lat: claim.fromLat, lng: claim.fromLng });
+    if (claim?.toLat   && claim?.toLng)   pts.push({ lat: claim.toLat,   lng: claim.toLng });
+    if (pts.length === 0) {
+      mapRef.current.panTo(center);
+      mapRef.current.setZoom(15);
+      return;
+    }
+    if (pts.length === 1) {
+      mapRef.current.panTo(pts[0]);
+      mapRef.current.setZoom(15);
+      return;
+    }
+    const bounds = new window.google.maps.LatLngBounds();
+    pts.forEach((p) => bounds.extend(p));
+    mapRef.current.fitBounds(bounds, 64);
+  }, [isLoaded, employeeId, date, polyline.length, claim?.fromLat, claim?.toLat]);
+
+  if (!open) return null;
 
   const totalKm = Number(data?.totalDistanceKm || 0);
-
-  // Key triggers a fresh MapContainer when the row changes — easier
-  // than mutating bounds/center in place.
-  const mapKey = `${employeeId}|${date}|${hasPath ? polyline.length : 0}`;
+  const polylinePath = polyline.map((p) => ({ lat: p.lat, lng: p.lng }));
+  const startPt = hasPath ? polyline[0] : null;
+  const endPt   = hasPath ? polyline[polyline.length - 1] : null;
 
   return (
     <div
@@ -303,66 +319,112 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
             </div>
           )}
 
-          {/* Map renders unconditionally. The error boundary catches any
-              Leaflet-internal crash so HR never sees a blank page. */}
+          {!GOOGLE_MAPS_API_KEY && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: 8, padding: 24, textAlign: 'center',
+              color: '#92400E', fontSize: 13, background: '#FFFBEB',
+            }}>
+              <strong>VITE_GOOGLE_MAPS_API_KEY is not configured</strong>
+              <span style={{ fontSize: 12 }}>Set the key in .env (local) or in your deployment env vars and redeploy.</span>
+            </div>
+          )}
+          {GOOGLE_MAPS_API_KEY && loadError && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: 8, padding: 24, textAlign: 'center',
+              color: '#B91C1C', fontSize: 13, background: '#FEF2F2',
+            }}>
+              <strong>Google Maps failed to load</strong>
+              <span style={{ fontSize: 12 }}>Check that the "Maps JavaScript API" is enabled and your referrer restriction includes this domain.</span>
+            </div>
+          )}
+
           <MapErrorBoundary>
-            <MapContainer
-              key={mapKey}
-              center={center}
-              zoom={hasPath ? 13 : 15}
-              bounds={bounds && bounds.length >= 2 ? bounds : undefined}
-              boundsOptions={{ padding: [40, 40] }}
-              style={{ width: '100%', height: '100%' }}
-              zoomControl={true}
-              attributionControl={false}
-            >
-              <TileLayer
-                url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-                subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
-                maxZoom={20}
-              />
+            {GOOGLE_MAPS_API_KEY && isLoaded && !loadError && (
+              <GoogleMap
+                mapContainerStyle={{ width: '100%', height: '100%' }}
+                center={center}
+                zoom={hasPath ? 13 : 15}
+                onLoad={(m) => { mapRef.current = m; }}
+                options={{
+                  streetViewControl: false,
+                  fullscreenControl: false,
+                  mapTypeControl: false,
+                  styles: [
+                    { featureType: 'poi',     elementType: 'labels', stylers: [{ visibility: 'off' }] },
+                    { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+                  ],
+                }}
+              >
+                {/* GPS polyline */}
+                {hasPath && (
+                  <PolylineF
+                    path={polylinePath}
+                    options={{
+                      strokeColor:   '#16A34A',
+                      strokeOpacity: 0.85,
+                      strokeWeight:  4,
+                    }}
+                  />
+                )}
 
-              {/* GPS polyline */}
-              {hasPath && (
-                <Polyline
-                  positions={polyline.map((p) => [p.lat, p.lng])}
-                  pathOptions={{
-                    color: '#16A34A', weight: 4, opacity: 0.85,
-                    lineCap: 'round', lineJoin: 'round',
-                  }}
-                />
-              )}
+                {/* Start (A — green) */}
+                {startPt && (
+                  <MarkerF
+                    position={{ lat: startPt.lat, lng: startPt.lng }}
+                    icon={makeMarkerIcon('#16A34A')}
+                    label={{ text: 'A', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+                    title={`Start · ${fmtDateTime(startPt.at)}`}
+                    onClick={() => setActivePin({ key: 'start', position: { lat: startPt.lat, lng: startPt.lng }, body: `Start · ${fmtDateTime(startPt.at)}` })}
+                  />
+                )}
 
-              {/* Start / End pins */}
-              {hasPath && (
-                <>
-                  <Marker position={[polyline[0].lat, polyline[0].lng]} icon={startIcon}>
-                    <Popup>Start · {fmtDateTime(polyline[0].at)}</Popup>
-                  </Marker>
-                  <Marker
-                    position={[
-                      polyline[polyline.length - 1].lat,
-                      polyline[polyline.length - 1].lng,
-                    ]}
-                    icon={endIcon}
+                {/* End (B — red) */}
+                {endPt && hasPath && (
+                  <MarkerF
+                    position={{ lat: endPt.lat, lng: endPt.lng }}
+                    icon={makeMarkerIcon('#DC2626')}
+                    label={{ text: 'B', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+                    title={`End · ${fmtDateTime(endPt.at)}`}
+                    onClick={() => setActivePin({ key: 'end', position: { lat: endPt.lat, lng: endPt.lng }, body: `End · ${fmtDateTime(endPt.at)}` })}
+                  />
+                )}
+
+                {/* Employee-marked from-pin (allowance rows only) */}
+                {claim?.fromLat && claim?.fromLng && (
+                  <MarkerF
+                    position={{ lat: claim.fromLat, lng: claim.fromLng }}
+                    icon={makeMarkerIcon('#2563EB')}
+                    label={{ text: 'F', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+                    title={`From: ${claim.fromLocation || '—'}`}
+                    onClick={() => setActivePin({ key: 'from', position: { lat: claim.fromLat, lng: claim.fromLng }, body: `From: ${claim.fromLocation || '—'}` })}
+                  />
+                )}
+
+                {/* Employee-marked to-pin (allowance rows only) */}
+                {claim?.toLat && claim?.toLng && (
+                  <MarkerF
+                    position={{ lat: claim.toLat, lng: claim.toLng }}
+                    icon={makeMarkerIcon('#7C3AED')}
+                    label={{ text: 'T', color: '#fff', fontSize: '11px', fontWeight: '800' }}
+                    title={`To: ${claim.toLocation || '—'}`}
+                    onClick={() => setActivePin({ key: 'to', position: { lat: claim.toLat, lng: claim.toLng }, body: `To: ${claim.toLocation || '—'}` })}
+                  />
+                )}
+
+                {activePin && (
+                  <InfoWindowF
+                    position={activePin.position}
+                    onCloseClick={() => setActivePin(null)}
                   >
-                    <Popup>End · {fmtDateTime(polyline[polyline.length - 1].at)}</Popup>
-                  </Marker>
-                </>
-              )}
-
-              {/* Employee-marked from/to pins (allowance rows only) */}
-              {claim?.fromLat && claim?.fromLng && (
-                <Marker position={[claim.fromLat, claim.fromLng]} icon={fromIcon}>
-                  <Popup>From: {claim.fromLocation || '—'}</Popup>
-                </Marker>
-              )}
-              {claim?.toLat && claim?.toLng && (
-                <Marker position={[claim.toLat, claim.toLng]} icon={toIcon}>
-                  <Popup>To: {claim.toLocation || '—'}</Popup>
-                </Marker>
-              )}
-            </MapContainer>
+                    <div style={{ fontSize: 12, color: '#1a1a1a' }}>{activePin.body}</div>
+                  </InfoWindowF>
+                )}
+              </GoogleMap>
+            )}
           </MapErrorBoundary>
         </div>
 
