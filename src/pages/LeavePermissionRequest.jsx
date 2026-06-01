@@ -121,20 +121,40 @@ export default function LeavePermissionRequest({ onBack }) {
     setActionModal(null);
   };
 
-  const leaveReqCount = requests.filter(r => r.status === 'Pending' && r.type.toLowerCase().includes('leave')).length;
-  const permissionReqCount = requests.filter(r => r.status === 'Pending' && !r.type.toLowerCase().includes('leave')).length;
+  // ── Row classifier ───────────────────────────────────────────────────
+  // The mobile backend serialises permission rows with requestType
+  // 'permission' and renders type as "Permission (Nh)". Leave rows have
+  // requestType undefined / 'leave' and type set to the leave category
+  // ("Sick Leave", "Casual Leave", "Earned Leave", etc.). A defensive
+  // classifier that checks BOTH fields plus the date-shape clues
+  // (durationHours / startTime + endTime ⇒ permission) prevents an
+  // unusual leave-type string from leaking into the Permission tab.
+  function classify(r) {
+    const rt = String(r?.requestType || '').toLowerCase().trim();
+    const t  = String(r?.type        || '').toLowerCase().trim();
+    if (rt === 'permission')             return 'permission';
+    if (rt === 'leave')                  return 'leave';
+    if (t.includes('permission'))        return 'permission';
+    if (t.includes('leave'))             return 'leave';
+    // Last-ditch heuristic — permission has start/end time on a single
+    // date, leave is multi-day with start/end date.
+    if (r?.startTime || r?.endTime || r?.durationHours) return 'permission';
+    if (r?.startDate || r?.endDate)                     return 'leave';
+    return 'leave';                       // assume leave if utterly empty
+  }
+
+  const leaveReqCount      = requests.filter(r => r.status === 'Pending' && classify(r) === 'leave').length;
+  const permissionReqCount = requests.filter(r => r.status === 'Pending' && classify(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
     return requests.filter(item => {
-      // 1. Tab gate — leave rows only in Leave tab, permission rows only in
-      // Permission tab. We classify by `requestType` first (most reliable)
-      // and only fall back to the text on `type` if that field is missing.
-      const rt = String(item.requestType || '').toLowerCase();
-      const t  = String(item.type || '').toLowerCase();
-      const isPermission = rt === 'permission' || t.includes('permission');
-      const isLeave      = !isPermission;
-      if (activeTab === 'leave-requests'      && !isLeave)      return false;
-      if (activeTab === 'permission-requests' && !isPermission) return false;
+      // 1. Tab gate — leave rows only in Leave tab, permission rows only
+      //    in Permission tab. Uses the shared classifier so both the
+      //    count badges above and the table below agree perfectly on
+      //    what each row is. Anything that doesn't fit a tab is hidden.
+      const kind = classify(item);
+      if (activeTab === 'leave-requests'      && kind !== 'leave')      return false;
+      if (activeTab === 'permission-requests' && kind !== 'permission') return false;
 
       // 2. Search query — defensive so a single null field doesn't crash
       // the whole filter and leave the table silently empty.
@@ -471,33 +491,34 @@ export default function LeavePermissionRequest({ onBack }) {
               onChange={e => setActionMessage(e.target.value)}
               placeholder="e.g., Approved for the requested period."
               style={{
-                width: '100%', minHeight: 80, padding: '10px 12px',
-                borderRadius: 8, border: '1px solid var(--border-color)',
-                fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
-                marginBottom: 16, boxSizing: 'border-box',
+                width: '100%',
+                minHeight: 80,
+                padding: '10px 12px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                fontSize: 13,
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                outline: 'none',
               }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
               <button
                 onClick={() => setActionModal(null)}
                 style={{
-                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1',
-                  cursor: 'pointer',
+                  padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  background: '#fff', color: '#475569',
+                  border: '1px solid #E2E8F0', cursor: 'pointer',
                 }}
-              >
-                Cancel
-              </button>
+              >Cancel</button>
               <button
                 onClick={confirmAction}
                 style={{
-                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700,
                   background: actionModal.status === 'Approved' ? '#16A34A' : '#DC2626',
                   color: '#fff', border: 'none', cursor: 'pointer',
                 }}
-              >
-                Confirm
-              </button>
+              >Confirm {actionModal.status}</button>
             </div>
           </div>
         </div>
