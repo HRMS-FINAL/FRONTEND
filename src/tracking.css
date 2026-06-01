@@ -85,13 +85,32 @@
 }
 
 .tracking-layout {
-  flex: 1;
-  min-height: 0;
+  /* Two-row grid: sidebar spans both rows on the left; map sits in
+     row 1 / col 2; the Travel Report card placed AFTER the map slots
+     into row 2 / col 2 below it. `overflow: hidden` was clipping the
+     report and `align-items: start` keeps the sidebar from stretching
+     to match the whole right column. */
   display: grid;
   grid-template-columns: 320px 1fr;
+  grid-template-rows: auto auto;
+  align-items: start;
   gap: 20px;
-  overflow: hidden;
+  overflow: visible;
   margin-top: 10px;
+}
+.tracking-layout > .tracking-side-panel {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+}
+.tracking-layout > .tracking-map-container {
+  grid-row: 1;
+  grid-column: 2;
+}
+/* Any sibling AFTER the map container (the Travel Report card) lands
+   in row 2 / col 2 automatically and gets full width below the map. */
+.tracking-layout > .tracking-map-container ~ * {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .tracking-side-panel {
@@ -102,8 +121,10 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
-  min-height: 0;
-  height: 100%;
+  /* Cap the sidebar so it doesn't stretch the grid taller than the
+     viewport, which used to push the Travel Report card below the fold. */
+  max-height: calc(100vh - var(--topbar-height) - 80px);
+  align-self: start;
 }
 
 .panel-search {

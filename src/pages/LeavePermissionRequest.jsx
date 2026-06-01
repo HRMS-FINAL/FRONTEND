@@ -259,16 +259,25 @@ export default function LeavePermissionRequest({ onBack }) {
         </div>
 
         <div style={{ overflowX: 'auto' }}>
-          <table className="emp-table">
+          <table className="emp-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+            <colgroup>
+              <col style={{ width: '20%' }} />{/* Employee */}
+              <col style={{ width: '12%' }} />{/* Type */}
+              <col style={{ width: '10%' }} />{/* Duration */}
+              <col style={{ width: '16%' }} />{/* Date Range */}
+              <col style={{ width: '14%' }} />{/* Reason */}
+              <col style={{ width: '14%' }} />{/* Manager Status */}
+              <col style={{ width: '14%' }} />{/* Status */}
+            </colgroup>
             <thead>
               <tr>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Employee</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Type</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Duration</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)' }}>Date Range</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '20%' }}>Reason</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '140px', textAlign: 'center' }}>Manager Status</th>
-                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', width: '140px', textAlign: 'center' }}>Status</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'left' }}>Employee</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'left' }}>Type</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'left' }}>Duration</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'left' }}>Date Range</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'left' }}>Reason</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'center' }}>Manager Status</th>
+                <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5, boxShadow: 'inset 0 -1px 0 var(--border-color)', textAlign: 'center' }}>Status</th>
               </tr>
             </thead>
             <tbody>
