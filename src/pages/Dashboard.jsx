@@ -296,6 +296,52 @@ export default function Dashboard({
 
       </div>
 
+      {/* ── Quick Actions ── */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header">
+          <div>
+            <div className="card-title">Quick Actions</div>
+            <div className="card-subtitle">Jump to the most-used HR tasks</div>
+          </div>
+        </div>
+        <div className="quick-actions-row" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: 12,
+          padding: 16,
+        }}>
+          {[
+            { label: 'Add Employee',     Icon: UserPlus,      view: 'new-employee',    color: '#4CAA17', bg: '#F0FDF4' },
+            { label: 'Run Payroll',      Icon: ClipboardList, view: 'payroll',         color: '#2563EB', bg: '#EFF6FF' },
+            { label: 'Live Tracking',    Icon: MapPin,        view: 'live-tracking',   color: '#9F7AEA', bg: '#F5F3FF' },
+            { label: 'Approve Leaves',   Icon: Check,         view: 'leave-permission',color: '#D97706', bg: '#FFFBEB' },
+            { label: 'Mark Attendance',  Icon: Clock,         view: 'attendance',      color: '#DC2626', bg: '#FEF2F2' },
+            { label: 'Announcements',    Icon: UserCheck,     view: 'announcements',   color: '#0EA5E9', bg: '#F0F9FF' },
+          ].map((a) => (
+            <button
+              key={a.label}
+              className="quick-action-card"
+              onClick={() => setActiveView(a.view)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '12px 14px', borderRadius: 10,
+                background: a.bg, border: '1px solid var(--border-color)',
+                cursor: 'pointer', textAlign: 'left',
+              }}
+            >
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, borderRadius: 10, background: '#fff',
+                border: '1px solid var(--border-color)',
+              }}>
+                <a.Icon size={18} color={a.color} />
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Full Width Tracking Map ── */}
       <div className="full-width-map-row" style={{ marginBottom: 20 }}>
         <CompactTrackingMap sidebarOpen={sidebarOpen} onOpenFullMap={() => setActiveView('live-tracking')} />

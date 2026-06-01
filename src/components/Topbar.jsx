@@ -25,6 +25,68 @@ export default function Topbar({
   const notifRef = useRef(null);
   const profileRef = useRef(null);
 
+  // ─── Topbar search ────────────────────────────────────────────────
+  // Searches across the static page list. Hitting Enter or clicking a
+  // result navigates to that view. Used to be a placeholder input with
+  // no wiring — HR can now jump from any page in one keystroke.
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const SEARCHABLE_VIEWS = [
+    { view: 'dashboard',          label: 'Dashboard',          hint: 'Stats, calendar, quick actions' },
+    { view: 'employee-list',      label: 'Employee Directory', hint: 'Search all employees, exports' },
+    { view: 'new-employee',       label: 'Add Employee',       hint: 'Onboard a new hire' },
+    { view: 'department',         label: 'Departments',        hint: 'Manage department list' },
+    { view: 'designation',        label: 'Designations',       hint: 'Manage job titles' },
+    { view: 'attendance',         label: 'Attendance',         hint: 'Daily logs + status' },
+    { view: 'leave-permission',   label: 'Leave & Permission', hint: 'Approve / reject leave requests' },
+    { view: 'allowance',          label: 'Allowance',          hint: 'Petrol & travel approvals' },
+    { view: 'live-tracking',      label: 'Live Tracking',      hint: 'Real-time GPS + route history' },
+    { view: 'daily-routes',       label: 'Daily Routes',       hint: 'Per-day GPS distance per employee' },
+    { view: 'payroll',            label: 'Payroll',            hint: 'Payslip generation' },
+    { view: 'reports',            label: 'Reports',            hint: 'Employee master & operational reports' },
+    { view: 'assets',             label: 'Assets',             hint: 'Laptops / phones / SIM cards' },
+    { view: 'announcements',      label: 'Announcements',      hint: 'Company-wide notices' },
+    { view: 'role-permissions',   label: 'Access Management',  hint: 'Roles & permissions' },
+    { view: 'settings',           label: 'Settings',           hint: 'App configuration' },
+    { view: 'complaint',          label: 'Complaints',         hint: 'Employee complaint register' },
+  ];
+  const searchResults = React.useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return [];
+    return SEARCHABLE_VIEWS.filter(s =>
+      s.label.toLowerCase().includes(q) ||
+      s.view.toLowerCase().includes(q) ||
+      s.hint.toLowerCase().includes(q)
+    ).slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm]);
+
+  // Close the dropdown when the user clicks outside.
+  useEffect(() => {
+    const onClick = (e) => {
+      if (!e.target.closest('.topbar-search')) setSearchOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  // ─── Profile avatar — first letter of first name ──────────────────
+  // Previously rendered `user?.avatar || 'U'` which shows a literal "U"
+  // for every user without a stored avatar URL. HR wanted Vishnu → "V".
+  const avatarInitial = (() => {
+    const candidates = [
+      user?.firstName,
+      user?.name,
+      user?.fullName,
+      user?.email,
+    ].map(s => (s == null ? '' : String(s))).filter(Boolean);
+    for (const c of candidates) {
+      const trimmed = c.trim();
+      if (trimmed) return trimmed.charAt(0).toUpperCase();
+    }
+    return 'U';
+  })();
+
   /* ─── Live notifications from the backend ─────────────────────── */
   const [items, setItems]   = useState([]);
   const [unread, setUnread] = useState(0);
@@ -58,25 +120,12 @@ export default function Topbar({
     if (showNotif) fetchNotifs();
   }, [showNotif, fetchNotifs]);
 
-  // The salary-eligibility item is locally derived (no backend), so we
-  // mix it in at render time. If there's nothing eligible, it's omitted.
-  const displayed = React.useMemo(() => {
-    const list = [...items];
-    if (eligibleCount > 0) {
-      list.unshift({
-        id:        'inc-notif',
-        type:      'payroll',
-        title:     `Salary increment alert: ${eligibleCount} employee${eligibleCount === 1 ? '' : 's'} eligible (3+ months)`,
-        time:      'Just now',
-        timestamp: new Date().toISOString(),
-        read:      false,
-        nav:       'payroll',
-      });
-    }
-    return list;
-  }, [items, eligibleCount]);
-
-  const totalUnread = unread + (eligibleCount > 0 ? 1 : 0);
+  // (Removed) — the locally-derived "Salary increment alert" was noise:
+  // it fired on every page render based on a hardcoded "3+ months"
+  // heuristic, without HR ever opting in. The notifications panel now
+  // shows only real backend notifications.
+  const displayed = items;
+  const totalUnread = unread;
 
   /* ─── Mark all read ───────────────────────────────────────────── */
   const markAllRead = () => {
@@ -160,9 +209,46 @@ export default function Topbar({
         </div>
       </div>
 
-      <div className="topbar-search">
+      <div className="topbar-search" style={{ position: 'relative' }}>
         <Search size={15} style={{ flexShrink: 0 }} />
-        <input placeholder="Search employees, reports..." />
+        <input
+          placeholder="Search employees, pages, reports…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onFocus={() => setSearchOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setSearchOpen(false); setSearchTerm(''); }
+            if (e.key === 'Enter' && searchResults[0]) {
+              setActiveView(searchResults[0].view);
+              setSearchOpen(false);
+              setSearchTerm('');
+            }
+          }}
+        />
+        {searchOpen && searchTerm.trim() !== '' && (
+          <div style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+            background: '#fff', borderRadius: 10, border: '1px solid var(--border-color)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 90, maxHeight: 320, overflowY: 'auto',
+          }}>
+            {searchResults.length === 0 ? (
+              <div style={{ padding: 14, fontSize: 12.5, color: 'var(--text-muted)' }}>
+                No matches for "{searchTerm}".
+              </div>
+            ) : searchResults.map((s) => (
+              <div
+                key={s.view}
+                onMouseDown={(e) => { e.preventDefault(); setActiveView(s.view); setSearchOpen(false); setSearchTerm(''); }}
+                style={{ padding: '10px 14px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid #F1F5F9' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#F8FAFC'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+              >
+                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{s.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-light)', marginTop: 2 }}>{s.hint}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="topbar-actions">
@@ -242,7 +328,7 @@ export default function Topbar({
                 className="profile-avatar"
                 style={{ width: '32px', height: '32px', fontSize: '12px' }}
               >
-                {user?.avatar || 'U'}
+                {avatarInitial}
               </div>
               <div className="profile-info" style={{ marginLeft: '10px' }}>
                 <div
@@ -271,7 +357,7 @@ export default function Topbar({
             <div className="profile-dropdown">
               <div className="p-drop-header">
                 <div className="profile-avatar" style={{ width: '40px', height: '40px', fontSize: '14px' }}>
-                  {user?.avatar || 'U'}
+                  {avatarInitial}
                 </div>
                 <div className="profile-info" style={{ marginLeft: '12px' }}>
                   <div className="profile-name" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>

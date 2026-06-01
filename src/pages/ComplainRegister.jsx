@@ -30,6 +30,9 @@ function readCache() {
 
 export default function ComplainRegister() {
   const [search, setSearch] = useState('');
+  // Priority filter — '' = all. The Filter button next to the search
+  // input now toggles a dropdown so HR can narrow to High/Medium/Low.
+  const [priorityFilter, setPriorityFilter] = useState('');
   const [selectedComplaint, setSelectedComplaint] = useState(null);
 
   // Seed from localStorage cache so the table is never empty on first
@@ -67,14 +70,20 @@ export default function ComplainRegister() {
 
   // Search matches the subject, the employee ID, OR the employee name —
   // so HR can find a complaint by who raised it as well as by topic.
+  // Priority filter (if active) further narrows the list.
   const filtered = complaints.filter(c => {
-    const q = search.toLowerCase();
-    if (!q) return true;
-    return (
-      (c.subject      || '').toLowerCase().includes(q) ||
-      (c.employeeId   || '').toLowerCase().includes(q) ||
-      (c.employeeName || c.name || '').toLowerCase().includes(q)
-    );
+    const q = String(search || '').toLowerCase();
+    if (q) {
+      const hit =
+        String(c.subject      || '').toLowerCase().includes(q) ||
+        String(c.employeeId   || '').toLowerCase().includes(q) ||
+        String(c.employeeName || c.name || '').toLowerCase().includes(q);
+      if (!hit) return false;
+    }
+    if (priorityFilter) {
+      if (String(c.priority || '').toLowerCase() !== priorityFilter.toLowerCase()) return false;
+    }
+    return true;
   });
 
   return (
@@ -96,7 +105,20 @@ export default function ComplainRegister() {
                 style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: '13px', color: 'var(--text-main)' }}
               />
             </div>
-            <button className="ne-btn-secondary"><Filter size={16} /> Filter</button>
+            {/* Priority filter — Filter button was a no-op before; now a real dropdown. */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-main)' }}>
+              <Filter size={14} color="#64748B" />
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 13, fontWeight: 600, color: 'var(--text-main)', cursor: 'pointer' }}
+              >
+                <option value="">All Priorities</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>

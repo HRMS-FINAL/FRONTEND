@@ -182,13 +182,16 @@ export default function Attendance({ onBack, employees = [] }) {
       .catch(err => showNotification('Could not build report: ' + (err?.message || 'unknown'), 'error'));
   };
 
-  // Stats for the selected day
+  // Stats for the selected day.
+  // Present INCLUDES late — the employee did show up, they were just late.
+  // Late is also surfaced separately so HR can see how many of them crossed
+  // the 10:01 AM cut-off.
   const stats = React.useMemo(() => {
-    const present = dailyLogs.filter(l => l.status === 'Present').length;
-    const late = dailyLogs.filter(l => l.status === 'Late').length;
-    const leave = dailyLogs.filter(l => l.status === 'On Leave').length;
-    const permission = dailyLogs.filter(l => l.status === 'Permission').length;
-    return { present, late, leave, permission };
+    const onlyPresent = dailyLogs.filter(l => l.status === 'Present').length;
+    const late        = dailyLogs.filter(l => l.status === 'Late').length;
+    const leave       = dailyLogs.filter(l => l.status === 'On Leave').length;
+    const permission  = dailyLogs.filter(l => l.status === 'Permission').length;
+    return { present: onlyPresent + late, late, leave, permission };
   }, [dailyLogs]);
 
   // Dynamic Attendance Summary cards based on selected day and filters
@@ -226,7 +229,8 @@ export default function Attendance({ onBack, employees = [] }) {
     if (!matchesSearch) return false;
 
     if (filterStatus === 'all') return true;
-    if (filterStatus === 'present') return log.status === 'Present';
+    // Present pill now includes late rows so the count + the rows match.
+    if (filterStatus === 'present') return log.status === 'Present' || log.status === 'Late';
     if (filterStatus === 'late') return log.status === 'Late';
     if (filterStatus === 'leave') return log.status === 'On Leave';
     if (filterStatus === 'permission') return log.status === 'Permission';
@@ -279,7 +283,7 @@ export default function Attendance({ onBack, employees = [] }) {
         })}
       </div>
 
-      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: '300px 280px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
+      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
 
         {/* Left Column: Interactive Calendar Card */}
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
@@ -347,7 +351,10 @@ export default function Attendance({ onBack, employees = [] }) {
           </div>
         </div>
 
-        {/* Middle Column: Employee Detail Panel */}
+        {/* Middle Column removed per HR request — employee detail now
+            lives ONLY in the Employee Details page, not inline here.
+            The grid above is now two-column (calendar + table). */}
+        {false && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Panel Header */}
           <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>
@@ -456,6 +463,7 @@ export default function Attendance({ onBack, employees = [] }) {
             </div>
           )}
         </div>
+        )}
 
         {/* Right Column: Attendance Records for Selected Day */}
         <div className="emp-table-card" style={{ margin: 0 }}>
@@ -519,7 +527,7 @@ export default function Attendance({ onBack, employees = [] }) {
             <table className="emp-table">
               <tbody>
                 {displayLogs.map(log => (
-                  <tr key={log.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedLog(log)}>
+                  <tr key={log.id}>
                     <td style={{ verticalAlign: 'middle' }}>
                       <div className="emp-table-user">
                         <div className="emp-table-avatar" style={{ background: (log.color || '#4299E1') + '15', color: log.color || '#4299E1', width: '32px', height: '32px', fontSize: '11px', flexShrink: 0 }}>

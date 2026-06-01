@@ -114,10 +114,9 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // Live Tracking page uses, so counts/markers match exactly.
   const [employees, setEmployees] = useState([]);
   const [office,    setOffice]    = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
-  // The canonical office is wherever PAVITHRA is currently pinging from
-  // (she sits in the office). Match by first name OR employeeId so a
-  // typo in either side still works.  Mirror of LiveTracking.jsx.
-  const OFFICE_ANCHOR = { name: /^pavithra/i, employeeId: 'TES018' };
+  // The canonical office is wherever RANGANAYAGI is currently pinging from
+  // (she sits in the office). Mirror of LiveTracking.jsx.
+  const OFFICE_ANCHOR = { name: /^ranganayagi/i };
   const RADIUS_M      = 200;
 
   const loadLive = React.useCallback(async () => {
@@ -146,7 +145,7 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
 
       // Resolve the office anchor and compute bucket + colour for each row.
       const anchor = rawRows.find(r =>
-        String(r.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId ||
+        (OFFICE_ANCHOR.employeeId && String(r.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId) ||
         OFFICE_ANCHOR.name.test(String(r.name || ''))
       );
       const officePt = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')

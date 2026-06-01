@@ -370,11 +370,10 @@ export default function LiveTracking() {
   const [liveEmployees, setLiveEmployees] = useState([]);
   const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, radiusM: 200, name: 'Tesco Structures HQ' });
   // Designated office anchor — by HR's request the canonical office
-  // location is wherever PAVITHRA is currently pinging from (she sits
-  // in the office). Match by first name OR employeeId (TES018) so a
-  // typo in either side still works. If she's offline / no GPS, we
-  // fall through to whatever the backend gave us.
-  const OFFICE_ANCHOR = { name: /^pavithra/i, employeeId: 'TES018' };
+  // location is wherever RANGANAYAGI is currently pinging from (she sits
+  // in the office). Match by first name only; if her GPS is unavailable
+  // we fall through to whatever the backend gave us.
+  const OFFICE_ANCHOR = { name: /^ranganayagi/i };
   const RADIUS_M      = 200;
   // Drives the spinner on the Force Refresh button so the click feels
   // responsive and we can prevent rapid-fire double fetches.
@@ -451,9 +450,9 @@ export default function LiveTracking() {
   }, [isLive, loadLive]);
 
   // Resolve the office anchor lazily on every render so HR sees the
-  // office move with Pavithra if she ever clocks in from a new desk.
+  // office move with Ranganayagi if she ever clocks in from a new desk.
   const anchorRow = liveEmployees.find(e =>
-    String(e.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId ||
+    (OFFICE_ANCHOR.employeeId && String(e.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId) ||
     OFFICE_ANCHOR.name.test(String(e.name || ''))
   );
   const effectiveOffice = (anchorRow && typeof anchorRow.lat === 'number' && typeof anchorRow.lng === 'number')

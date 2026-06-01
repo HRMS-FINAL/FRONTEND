@@ -358,6 +358,8 @@ export default function Allowance({ onBack }) {
                     <th>Route (From ➝ To)</th>
                     <th>Distance</th>
                     <th>Claim Amount</th>
+                    <th>Approved ₹</th>
+                    <th>Rejected ₹</th>
                     <th>MANAGER STATUS</th>
                     <th>STATUS</th>
                   </tr>
@@ -409,6 +411,24 @@ export default function Allowance({ onBack }) {
                             ✗ Fully rejected
                           </div>
                         )}
+                      </td>
+                      {/* Approved ₹ */}
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                          {req.status === 'Approved'
+                            ? '₹' + Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')
+                            : '—'}
+                        </div>
+                      </td>
+                      {/* Rejected ₹ */}
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                          {req.status === 'Approved' && Number(req.rejectedAmount) > 0
+                            ? '₹' + Number(req.rejectedAmount).toLocaleString('en-IN')
+                            : req.status === 'Rejected'
+                            ? '₹' + Number(req.amount || 0).toLocaleString('en-IN')
+                            : '—'}
+                        </div>
                       </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
@@ -470,7 +490,7 @@ export default function Allowance({ onBack }) {
                   ))}
                   {petrolRequests.length === 0 && (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -495,6 +515,8 @@ export default function Allowance({ onBack }) {
                     <th>Route (From ➝ To)</th>
                     <th>Distance</th>
                     <th>Claim Amount</th>
+                    <th>Approved ₹</th>
+                    <th>Rejected ₹</th>
                     <th>MANAGER STATUS</th>
                     <th>STATUS</th>
                   </tr>
@@ -546,6 +568,24 @@ export default function Allowance({ onBack }) {
                             ✗ Fully rejected
                           </div>
                         )}
+                      </td>
+                      {/* Approved ₹ */}
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#15803D' }}>
+                          {req.status === 'Approved'
+                            ? '₹' + Number(req.approvedAmount ?? req.amount ?? 0).toLocaleString('en-IN')
+                            : '—'}
+                        </div>
+                      </td>
+                      {/* Rejected ₹ */}
+                      <td>
+                        <div style={{ fontSize: '13px', fontWeight: 800, color: '#B91C1C' }}>
+                          {req.status === 'Approved' && Number(req.rejectedAmount) > 0
+                            ? '₹' + Number(req.rejectedAmount).toLocaleString('en-IN')
+                            : req.status === 'Rejected'
+                            ? '₹' + Number(req.amount || 0).toLocaleString('en-IN')
+                            : '—'}
+                        </div>
                       </td>
                       {/* MANAGER STATUS — first gate. */}
                       <td>
@@ -605,7 +645,7 @@ export default function Allowance({ onBack }) {
                   ))}
                   {travelRequests.length === 0 && (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-light)', fontSize: '13px' }}>No requests found.</td>
                     </tr>
                   )}
                 </tbody>

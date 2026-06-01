@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronRight, DollarSign, CreditCard, TrendingUp, Zap,
   Download, Printer, Send, Search, Filter, X, FileText, Upload
@@ -21,6 +21,27 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   const today = new Date();
   const [payMonth, setPayMonth] = useState(today.getMonth() + 1); // 1-12
   const [payYear,  setPayYear]  = useState(today.getFullYear());
+  // Pending payslip requests filed from ERM Mobile / ERM Web. Refreshed
+  // every 30 s so HR sees them as soon as the employee taps "Request".
+  const [pendingRequests, setPendingRequests] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API}/payroll/list?month=${payMonth}&year=${payYear}`);
+        const d = await r.json().catch(() => ({}));
+        if (cancelled || !d?.success) return;
+        const items = Array.isArray(d.items) ? d.items : [];
+        // Only the rows that are still awaiting HR action. Once HR uploads
+        // the actual payslip via "Upload Report" or "Send to Employee",
+        // the row flips to `processed` and disappears from this list.
+        setPendingRequests(items.filter(p => String(p.status || '').toLowerCase() === 'pending'));
+      } catch { /* network / cold-start — non-fatal */ }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [payMonth, payYear]);
   const monthLabel = new Date(payYear, payMonth - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 
   // Upload an attendance report → backend pulls actual attendance for the
@@ -318,6 +339,70 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
 
 
 
+      {/* Pending Payslip Requests — what employees have asked for via ERM. */}
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+          <div>
+            <div className="card-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              Payslip Requests
+              <span style={{
+                fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 999,
+                background: pendingRequests.length ? '#FEF3C7' : '#F1F5F9',
+                color:      pendingRequests.length ? '#92400E' : '#64748B',
+              }}>{pendingRequests.length} pending</span>
+            </div>
+            <div className="card-subtitle">Filed by employees on ERM Mobile / ERM Web for {monthLabel}.</div>
+          </div>
+        </div>
+        {pendingRequests.length === 0 ? (
+          <div style={{ padding: '18px 24px', fontSize: 12.5, color: 'var(--text-light)' }}>
+            No payslip requests for {monthLabel}. Employees will appear here the moment they tap “Request payslip”.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="emp-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Emp ID</th>
+                  <th>Requested for</th>
+                  <th>Requested at</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingRequests.map((p) => {
+                  const u = p.user || {};
+                  const name = u.name || ((u.firstName || '') + ' ' + (u.lastName || '')).trim() || '—';
+                  const eid  = u.employeeId || '—';
+                  const requestedAt = p.createdAt || p.requestedAt || p.updatedAt;
+                  const fmt = (iso) => {
+                    if (!iso) return '—';
+                    const d = new Date(iso);
+                    if (isNaN(d.getTime())) return '—';
+                    return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+                  };
+                  return (
+                    <tr key={p._id || (eid + '-' + p.month + '-' + p.year)}>
+                      <td><div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{name}</div></td>
+                      <td><div style={{ fontSize: 12, color: 'var(--text-light)' }}>{eid}</div></td>
+                      <td><div style={{ fontSize: 12 }}>{p.monthLabel || `${p.month}/${p.year}`}</div></td>
+                      <td><div style={{ fontSize: 12 }}>{fmt(requestedAt)}</div></td>
+                      <td>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
+                          background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A',
+                        }}>Pending HR</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="announcement-filters" style={{ marginTop: '30px' }}>
         <div className="topbar-search" style={{ flex: 1, maxWidth: '400px' }}>
           <Search size={15} />
@@ -343,15 +428,19 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
             style={{ padding: '8px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600 }}
           >
             {(() => {
-              const opts = [];
-              const now = new Date();
-              for (let i = 0; i < 18; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+              // Company started in April 2025 — months before that don't
+              // exist on the payroll side, so we don't list them. Iterate
+              // from FLOOR (Apr 2025) forward to the current month.
+              const FLOOR = new Date(2025, 3, 1);   // April 2025
+              const now   = new Date();
+              const opts  = [];
+              for (let d = new Date(FLOOR); d <= now; d.setMonth(d.getMonth() + 1)) {
                 const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}`;
                 const lbl = d.toLocaleString('default', { month: 'long', year: 'numeric' });
                 opts.push(<option key={val} value={val}>{lbl}</option>);
               }
-              return opts;
+              // Most-recent month first.
+              return opts.reverse();
             })()}
           </select>
         </div>
@@ -849,74 +938,33 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                           <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
                             <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
                           </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>Prof. Tax</td>
+                        </tr>
+                        <tr>
+                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>Conveyance</td>
                           <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
                             <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
                           </td>
                         </tr>
-                        
                         <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Total</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold' }} />
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Total</td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>
-                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold' }} />
-                          </td>
-                        </tr>
-                        
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold' }}>Net Pay</td>
-                          <td colSpan="4" style={{ border: '1px solid #000', padding: '6px 8px', fontWeight: 'bold', fontSize: '14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              ₹<input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold', fontSize: '14px', marginLeft: '4px' }} />
-                            </div>
+                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>Other</td>
+                          <td style={{ border: '1px solid #000', padding: '6px 8px' }}>
+                            <input type="number" placeholder="" style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none' }} />
                           </td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                    <button
+                      onClick={() => setShowEditSlip(null)}
+                      style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1', cursor: 'pointer' }}
+                    >Cancel</button>
+                    <button
+                      onClick={() => setShowEditSlip(null)}
+                      style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer' }}
+                    >Save</button>
+                  </div>
                 </div>
-              </div>
-              <div className="ne-modal-footer" style={{ borderTop: '1px solid #E2E8F0', padding: '24px', display: 'flex', gap: '12px' }}>
-                <button className="ne-btn-secondary" style={{ flex: 1, padding: '12px' }} onClick={() => setShowProcessPanel(false)}>Cancel</button>
-                <button
-                  className="ne-btn-primary"
-                  style={{ flex: 2, padding: '12px', background: '#10B981', border: 'none', cursor: 'pointer' }}
-                  onClick={async () => {
-                    if (!foundEmp) {
-                      showNotification('Choose an employee row first', 'error');
-                      return;
-                    }
-                    const ok = await sendPayslipToEmployee(foundEmp, {
-                      earnings: {
-                        basicSalary:      basic,
-                        hraAllowance:     hra,
-                        performanceBonus: incentive,
-                        otherEarnings:    special,
-                      },
-                      deductions: {
-                        incomeTax:       tds,
-                        providentFund:   epf,
-                        healthInsurance: 0,
-                        lopDeduction:    0,
-                        otherDeductions: pt,
-                      },
-                    });
-                    if (ok && !generatedPayrolls.includes(foundEmp.id)) {
-                      setGeneratedPayrolls([...generatedPayrolls, foundEmp.id]);
-                    }
-                    setShowProcessPanel(false);
-                  }}>
-                  Generate Payslip
-                </button>
               </div>
             </div>
           </div>

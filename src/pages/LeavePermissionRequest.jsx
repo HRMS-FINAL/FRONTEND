@@ -54,9 +54,31 @@ export default function LeavePermissionRequest({ onBack }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  const handleManagerAction = (id, newManagerStatus) => {
+  const handleManagerAction = async (id, newManagerStatus) => {
+    // Previously this only flipped local state — the change never reached
+    // the backend, so the employee's ERM Mobile / ERM Web app never saw
+    // that the Manager had acted. Now we PATCH the same /leave-requests
+    // endpoint HR uses, with a `managerStatus` field that the mobile
+    // backend persists alongside the row.
+    const targetReq = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: newManagerStatus } : r));
-    showNotification(`Manager status updated to ${newManagerStatus}!`, "success");
+    try {
+      const res = await fetch(`${API}/leave-requests/${targetReq?._id || id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          managerStatus: newManagerStatus.toLowerCase(),
+          reviewedBy:    'Manager',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+      showNotification(`Manager status updated to ${newManagerStatus}!`, 'success');
+    } catch (err) {
+      // Roll back optimistic update if the server rejected the write.
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: targetReq?.managerStatus || '' } : r));
+      showNotification(`Could not save manager decision: ${err.message}`, 'error');
+    }
   };
 
   const initiateAction = (id, newStatus) => {
@@ -104,27 +126,34 @@ export default function LeavePermissionRequest({ onBack }) {
 
   const displayRecords = React.useMemo(() => {
     return requests.filter(item => {
-      // 1. Check tab match
-      const isLeave = item.type.toLowerCase().includes('leave');
-      if (activeTab === 'leave-requests' && !isLeave) return false;
-      if (activeTab === 'permission-requests' && isLeave) return false;
+      // 1. Tab gate — leave rows only in Leave tab, permission rows only in
+      // Permission tab. We classify by `requestType` first (most reliable)
+      // and only fall back to the text on `type` if that field is missing.
+      const rt = String(item.requestType || '').toLowerCase();
+      const t  = String(item.type || '').toLowerCase();
+      const isPermission = rt === 'permission' || t.includes('permission');
+      const isLeave      = !isPermission;
+      if (activeTab === 'leave-requests'      && !isLeave)      return false;
+      if (activeTab === 'permission-requests' && !isPermission) return false;
 
-      // 2. Check search query
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.role.toLowerCase().includes(searchQuery.toLowerCase());
+      // 2. Search query — defensive so a single null field doesn't crash
+      // the whole filter and leave the table silently empty.
+      const q = String(searchQuery || '').trim().toLowerCase();
+      const name   = String(item.name   || '').toLowerCase();
+      const reason = String(item.reason || '').toLowerCase();
+      const role   = String(item.role   || '').toLowerCase();
+      const eid    = String(item.employeeId || item.id || '').toLowerCase();
+      const dept   = String(item.dept   || '').toLowerCase();
+      const matchesSearch = !q ||
+        name.includes(q)   || reason.includes(q) ||
+        role.includes(q)   || eid.includes(q)    || dept.includes(q);
       if (!matchesSearch) return false;
-
-      // 3. Check inline filter type
-      if (filterType) {
-        if (!item.type.toLowerCase().includes(filterType.toLowerCase())) return false;
-      }
 
       return true;
     });
-  }, [requests, activeTab, searchQuery, filterType]);
+  }, [requests, activeTab, searchQuery]);
 
-  const filterTabs = ['permission', 'leave'];
+  const filterTabs = [];   // secondary leave/permission selector removed per HR request
 
   return (
     // Override the global .emp-list-page rules (`flex: 1`, `min-height: 0`,
@@ -224,28 +253,9 @@ export default function LeavePermissionRequest({ onBack }) {
             />
           </div>
           
-          <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-main)', padding: '3px', borderRadius: '8px' }}>
-            {filterTabs.map(tab => (
-              <button
-                key={tab}
-                onClick={() => setFilterType(prev => prev === tab ? '' : tab)}
-                style={{
-                  border: 'none',
-                  background: filterType === tab ? 'white' : 'transparent',
-                  color: filterType === tab ? 'var(--primary)' : 'var(--text-muted)',
-                  padding: '6px 12px',
-                  fontSize: '11px',
-                  fontWeight: '700',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  boxShadow: filterType === tab ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                  textTransform: 'capitalize'
-                }}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
+          {/* Secondary Permission / Leave selector removed per HR request —
+              the two cards at the top already drive the active tab and this
+              row was just duplicating that control. */}
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -447,24 +457,37 @@ export default function LeavePermissionRequest({ onBack }) {
             <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'var(--text-light)' }}>
               Write a message to the employee explaining your decision.
             </p>
-            <textarea 
+            <textarea
               value={actionMessage}
               onChange={e => setActionMessage(e.target.value)}
-              placeholder="Enter your message here..."
-              style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', resize: 'none', fontSize: '13px', marginBottom: '20px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              placeholder="e.g., Approved for the requested period."
+              style={{
+                width: '100%', minHeight: 80, padding: '10px 12px',
+                borderRadius: 8, border: '1px solid var(--border-color)',
+                fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
+                marginBottom: 16, boxSizing: 'border-box',
+              }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button 
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
                 onClick={() => setActionModal(null)}
-                style={{ padding: '8px 16px', borderRadius: '6px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1',
+                  cursor: 'pointer',
+                }}
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={confirmAction}
-                style={{ padding: '8px 16px', borderRadius: '6px', background: actionModal.status === 'Approved' ? '#4CAA17' : '#FC8181', border: 'none', color: 'white', fontWeight: 600, cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: actionModal.status === 'Approved' ? '#16A34A' : '#DC2626',
+                  color: '#fff', border: 'none', cursor: 'pointer',
+                }}
               >
-                Confirm {actionModal.status}
+                Confirm
               </button>
             </div>
           </div>

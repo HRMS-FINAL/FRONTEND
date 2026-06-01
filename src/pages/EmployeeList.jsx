@@ -213,15 +213,19 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
       tableRows.push(empData);
     });
 
-    doc.autoTable({
-      head: [tableColumn],
-      body: tableRows,
-      startY: 20,
-      theme: 'grid',
-      styles: { fontSize: 8 },
-      headStyles: { fillStyle: '#4CAA17' }
-    });
+    // jsPDF-autotable v3+ is no longer a doc method — it's imported and
+    // called as a function on the doc instance. The previous doc.autoTable
+    // call silently threw and the PDF never downloaded.
     doc.text("Employee Directory Report", 14, 15);
+    autoTable(doc, {
+      head:    [tableColumn],
+      body:    tableRows,
+      startY:  20,
+      theme:   'grid',
+      styles:  { fontSize: 8 },
+      // fillColor accepts a hex string or [r,g,b]. fillStyle was wrong.
+      headStyles: { fillColor: '#4CAA17', textColor: '#ffffff', fontStyle: 'bold' },
+    });
     doc.save(`Employees_${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}.pdf`);
     showNotification("PDF downloaded successfully!", "success");
   };
