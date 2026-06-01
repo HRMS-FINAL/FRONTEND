@@ -428,11 +428,11 @@ export default function Reports({ onBack }) {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px' }}>From Date</label>
-                  <input type="date" className="ne-input" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
+                  <input type="date" className="ne-input" value={startDate} onChange={e => setStartDate(e.target.value)} max={new Date().toISOString().slice(0,10)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px' }}>To Date</label>
-                  <input type="date" className="ne-input" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
+                  <input type="date" className="ne-input" value={endDate} onChange={e => setEndDate(e.target.value)} max={new Date().toISOString().slice(0,10)} style={{ width: '100%', fontSize: '13px', padding: '8px 10px' }} />
                 </div>
               </div>
             </div>
@@ -578,9 +578,9 @@ export default function Reports({ onBack }) {
                   </tbody>
                 </table>
               )}
+              </div>
             </div>
-          </div>
-
+          )}
         </main>
       </div>
     </div>

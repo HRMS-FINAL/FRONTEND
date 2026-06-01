@@ -48,7 +48,7 @@ export default function Topbar({
     { view: 'announcements',      label: 'Announcements',      hint: 'Company-wide notices' },
     { view: 'role-permissions',   label: 'Access Management',  hint: 'Roles & permissions' },
     { view: 'settings',           label: 'Settings',           hint: 'App configuration' },
-    { view: 'complaint',          label: 'Complaints',         hint: 'Employee complaint register' },
+    { view: 'complain-register',  label: 'Complaints',         hint: 'Employee complaint register' },
   ];
   const searchResults = React.useMemo(() => {
     const q = searchTerm.trim().toLowerCase();

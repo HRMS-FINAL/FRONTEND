@@ -19,6 +19,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronRight, Calendar, Search, Navigation, MapPin } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import RouteMapModal from '../components/RouteMapModal';
 
 import { API, apiFetch } from '../config/api';
@@ -352,6 +353,55 @@ export default function DailyRoutes({ onBack }) {
     }
   };
 
+  // Excel (XLSX) export — Summary sheet + Routes sheet so HR can pivot.
+  const downloadExcel = () => {
+    try {
+      const rs = filtered;
+      const summary = [
+        ['Tesco Structures — Daily Routes Report'],
+        [],
+        ['Date',         fmtDateDMY(date)],
+        ['Employees',    rs.length],
+        ['Filed Allowance', withAllowance],
+        ['Total km (all)',  Number(totalDistance.toFixed(2))],
+        ['Generated',    fmtDateDMY(new Date().toISOString().slice(0, 10))],
+      ];
+      const routes = [
+        ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out',
+         'GPS Distance (km)', 'Distance Source', 'Filed Allowance',
+         'Petrol Claimed (km)', 'Travel Claimed (km)'],
+        ...rs.map((it) => [
+          fmtDateDMY(date),
+          it.employeeId || '',
+          it.name || it.employeeName || '',
+          it.department || it.dept || '',
+          fmtTime(it.checkIn),
+          fmtTime(it.checkOut),
+          Number(effectiveKm(it).toFixed(2)),
+          effectiveSource(it),
+          it.hasAllowance ? 'Yes' : 'No',
+          it.petrol?.distance ?? '',
+          it.travel?.distance ?? '',
+        ]),
+      ];
+      const wb = XLSX.utils.book_new();
+      const wsS = XLSX.utils.aoa_to_sheet(summary);
+      const wsR = XLSX.utils.aoa_to_sheet(routes);
+      wsS['!cols'] = [{ wch: 22 }, { wch: 22 }];
+      wsR['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 18 },
+        { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 },
+        { wch: 16 }, { wch: 16 }, { wch: 16 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsS, 'Summary');
+      XLSX.utils.book_append_sheet(wb, wsR, 'Routes');
+      XLSX.writeFile(wb, `daily-routes_${date}.xlsx`);
+    } catch (err) {
+      console.error('[downloadExcel]', err);
+      alert('Could not generate Excel: ' + (err?.message || 'unknown error'));
+    }
+  };
+
   return (
     <div className="emp-list-page">
       <div className="emp-list-header">
@@ -410,6 +460,21 @@ export default function DailyRoutes({ onBack }) {
               }}
             >
               Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={downloadExcel}
+              disabled={filtered.length === 0}
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                background: '#F0FDF4', color: '#15803D',
+                border: '1px solid #BBF7D0',
+                cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: filtered.length === 0 ? 0.5 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Download Excel
             </button>
             <button
               type="button"
@@ -578,7 +643,7 @@ export default function DailyRoutes({ onBack }) {
                         </button>
                       </td>
                     </tr>
-                );
+                  );
                 })}
               </tbody>
             </table>

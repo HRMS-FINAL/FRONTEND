@@ -6,6 +6,10 @@ import {
 import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
+// Canonical manager list — same module the New Employee form's
+// "Assigned To" dropdown reads from. Keeping a single source means
+// the two dropdowns can never drift out of sync.
+import { MANAGERS } from '../data/companyData';
 const COLORS = ['#4299E1','#9F7AEA','#4CAA17','#ECC94B','#F687B3','#ED8936','#38B2AC','#FC8181'];
 
 // Map index to icon name string — render icon in JSX using this
@@ -44,30 +48,24 @@ export default function Department({ onBack }) {
   // employee's `assignedTo` field is treated as a manager. We fetch it
   // once on mount and use it to power the Department Manager dropdown
   // in both the Add and Edit drawers below.
-  const [managers, setManagers] = useState([]);
+  // Seed from the canonical MANAGERS list so the dropdown matches the
+  // New Employee form's "Assigned To" 1:1. We also union in anyone the
+  // live API reports as someone else's assignedTo, so a manager added
+  // after the static list was written still shows up here.
+  const [managers, setManagers] = useState(() => MANAGERS.map(m => m.name));
   useEffect(() => {
     fetch(`${API}/employees?limit=200`)
       .then(r => r.json())
       .then(d => {
         if (!d?.success || !Array.isArray(d.employees)) return;
-        // Names referenced as someone's assignedTo, deduped + sorted.
-        const referenced = new Set(
-          d.employees
-            .map(e => String(e.assignedTo || '').trim())
-            .filter(Boolean)
-        );
-        // Also include any employee whose `role` looks managerial so
-        // the dropdown isn't empty in fresh setups.
+        const referenced = new Set(MANAGERS.map(m => m.name));
         for (const e of d.employees) {
-          if (String(e.role || '').toLowerCase() === 'admin' ||
-              String(e.designation || '').toLowerCase().includes('manager')) {
-            const nm = (e.name || ((e.firstName || '') + ' ' + (e.lastName || '')).trim()).trim();
-            if (nm) referenced.add(nm);
-          }
+          const a = String(e.assignedTo || '').trim();
+          if (a) referenced.add(a);
         }
         setManagers(Array.from(referenced).sort((a, b) => a.localeCompare(b)));
       })
-      .catch(() => { /* dropdown stays empty — non-fatal */ });
+      .catch(() => { /* keep the static seed */ });
   }, []);
 
   // Silently load from API on mount

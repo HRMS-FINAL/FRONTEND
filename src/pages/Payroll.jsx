@@ -19,8 +19,11 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   const [createEmpId, setCreateEmpId] = useState('');
   const [generatedPayrolls, setGeneratedPayrolls] = useState([]);
   const today = new Date();
-  const [payMonth, setPayMonth] = useState(today.getMonth() + 1); // 1-12
-  const [payYear,  setPayYear]  = useState(today.getFullYear());
+  // Default to the PREVIOUS month — payroll is only generated after a
+  // month is fully over. If today is June, default to May.
+  const _prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const [payMonth, setPayMonth] = useState(_prevMonth.getMonth() + 1); // 1-12
+  const [payYear,  setPayYear]  = useState(_prevMonth.getFullYear());
   // Pending payslip requests filed from ERM Mobile / ERM Web. Refreshed
   // every 30 s so HR sees them as soon as the employee taps "Request".
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -429,12 +432,15 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
           >
             {(() => {
               // Company started in April 2025 — months before that don't
-              // exist on the payroll side, so we don't list them. Iterate
-              // from FLOOR (Apr 2025) forward to the current month.
+              // exist on the payroll side, so we don't list them. CEILING
+              // is the PREVIOUS calendar month: payroll is only generated
+              // after the month is fully over, so an in-progress month
+              // (e.g. June while today is June 18) is never offered.
               const FLOOR = new Date(2025, 3, 1);   // April 2025
               const now   = new Date();
+              const CEIL  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
               const opts  = [];
-              for (let d = new Date(FLOOR); d <= now; d.setMonth(d.getMonth() + 1)) {
+              for (let d = new Date(FLOOR); d <= CEIL; d.setMonth(d.getMonth() + 1)) {
                 const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}`;
                 const lbl = d.toLocaleString('default', { month: 'long', year: 'numeric' });
                 opts.push(<option key={val} value={val}>{lbl}</option>);

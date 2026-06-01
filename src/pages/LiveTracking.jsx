@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import '../tracking.css';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { API } from '../config/api';
 
 // Live tracking now starts empty — populated from the mobile backend's
@@ -817,6 +818,64 @@ export default function LiveTracking() {
     }
   };
 
+  // Excel (XLSX) export — single workbook with a "Summary" sheet (employee
+  // + range + tiles) and a "Trips" sheet for the row-level table. HR can
+  // pivot / sum / filter inside Excel from here.
+  const downloadTravelReportExcel = () => {
+    try {
+      const rs = travelReport.rows;
+      const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
+      const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
+      const trips       = rs.length;
+      const days        = new Set(rs.map(r => r.date)).size;
+      const gpsKm       = polylineKm(historicalRoute.points || []);
+      const emp = travelReport.emp || {};
+
+      const summary = [
+        ['Tesco Structures — Travel Report'],
+        [],
+        ['Employee',        emp.name || 'All Employees'],
+        ['Employee ID',     emp.employeeId || ''],
+        ['Period From',     fmtDDMMYYYY(selectedDate)],
+        ['Period To',       fmtDDMMYYYY(endDate)],
+        ['Generated',       fmtDDMMYYYY(new Date().toISOString().slice(0,10))],
+        [],
+        ['Trips',                 trips],
+        ['Days Travelled',        days],
+        ['Claimed Distance (km)', Number(claimedKm.toFixed(2))],
+        ['GPS Distance (km)',     Number(gpsKm.toFixed(2))],
+        ['Total Amount (₹)',      Number(totalAmount.toFixed(2))],
+      ];
+      const trips_data = [
+        ['Date', 'Type', 'From', 'To', 'Distance (km)', 'Amount (₹)', 'Status'],
+        ...rs.map(r => [
+          fmtDDMMYYYY(r.date),
+          r.kind === 'petrol' ? 'Petrol' : 'Travel',
+          r.from || '',
+          r.to || '',
+          Number(r.distance) || 0,
+          Number(r.amount) || 0,
+          r.status || 'Pending',
+        ]),
+      ];
+
+      const wb = XLSX.utils.book_new();
+      const wsSummary = XLSX.utils.aoa_to_sheet(summary);
+      const wsTrips   = XLSX.utils.aoa_to_sheet(trips_data);
+      // Column widths for readability.
+      wsSummary['!cols'] = [{ wch: 24 }, { wch: 28 }];
+      wsTrips['!cols']   = [{ wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+      XLSX.utils.book_append_sheet(wb, wsTrips,   'Trips');
+
+      const file = `travel-report_${(emp.employeeId || 'employee').replace(/[^a-zA-Z0-9]+/g, '_')}_${selectedDate}_${endDate}.xlsx`;
+      XLSX.writeFile(wb, file);
+    } catch (err) {
+      console.error('[downloadTravelReportExcel]', err);
+      alert('Could not generate Excel: ' + (err?.message || 'unknown error'));
+    }
+  };
+
   // Buckets the header + filter tabs are built from.
   const counts = {
     total:   employees.length,
@@ -1273,11 +1332,23 @@ export default function LiveTracking() {
                   Download PDF
                 </button>
                 <button
-                  onClick={downloadTravelReportCsv}
+                  onClick={downloadTravelReportExcel}
                   disabled={travelReport.rows.length === 0}
                   style={{
                     padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                     border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
+                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Download Excel
+                </button>
+                <button
+                  onClick={downloadTravelReportCsv}
+                  disabled={travelReport.rows.length === 0}
+                  style={{
+                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                    border: '1px solid #E2E8F0', background: '#fff', color: '#475569',
                     cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
                     opacity: travelReport.rows.length === 0 ? 0.5 : 1,
                   }}

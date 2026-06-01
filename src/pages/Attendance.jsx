@@ -320,35 +320,15 @@ export default function Attendance({ onBack, employees = [] }) {
                     }}
                   >
                     <span className="day-num" style={isSelected ? { color: 'white' } : {}}>{day}</span>
-                    <span className="day-dot" style={isSelected ? { background: 'white' } : { background: 'var(--primary)' }} />
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Status Legend */}
-          <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '11px', color: 'var(--text-light)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status Indicators</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4CAA17' }} />
-                Present
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ECC94B' }} />
-                Late Check-in
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#FC8181' }} />
-                On Leave
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#9F7AEA' }} />
-                Permission (2h)
-              </div>
-            </div>
-          </div>
+          {/* Status Legend removed per HR request — per-day status dots
+              belong to a single employee's calendar (ERM Mobile / ERM
+              Web), not the HR-wide attendance view. */}
         </div>
 
         {/* Middle Column removed per HR request — employee detail now

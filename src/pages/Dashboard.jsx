@@ -103,15 +103,26 @@ export default function Dashboard({
               <div className="stat-icon-wrap" style={{ background: s.bg }}>
                 <s.Icon size={20} color={s.color} />
               </div>
-              {/* Hide the trend badge when the backend has nothing real
-                  to report — placeholders like "0+" and "—" looked like
-                  bugs more than data. We only render when there's a
-                  meaningful number/percentage in s.trend. */}
-              {s.trend && s.trend !== '—' && s.trend !== '-' && s.trend !== '0+' && s.trend !== '0%' && (
-                <div className={`stat-trend-badge ${s.up ? 'up' : 'down'}`}>
-                  {s.trend}
-                </div>
-              )}
+              {/* Hide the trend badge whenever it carries no meaningful
+                  signal — empty string, dash variants, and any text that
+                  evaluates to zero (e.g. "+0", "-0", "0%", "0").
+                  Previously these slipped through and rendered "+0" on
+                  the Total Employees / Active Staff cards. */}
+              {(() => {
+                const t = String(s.trend || '').trim();
+                if (!t) return null;
+                // Reject dashes / placeholders
+                if (['—', '-', 'N/A', 'n/a'].includes(t)) return null;
+                // Reject anything whose numeric part is zero — strip the
+                // leading +/- and trailing % and parseFloat.
+                const num = parseFloat(t.replace(/^[+-]/, '').replace(/%$/, ''));
+                if (!isFinite(num) || num === 0) return null;
+                return (
+                  <div className={`stat-trend-badge ${s.up ? 'up' : 'down'}`}>
+                    {t}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <div className="stat-value">{s.value}</div>
@@ -309,7 +320,7 @@ export default function Dashboard({
           {[
             { label: 'Add Employee',     Icon: UserPlus,      view: 'new-employee',    color: '#4CAA17', bg: '#F0FDF4' },
             { label: 'Run Payroll',      Icon: ClipboardList, view: 'payroll',         color: '#2563EB', bg: '#EFF6FF' },
-            { label: 'Complaints',       Icon: MapPin,        view: 'complaint',       color: '#9F7AEA', bg: '#F5F3FF' },
+            { label: 'Complaints',       Icon: MapPin,        view: 'complain-register', color: '#9F7AEA', bg: '#F5F3FF' },
             { label: 'Approve Leaves',   Icon: Check,         view: 'leave-permission',color: '#D97706', bg: '#FFFBEB' },
             { label: 'Mark Attendance',  Icon: Clock,         view: 'attendance',      color: '#DC2626', bg: '#FEF2F2' },
             { label: 'Announcements',    Icon: UserCheck,     view: 'announcements',   color: '#0EA5E9', bg: '#F0F9FF' },
@@ -368,7 +379,7 @@ export default function Dashboard({
                 {deptData.map((d, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.color || '#94A3B8', flexShrink: 0 }} />
-                    <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>{d._id || d.name || '—'}</div>
+                    <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>{d._id || d.name || '--'}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-light)' }}>{d.value || d.count || 0}</div>
                   </div>
                 ))}

@@ -1,12 +1,16 @@
 /* ==================== LIVE TRACKING PAGE ==================== */
 .live-tracking-page {
-  height: calc(100vh - var(--topbar-height));
+  /* min-height instead of fixed height so the Travel Report card that
+     renders BELOW the map can extend the page and the browser scrolls
+     to it. `overflow: hidden` here was clipping the report off-screen
+     so HR thought it was missing. */
+  min-height: calc(100vh - var(--topbar-height));
   display: flex;
   flex-direction: column;
   padding: 24px;
   background: var(--bg-body);
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .header-title-row {
@@ -272,11 +276,12 @@
   overflow: hidden;
   position: relative;
   box-shadow: var(--shadow-sm);
-  /* Floor at 60 vh so the map is always usable even when the parent
-     flex container shrinks. Previously height:100% would collapse to
-     zero on the historical-filter route, leaving HR with a sliver. */
-  height: 100%;
-  min-height: 60vh;
+  /* Fixed map height so the page can extend below for the Travel Report
+     card. Previously `height: 100%` consumed all remaining flex space
+     and the report rendered off-screen. */
+  height: 60vh;
+  min-height: 420px;
+  flex: none;
 }
 
 .map-overlay-controls {
