@@ -580,7 +580,6 @@ export default function Reports({ onBack }) {
               )}
               </div>
             </div>
-          )}
         </main>
       </div>
     </div>
