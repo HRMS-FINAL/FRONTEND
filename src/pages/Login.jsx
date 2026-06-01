@@ -27,7 +27,7 @@ import { useNotification } from '../context/NotificationContext';
 import {
   Mail, Lock, Eye, EyeOff, User, ArrowLeft, ShieldCheck, CheckCircle, RefreshCw,
 } from 'lucide-react';
-import logo from '../assets/logo2.png';
+import logo from '../assets/logo-hrm.png';
 
 const OTP_LENGTH         = 6;
 const OTP_VALIDITY_SEC   = 10 * 60;

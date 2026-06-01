@@ -6,7 +6,7 @@ import {
 import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import logo from '../assets/logo2.png';
+import logo from '../assets/logo-hrm.png';
 
 import { API } from '../config/api';
 
