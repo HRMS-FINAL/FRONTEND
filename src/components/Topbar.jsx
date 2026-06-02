@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useConfirm } from './ConfirmDialog';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
 import {
@@ -147,12 +148,16 @@ export default function Topbar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    // Native confirm — keeps the dependency footprint zero. The
-    // surrounding NotificationContext could host a custom modal but
-    // window.confirm is enough for the destructive-action gate HR asked
-    // for, and matches the rest of the app's "Are you sure?" prompts.
-    if (!window.confirm('Are you sure you want to log out?')) return;
+  const confirm = useConfirm();
+
+  const handleLogout = async () => {
+    const ok = await confirm({
+      title: 'Log out of HRMS?',
+      message: "You'll be signed out of this session.",
+      confirmLabel: 'Log out',
+      destructive: true,
+    });
+    if (!ok) return;
     showNotification('Logging out...', 'info');
     setTimeout(() => {
       logout();
@@ -382,11 +387,12 @@ export default function Topbar({
                   <SettingsIcon size={16} />
                   <span>Account Settings</span>
                 </div>
-              </div>
-              <div className="p-drop-footer">
-                <div className="p-drop-item logout" onClick={handleLogout}>
+                <div
+                  className="p-drop-item logout"
+                  onClick={handleLogout}
+                >
                   <LogOut size={16} />
-                  <span>Log Out</span>
+                  <span>Sign Out</span>
                 </div>
               </div>
             </div>

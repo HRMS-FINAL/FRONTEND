@@ -1449,41 +1449,37 @@ export default function LiveTracking() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                {/* Buttons now key off `dailyReport.length` (one entry
+                    per day in the picked range), so they enable as soon
+                    as a valid From/To range + employee filter are set.
+                    Previously they were gated by `travelReport.rows`
+                    which only fills when there are allowance claims —
+                    which is why HR saw the buttons greyed out even on
+                    a perfectly valid date range.
+                    CSV removed per HR request — keep PDF + Excel only. */}
                 <button
                   onClick={downloadTravelReportPdf}
-                  disabled={travelReport.rows.length === 0}
+                  disabled={dailyReport.length === 0}
                   style={{
                     padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                     border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#1D4ED8',
-                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                    cursor: dailyReport.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: dailyReport.length === 0 ? 0.5 : 1,
                   }}
                 >
                   Download PDF
                 </button>
                 <button
                   onClick={downloadTravelReportExcel}
-                  disabled={travelReport.rows.length === 0}
+                  disabled={dailyReport.length === 0}
                   style={{
                     padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                     border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
-                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
+                    cursor: dailyReport.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: dailyReport.length === 0 ? 0.5 : 1,
                   }}
                 >
                   Download Excel
-                </button>
-                <button
-                  onClick={downloadTravelReportCsv}
-                  disabled={travelReport.rows.length === 0}
-                  style={{
-                    padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-                    border: '1px solid #E2E8F0', background: '#fff', color: '#475569',
-                    cursor: travelReport.rows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: travelReport.rows.length === 0 ? 0.5 : 1,
-                  }}
-                >
-                  Download CSV
                 </button>
               </div>
             </div>

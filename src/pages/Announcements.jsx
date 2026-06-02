@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
+import { useConfirm } from '../components/ConfirmDialog';
 const LS_KEY = 'tesco_hrms_announcements_cache';
 
 /** Read last-fetched announcements from localStorage so the list shows
@@ -84,6 +85,7 @@ export default function Announcements({ onBack }) {
   const [filterOpen,     setFilterOpen]     = useState(false);
   const [postErrors, setPostErrors] = useState({});
   const [uploadingFile, setUploadingFile] = useState(false);
+  const confirm = useConfirm();
   // Cap one file at 5 MB before base64 inflation. The express.json limit
   // on the server is 12 MB which leaves headroom for a few attachments.
   const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -160,12 +162,15 @@ export default function Announcements({ onBack }) {
     if (!newPost.title.trim())   errors.title   = 'Title is required';
     if (!newPost.content.trim()) errors.content = 'Content cannot be empty';
     if (Object.keys(errors).length > 0) { setPostErrors(errors); return; }
-    // Confirm before broadcasting — announcements blast to every
-    // employee's ERM Mobile + Web feed instantly, so HR asked for a
-    // safety prompt to avoid accidental sends.
-    if (!window.confirm(`Post this announcement to all employees?\n\nTitle: "${newPost.title.trim()}"`)) {
-      return;
-    }
+    // Confirm before broadcasting — announcements push to every
+    // employee's ERM Mobile + Web feed instantly, so the prompt is
+    // a safety gate against accidental sends.
+    const ok = await confirm({
+      title: 'Post this announcement?',
+      message: `Title: "${newPost.title.trim()}"\n\nIt will appear in every employee's ERM app immediately.`,
+      confirmLabel: 'Post',
+    });
+    if (!ok) return;
 
     // Send the create request and check the response BEFORE closing the
     // modal. The previous code closed the modal in the finally branch
