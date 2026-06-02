@@ -255,8 +255,24 @@ export default function Allowance({ onBack }) {
                       </span>
                     ) : mgrApproved ? (
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => openApprovalModal(req, type)} style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Approve</button>
-                        <button onClick={() => handleAction(req._id, 'reject', type)} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reject</button>
+                        {/* HR doesn't enter approved / rejected amounts —
+                            those were already split by the manager from
+                            the ERM Web Manager Approve modal. HR just
+                            confirms or overrides the decision; the
+                            existing amounts + manager's note flow
+                            through to the employee via the same notify
+                            we already fire on status change. */}
+                        <button
+                          onClick={() => handleAction(req._id, 'approve', type, {
+                            approvedAmount: Number(req.approvedAmount ?? req.amount) || 0,
+                            amountComment:  req.amountComment || '',
+                          })}
+                          style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        >Approve</button>
+                        <button
+                          onClick={() => handleAction(req._id, 'reject', type)}
+                          style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        >Reject</button>
                       </div>
                     ) : (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>
@@ -484,44 +500,10 @@ export default function Allowance({ onBack }) {
         </div>
       </div>
 
-      {approvalModal && (() => {
-        const requested = Number(approvalModal.req?.amount) || 0;
-        const approved = Number(approvalModal.approvedAmount) || 0;
-        const rejected = Math.max(0, requested - approved);
-        return (
-          <div onClick={closeApprovalModal} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 22, width: 'min(440px, 100%)', boxShadow: '0 18px 48px rgba(0,0,0,0.25)' }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', marginBottom: 4 }}>Approve allowance</div>
-              <div style={{ fontSize: 12, color: '#64748B', marginBottom: 14 }}>
-                Claim amount: <b>&#8377;{requested.toLocaleString('en-IN')}</b>
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Approved amount</div>
-              <input type="number" min={0} max={requested} value={approvalModal.approvedAmount}
-                onChange={(e) => setApprovalModal({ ...approvalModal, approvedAmount: e.target.value })}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 14, boxSizing: 'border-box' }} />
-              <div style={{ fontSize: 12, color: '#475569', marginBottom: 12, padding: '8px 10px', borderRadius: 8, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-                Rejected portion (auto):{' '}
-                <b style={{ color: rejected > 0 ? '#B91C1C' : '#15803D' }}>&#8377;{rejected.toLocaleString('en-IN')}</b>
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Note to employee (optional)</div>
-              <textarea rows={3} value={approvalModal.amountComment || ''}
-                onChange={(e) => setApprovalModal({ ...approvalModal, amountComment: e.target.value })}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, marginBottom: 16, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
-                placeholder="Why this amount was approved/rejected..." />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" onClick={closeApprovalModal} style={{
-                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: '#fff', color: '#475569', border: '1px solid #E2E8F0', cursor: 'pointer'
-                }}>Cancel</button>
-                <button type="button" onClick={submitApproval} style={{
-                  padding: '8px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer'
-                }}>Confirm Approve</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Approve-with-amount modal removed — HR no longer enters the
+          approved / rejected split. The manager's decision (set via
+          ERM Web's Approve Allowance modal) is the canonical breakdown
+          and propagates to the employee with the note. */}
     </div>
   );
 }
