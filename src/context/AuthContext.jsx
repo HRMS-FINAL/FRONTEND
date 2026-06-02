@@ -216,6 +216,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signup = async (name, email, password) => {
+    // Updated Jun 2026 — signup must NOT auto-authenticate. Previously
+    // we called setUser + persistAuth right after the account was
+    // created, which dropped the user straight onto the dashboard. The
+    // brief is now: create the account, then send the user back to the
+    // Sign In screen so they have to enter their new credentials at
+    // least once (more auditable, matches the rest of the suite, and
+    // catches typo'd passwords before they're forgotten).
     try {
       const res  = await fetch(`${API}/auth/authenticate`, {
         method:  'POST',
@@ -224,39 +231,21 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
       if (data.success && data.user) {
-        const emailLc = (data.user.email || email).trim().toLowerCase();
-        const userData = {
-          name:    data.user.name  || name,
-          email:   emailLc,
-          role:    data.user.role  || 'employee',
-          phone:   data.user.phone || '',
-          avatar:  (data.user.name || name).split(' ').map(n => n[0]).join('').toUpperCase(),
-          token:   data.token,
-          isAdmin: typeof data.user.isAdmin === 'boolean' ? data.user.isAdmin : isAdminEmail(emailLc),
-        };
-        setUser(userData);
-        persistAuth(userData, data.token);
+        // Important: do NOT setUser / persistAuth here. The caller
+        // (Login.jsx handleSignUp) flips mode back to 'signin' on
+        // { ok: true } so the user signs in fresh.
         return { ok: true };
       }
       return { ok: false, message: data.message || 'Signup failed' };
     } catch {
-      // Backend offline — allow offline signup (view-only unless email
-      // is on the admin list).
-      if (name && email && password) {
-        const emailLc = String(email).trim().toLowerCase();
-        const userData = {
-          name:    name.trim(),
-          email:   emailLc,
-          role:    'employee',
-          phone:   '',
-          avatar:  name.trim().split(' ').map(n => n[0]).join('').toUpperCase(),
-          isAdmin: isAdminEmail(emailLc),
-        };
-        setUser(userData);
-        persistAuth(userData, null);
-        return { ok: true };
-      }
-      return { ok: false, message: 'Connection error. Please check your network.' };
+      // Backend offline — we can't actually create the account, so we
+      // surface a clear error rather than the old "offline signup"
+      // shortcut that used to fake-authenticate. Faking auth here would
+      // defeat the whole point of routing back to sign-in.
+      return {
+        ok: false,
+        message: 'Could not reach the server. Please check your connection and try again.',
+      };
     }
   };
 

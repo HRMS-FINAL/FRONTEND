@@ -113,7 +113,16 @@ export default function Login() {
     try {
       const result = await signup(name, email, password);
       if (result.ok) {
-        showNotification('Account created — welcome!', 'success');
+        // Per Jun 2026 brief — after the account is created we send the
+        // user back to the Sign In screen instead of dropping them onto
+        // the dashboard. Email stays pre-filled (so they don't retype
+        // it), password cleared (so they have to enter the one they
+        // just chose). Name cleared so the field is empty next time
+        // they hit Sign Up.
+        showNotification('Account created. Please sign in with your new credentials.', 'success');
+        setMode('signin');
+        setPassword('');
+        setName('');
       } else {
         setError(result.message || 'Could not create account.');
         showNotification(result.message || 'Signup failed.', 'error');
