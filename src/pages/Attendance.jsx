@@ -283,16 +283,18 @@ export default function Attendance({ onBack, employees = [] }) {
         })}
       </div>
 
-      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
+      {/* When a row is selected we render THREE columns (calendar +
+          employee detail + logs table). When nothing is selected we
+          render TWO columns (calendar + logs table). HR wanted the
+          calendar to stay visible at all times so date navigation
+          isn't lost when drilling into an employee. */}
+      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: selectedLog ? '280px 280px 1fr' : '320px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
 
-        {/* Left Column: switches between the Interactive Calendar (no
-            row selected) and the Employee Detail panel (a row IS
-            selected). HR asked the layout to match the design mock,
-            where the selected employee's card appears on the left and
-            the Daily Logs table sits on the right. Calendar still
-            available via the "Back to calendar" button at the top of
-            the detail panel. */}
-        {selectedLog ? null : (
+        {/* Left Column — Interactive Calendar. Always rendered now
+            (previously hidden behind `{selectedLog ? null : (…)}`); the
+            employee-detail panel slots in as a second column instead
+            of replacing the calendar. */}
+        {true && (
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
           {/* Month nav — previously there were no arrows here, so HR
               couldn't reach any month earlier than "today". The two
