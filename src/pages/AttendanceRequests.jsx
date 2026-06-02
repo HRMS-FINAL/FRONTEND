@@ -134,10 +134,11 @@ export default function AttendanceRequests({ onBack }) {
         <table className="emp-table" style={{ tableLayout: 'fixed', width: '100%' }}>
           <colgroup>
             <col style={{ width: '20%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '34%' }} />
-            <col style={{ width: '23%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '25%' }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '20%' }} />
           </colgroup>
           <thead>
             <tr>
@@ -145,67 +146,108 @@ export default function AttendanceRequests({ onBack }) {
               <th>Date</th>
               <th>Filed</th>
               <th>Reason</th>
-              <th style={{ textAlign: 'center' }}>{tab === 'pending' ? 'Action' : 'Status'}</th>
+              <th style={{ textAlign: 'center' }}>Manager Status</th>
+              <th style={{ textAlign: 'center' }}>{tab === 'pending' ? 'HR Action' : 'HR Status'}</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={5} style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)' }}>Loading…</td></tr>
+              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)' }}>Loading…</td></tr>
             )}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)' }}>
+              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)' }}>
                 <Inbox size={32} style={{ display: 'block', margin: '0 auto 8px', opacity: 0.5 }} />
                 No {tab} requests.
               </td></tr>
             )}
-            {!loading && filtered.map((row) => (
-              <tr key={row._id}>
-                <td>
-                  <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{row.employeeName || '—'}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-light)' }}>{row.employeeId} · {row.department || '—'}</div>
-                </td>
-                <td>{fmtDDMMYYYY(row.date)}</td>
-                <td>{fmtDDMMYYYY(row.createdAt)}</td>
-                <td style={{ fontSize: 12, color: 'var(--text-main)' }}>{row.reason || '—'}</td>
-                <td style={{ textAlign: 'center' }}>
-                  {tab === 'pending' ? (
-                    <div style={{ display: 'inline-flex', gap: 6 }}>
-                      <button
-                        disabled={acting === row._id}
-                        onClick={() => act(row, 'approved')}
-                        style={{
-                          padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                          background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                        }}
-                      ><Check size={12} /> Approve</button>
-                      <button
-                        disabled={acting === row._id}
-                        onClick={() => act(row, 'rejected')}
-                        style={{
-                          padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                          background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                        }}
-                      ><X size={12} /> Reject</button>
-                    </div>
-                  ) : (
+            {!loading && filtered.map((row) => {
+              // Manager pipeline: '' (Awaiting Manager) → Approved → HR can finalize
+              //                                        → Rejected → already closed.
+              const ms = row.managerStatus || '';
+              const managerApproved = ms === 'Approved';
+              const managerRejected = ms === 'Rejected';
+              // HR may only act once the manager has approved. While
+              // Awaiting Manager, HR sees the row but the buttons are
+              // disabled (with a tooltip telling them why).
+              const hrActionable = tab === 'pending' && managerApproved;
+              return (
+                <tr key={row._id}>
+                  <td>
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{row.employeeName || '—'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-light)' }}>{row.employeeId} · {row.department || '—'}</div>
+                  </td>
+                  <td>{fmtDDMMYYYY(row.date)}</td>
+                  <td>{fmtDDMMYYYY(row.createdAt)}</td>
+                  <td style={{ fontSize: 12, color: 'var(--text-main)' }}>{row.reason || '—'}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    {/* Manager-tier pill — same styling as the Allowance page. */}
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4,
                       padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                      background: row.status === 'approved' ? '#F0FDF4'
-                                : row.status === 'rejected' ? '#FEF2F2' : '#FFFBEB',
-                      color:      row.status === 'approved' ? '#16A34A'
-                                : row.status === 'rejected' ? '#DC2626' : '#D97706',
+                      background: managerApproved ? '#F0FDF4'
+                                : managerRejected ? '#FEF2F2'
+                                : '#F1F5F9',
+                      color:      managerApproved ? '#16A34A'
+                                : managerRejected ? '#DC2626'
+                                : '#64748B',
+                      border:     managerApproved ? '1px solid #BBF7D0'
+                                : managerRejected ? '1px solid #FECACA'
+                                : '1px solid #E2E8F0',
                     }}>
-                      {row.status === 'approved' ? <Check size={12} /> :
-                       row.status === 'rejected' ? <X size={12} /> : <Clock size={12} />}
-                      {row.status[0].toUpperCase() + row.status.slice(1)}
+                      {managerApproved ? <Check size={12} /> :
+                       managerRejected ? <X size={12} /> : <Clock size={12} />}
+                      {managerApproved ? 'Approved' :
+                       managerRejected ? 'Rejected' : 'Awaiting Manager'}
                     </span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    {tab === 'pending' ? (
+                      hrActionable ? (
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
+                          <button
+                            disabled={acting === row._id}
+                            onClick={() => act(row, 'approved')}
+                            style={{
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}
+                          ><Check size={12} /> Approve</button>
+                          <button
+                            disabled={acting === row._id}
+                            onClick={() => act(row, 'rejected')}
+                            style={{
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}
+                          ><X size={12} /> Reject</button>
+                        </div>
+                      ) : (
+                        // Empty HR status when manager hasn't approved yet
+                        // (or when manager rejected -- request is closed
+                        // and never appears here anyway since status is
+                        // already 'rejected').
+                        <span style={{ fontSize: 11, color: 'var(--text-light)', fontStyle: 'italic' }}>—</span>
+                      )
+                    ) : (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: row.status === 'approved' ? '#F0FDF4'
+                                  : row.status === 'rejected' ? '#FEF2F2' : '#FFFBEB',
+                        color:      row.status === 'approved' ? '#16A34A'
+                                  : row.status === 'rejected' ? '#DC2626' : '#D97706',
+                      }}>
+                        {row.status === 'approved' ? <Check size={12} /> :
+                         row.status === 'rejected' ? <X size={12} /> : <Clock size={12} />}
+                        {row.status[0].toUpperCase() + row.status.slice(1)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
