@@ -7,7 +7,11 @@ import { useNotification } from '../context/NotificationContext';
 // using MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data
 // source switched from the hardcoded mock array to real fetches.
 import { API } from '../config/api';
-const LS_KEY = 'tesco_hrms_leave_requests_cache';
+// Bumped Jun 2026 — older caches predated the requestType field so the
+// type classifier had nothing to read and rows leaked into the wrong
+// tab. Changing the key invalidates every stale browser cache in one
+// shot, forcing a fresh fetch.
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v2';
 
 /** Read last-fetched requests from localStorage so the page populates
  *  instantly on refresh instead of waiting for the ~30s mobile-backend
@@ -148,17 +152,30 @@ export default function LeavePermissionRequest({ onBack }) {
   // (durationHours / startTime + endTime ⇒ permission) prevents an
   // unusual leave-type string from leaking into the Permission tab.
   function classify(r) {
+    // Rewritten Jun 2026 — every previous edition let one row leak. The
+    // signals below are checked in order of confidence; the moment one
+    // hits, we return. Casing/whitespace can't trip us up because we
+    // lower-case + trim before comparing.
     const rt = String(r?.requestType || '').toLowerCase().trim();
-    const t  = String(r?.type        || '').toLowerCase().trim();
-    if (rt === 'permission')             return 'permission';
-    if (rt === 'leave')                  return 'leave';
-    if (t.includes('permission'))        return 'permission';
-    if (t.includes('leave'))             return 'leave';
-    // Last-ditch heuristic — permission has start/end time on a single
-    // date, leave is multi-day with start/end date.
+    if (rt === 'permission') return 'permission';
+    if (rt === 'leave')      return 'leave';
+
+    // The HRMS reshape stamps permission rows with type = 'Permission (Nh)'
+    // and leave rows with type = the leave category ('Sick Leave', etc.).
+    // Anchor on the leading word so a permission row whose label was
+    // typed as "Permision (2h)" by mistake doesn't match the loose
+    // .includes() heuristic the old version used.
+    const t = String(r?.type || '').toLowerCase().trim();
+    if (t.startsWith('permission')) return 'permission';
+    if (t.endsWith(' leave') || t === 'leave') return 'leave';
+
+    // Reshape sets `permissionDate` ONLY on permission rows; leaves use
+    // startDate/endDate. These are the strongest structural signals
+    // when the type/requestType strings have been lost.
+    if (r?.permissionDate) return 'permission';
     if (r?.startTime || r?.endTime || r?.durationHours) return 'permission';
-    if (r?.startDate || r?.endDate)                     return 'leave';
-    return 'leave';                       // assume leave if utterly empty
+    if (r?.startDate || r?.endDate) return 'leave';
+    return 'leave';
   }
 
   const leaveReqCount      = requests.filter(r => r.status === 'Pending' && classify(r) === 'leave').length;
@@ -292,35 +309,20 @@ export default function LeavePermissionRequest({ onBack }) {
 
         {/* Filters & Search Row */}
         <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {/* Search switched to a dropdown of the actual requesters on this
-              tab so HR can pick a name and instantly filter — typing search
-              had been reported broken multiple times because of stale
-              cached rows with missing fields. A dropdown sidesteps that
-              entirely: the option list IS the data, so a match is
-              guaranteed. */}
+          {/* Typed search restored Jun 2026 — HR asked to type a name and
+              see rows filter live. The filter haystack below at the
+              filter useMemo includes name + employeeId + role + dept
+              + reason + type, all lower-cased, and `q` is matched as
+              a substring so partial typing ("vim" → Vimal) works. */}
           <div className="topbar-search" style={{ flex: 1, maxWidth: '280px' }}>
             <Search size={14} />
-            <select
+            <input
+              type="text"
+              placeholder="Search name, employee ID, dept…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent', cursor: 'pointer' }}
-            >
-              <option value="">All requesters</option>
-              {Array.from(new Map(
-                requests
-                  .filter(r => {
-                    const k = (r.type || '').toLowerCase();
-                    return activeTab === 'leave-requests' ? k === 'leave' : k === 'permission';
-                  })
-                  .map(r => [r.name || r.employeeName || r.employeeId || r.id, r])
-              ).values())
-                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
-                .map(r => (
-                  <option key={r.id || r.employeeId || r.name} value={(r.name || r.employeeName || '').toLowerCase()}>
-                    {r.name || r.employeeName} {r.employeeId ? `· ${r.employeeId}` : ''}
-                  </option>
-                ))}
-            </select>
+              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent' }}
+            />
           </div>
           
           {/* Secondary Permission / Leave selector removed per HR request —

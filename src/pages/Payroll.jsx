@@ -4,6 +4,7 @@ import {
   Download, Printer, Send, Search, Filter, X, FileText, Upload
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+import { useConfirm } from '../components/ConfirmDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import logo from '../assets/logo-hrm.png';
@@ -12,6 +13,7 @@ import { API } from '../config/api';
 
 export default function Payroll({ onBack, employees = [], updateEmployeeSalary }) {
   const { showNotification } = useNotification();
+  const confirm = useConfirm();
   const [showSlip, setShowSlip] = useState(null);
   const [showEditSlip, setShowEditSlip] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,6 +54,24 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    // Confirm pop-up (Jun 2026 HR brief). Generating payslips writes one
+    // row per employee into the mobile DB — easy to fire accidentally.
+    // The confirm dialog reminds HR exactly which month/file is about
+    // to be processed before anything hits the server.
+    const ok = await confirm({
+      title: 'Generate payslips from this report?',
+      message:
+        `Month: ${monthLabel}\n` +
+        `File:  ${file.name}\n\n` +
+        `This will read attendance for the month and push one payslip per ` +
+        `employee to the ERM apps. Already-generated rows for the same month ` +
+        `will be overwritten.`,
+      confirmLabel: 'Generate payslips',
+    });
+    if (!ok) {
+      e.target.value = '';
+      return;
+    }
     showNotification(`Uploading ${file.name} for ${monthLabel} — generating payslips...`, 'info');
     try {
       const fd = new FormData();
