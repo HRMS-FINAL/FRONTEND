@@ -1,7 +1,7 @@
 import React from 'react';
-import { 
-  LayoutDashboard, Users, ChevronRight, TrendingUp, DollarSign, 
-  CalendarCheck, BarChart2, Settings, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard 
+import {
+  LayoutDashboard, Users, ChevronRight, TrendingUp, DollarSign,
+  CalendarCheck, BarChart2, Settings as SettingsIcon, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard
 } from 'lucide-react';
 import logo from '../assets/logo-hrm.png';
 import logo2 from '../assets/logo-hrm.png';
@@ -112,6 +112,10 @@ export default function Sidebar({
           <div className={`nav-subitem ${activeView === 'leave-permission-request' ? 'active' : ''}`} onClick={() => setActiveView('leave-permission-request')}>
             Approvals
           </div>
+          {/* Regularisation requests filed from ERM Mobile show up here. */}
+          <div className={`nav-subitem ${activeView === 'attendance-requests' ? 'active' : ''}`} onClick={() => setActiveView('attendance-requests')}>
+            Attendance Requests
+          </div>
         </div>
         <div className={`nav-item ${activeView === 'reports' ? 'active' : ''}`} onClick={() => handleNavClick('reports')}>
           <BarChart2 className="nav-icon" size={18} />
@@ -146,13 +150,11 @@ export default function Sidebar({
             <span className="nav-text">Assets</span>
           </div>
           <div className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => handleNavClick('settings')}>
-            <Settings className="nav-icon" size={18} />
+            <SettingsIcon className="nav-icon" size={18} />
             <span className="nav-text">Settings</span>
           </div>
         </nav>
       </div>
-
-
     </aside>
   );
 }

@@ -16,6 +16,7 @@ import Payroll from './pages/Payroll';
 import Attendance from './pages/Attendance';
 import LeavePermission from './pages/LeavePermission';
 import LeavePermissionRequest from './pages/LeavePermissionRequest';
+import AttendanceRequests       from './pages/AttendanceRequests';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
@@ -246,6 +247,7 @@ function MainApp() {
       case 'attendance':       return <Attendance {...props} employees={employees} defaultTab="logs" />;
       case 'leave-permission': return <LeavePermission {...props} />;
       case 'leave-permission-request': return <LeavePermissionRequest {...props} />;
+      case 'attendance-requests':      return <AttendanceRequests {...props} />;
       case 'reports':          return <Reports {...props} />;
       case 'live-tracking':    return <LiveTracking {...props} />;
       case 'daily-routes':     return <DailyRoutes {...props} />;
