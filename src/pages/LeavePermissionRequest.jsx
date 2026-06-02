@@ -309,20 +309,30 @@ export default function LeavePermissionRequest({ onBack }) {
 
         {/* Filters & Search Row */}
         <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {/* Typed search restored Jun 2026 — HR asked to type a name and
-              see rows filter live. The filter haystack below at the
-              filter useMemo includes name + employeeId + role + dept
-              + reason + type, all lower-cased, and `q` is matched as
-              a substring so partial typing ("vim" → Vimal) works. */}
+          {/* Dropdown of everyone who filed a request currently visible in
+              HRMS (Jun 2026 brief — second pass). Options are deduped by
+              employee so the same person doesn't appear twice when they
+              have multiple pending rows. */}
           <div className="topbar-search" style={{ flex: 1, maxWidth: '280px' }}>
             <Search size={14} />
-            <input
-              type="text"
-              placeholder="Search name, employee ID, dept…"
+            <select
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent' }}
-            />
+              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent', cursor: 'pointer' }}
+            >
+              <option value="">All requesters</option>
+              {Array.from(new Map(
+                requests
+                  .filter(r => classify(r) === (activeTab === 'leave-requests' ? 'leave' : 'permission'))
+                  .map(r => [String(r.employeeId || r.name || r._id), r])
+              ).values())
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                .map(r => (
+                  <option key={r._id || r.employeeId} value={(r.name || r.employeeName || '').toLowerCase()}>
+                    {r.name || r.employeeName || '—'}{r.employeeId ? ` · ${r.employeeId}` : ''}
+                  </option>
+                ))}
+            </select>
           </div>
           
           {/* Secondary Permission / Leave selector removed per HR request —

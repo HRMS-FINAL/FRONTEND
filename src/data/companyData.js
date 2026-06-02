@@ -19,6 +19,9 @@ export const MANAGERS = [
   { name: 'Karthick',     title: 'Structural Engineer' },
   { name: 'Anish Kumar',  title: 'CEO' },
   { name: 'Vivek',        title: 'Technical Lead Consultant' },
+  // Added Jun 2026 — Vimal M (Finance Head) is distinct from Vimal Kumar
+  // (Managing Director); HR sees both in the Assigned To dropdown.
+  { name: 'Vimal M',      title: 'Finance Head' },
 ];
 
 // Designation list — used as a static fallback if the /api/designations
@@ -65,4 +68,5 @@ export const DEPARTMENTS = [
   'Project Management',
   'Development',
   'Accounts',
+  'Finance',
 ];

@@ -157,8 +157,12 @@ export default function Dashboard({
   const statCards = [
     { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),                   trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',     Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
     { label: 'Present Today',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: '—', up: true,                                                                                  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',       color: '#16A34A',        bg: '#F0FDF4' },
+    // Absent today = headcount − present. HR asked Jun 2026 to surface a
+    // single absentee number rather than the Half-LOP detail tile (which
+    // they read in the Attendance page already). Clamp at 0 so a
+    // mid-load race where present > totalEmp can't render "-2".
+    { label: 'Absent Today',    value: loading ? '...' : Math.max(0, (totalEmp || 0) - (liveTallies.present || 0)).toLocaleString(), trend: '—', up: false, sub: 'not checked in',     Icon: CalendarOff,target: 'attendance',       color: '#DC2626',        bg: '#FEF2F2' },
     { label: 'Late Today',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: '—', up: false,                                                                                 sub: 'after cut-off',      Icon: Clock,      target: 'attendance',       color: '#D97706',        bg: '#FFFBEB' },
-    { label: 'Half-LOP',        value: loading ? '...' : (liveTallies.halfLop || 0).toLocaleString(), trend: '—', up: false,                                                                                 sub: 'today',              Icon: CalendarOff,target: 'leave-permission', color: '#F97316',        bg: '#FFF7ED' },
   ];
   // `activeStaff`, `onLeave`, `permission` are still computed above so
   // any downstream chart or widget that reads them keeps working — only

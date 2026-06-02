@@ -592,26 +592,40 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               <input
                 ref={fileInputRef}
                 type="file"
-                multiple
                 style={{ display: 'none' }}
-                onChange={(e) => onPickFiles(e.target.files)}
+                onChange={handleUploadDocument}
               />
               <button
                 className="ne-btn-secondary"
                 onClick={() => fileInputRef.current && fileInputRef.current.click()}
               >Upload</button>
             </div>
-            {docs.length === 0 ? (
+            {/* Rewired Jun 2026 — earlier this block referenced `docs`,
+                `removeDoc`, and `onPickFiles` which were never defined and
+                threw `ReferenceError: docs is not defined` the moment HR
+                opened the page (the famous white-screen). Now hooked to
+                the real state (`documents`) and handlers defined above. */}
+            {documents.length === 0 ? (
               <div style={{ padding: 20, color: 'var(--text-light)', fontSize: 13, textAlign: 'center' }}>
                 No documents uploaded yet.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {docs.map((d, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--bg-main)', borderRadius: 8 }}>
+                {documents.map((d) => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--bg-main)', borderRadius: 8 }}>
                     <FileText size={16} />
-                    <a href={d.dataUrl} download={d.name} style={{ flex: 1, fontSize: 13, color: 'var(--text-main)', textDecoration: 'none' }}>{d.name}</a>
-                    <button onClick={() => removeDoc(i)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DC2626' }}>Remove</button>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, color: 'var(--text-main)', fontWeight: 600 }}>{d.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-light)' }}>{d.size} · {d.date}</div>
+                    </div>
+                    <button
+                      onClick={() => handleDownloadDocument(d)}
+                      style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: 'var(--text-main)', fontSize: 11, fontWeight: 700 }}
+                    >Download</button>
+                    <button
+                      onClick={() => handleDeleteDocument(d)}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DC2626', fontSize: 11, fontWeight: 700 }}
+                    >Remove</button>
                   </div>
                 ))}
               </div>

@@ -46,7 +46,14 @@ export default function AttendanceRequests({ onBack }) {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/attendance-requests?status=${tab}`);
+      // CRITICAL fix Jun 2026 — the HRMS backend mounts attendanceRoutes
+      // at /api/attendance, so the proxy lives at
+      //   /api/attendance/attendance-requests
+      // not /api/attendance-requests. The old URL was 404-ing silently
+      // (caught by the try/catch and swallowed), which is why HR saw
+      // "no requests" while ERM Manager Access was fine — manager
+      // hits its own /api/manager/attendance-requests route.
+      const r = await fetch(`${API}/attendance/attendance-requests?status=${tab}`);
       const j = await r.json().catch(() => ({}));
       setItems(Array.isArray(j?.items) ? j.items : []);
     } catch (err) {
@@ -77,7 +84,7 @@ export default function AttendanceRequests({ onBack }) {
     if (!ok) return;
     setActing(row._id);
     try {
-      const r = await fetch(`${API}/attendance-requests/${row._id}`, {
+      const r = await fetch(`${API}/attendance/attendance-requests/${row._id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ status, reviewedBy: 'HR' }),
