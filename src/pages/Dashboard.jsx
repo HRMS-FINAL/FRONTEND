@@ -82,7 +82,47 @@ export default function Dashboard({
   const permission  = stats?.counts?.pendingPermissions ?? 0;
 
   // Department data from API (for pie chart)
-  const deptData = stats?.byDepartment ?? [];
+  const deptDataRaw = stats?.byDepartment ?? [];
+  // ── Present-staff per department (added per HR feedback) ─────────────
+  // Today's attendance logs power the second number we show next to each
+  // department in the Employee Overview legend ("Development 12 · 9
+  // present"). Refreshes every 60s so HR can see the count tick up as
+  // people check in. The lookup is case-insensitive on dept name to
+  // tolerate "Development" vs "development" data drift.
+  const [presentByDept, setPresentByDept] = useState({});   // { 'development': 9, ... }
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPresent = async () => {
+      try {
+        const d = new Date();
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const r = await fetch(`${API}/attendance/logs?date=${dateStr}`);
+        const j = await r.json().catch(() => ({}));
+        if (cancelled || !j?.success || !Array.isArray(j.data)) return;
+        const out = {};
+        for (const row of j.data) {
+          const dept = String(row.department || row.dept || 'Unassigned').toLowerCase().trim();
+          const s    = String(row.status || '').toLowerCase();
+          // "Showed up today" = Present or Late or On Time. Half Day
+          // / Permission still count as in-office for this dashboard
+          // tile (HR wants to see how many people are around, not
+          // strictly how many are full-day).
+          if (s === 'present' || s === 'late' || s === 'on time' || s === 'half day' || s === 'permission') {
+            out[dept] = (out[dept] || 0) + 1;
+          }
+        }
+        setPresentByDept(out);
+      } catch { /* leave previous value */ }
+    };
+    fetchPresent();
+    const t = setInterval(fetchPresent, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  const deptData = deptDataRaw.map((d) => ({
+    ...d,
+    present: presentByDept[String(d.name || '').toLowerCase().trim()] || 0,
+  }));
   const totalForChart = deptData.reduce((s, d) => s + d.value, 0) || 1;
 
   const statCards = [
@@ -277,20 +317,70 @@ export default function Dashboard({
                   <div className="donut-center-label">Total Employees</div>
                 </div>
                 <div className="donut-legend-list">
-                  {deptData.map(d => (
-                    <div key={d.name}>
-                      <div className="donut-legend-item">
-                        <div className="donut-legend-left">
-                          <div className="donut-legend-dot" style={{ background: d.color }} />
-                          {d.name}
+                  {deptData.map(d => {
+                    const presentPct = d.value > 0
+                      ? Math.min(100, Math.round((d.present / d.value) * 100))
+                      : 0;
+                    return (
+                      <div key={d.name}>
+                        <div className="donut-legend-item">
+                          <div className="donut-legend-left">
+                            <div className="donut-legend-dot" style={{ background: d.color }} />
+                            {d.name}
+                          </div>
+                          <span className="donut-legend-count">
+                            {d.value}
+                            {/* Present-today badge (HR ask: see who's in
+                                the office per department right inside the
+                                same chart). Tooltip spells out the math
+                                so the number is unambiguous. */}
+                            <span
+                              title={`${d.present} of ${d.value} checked in today (${presentPct}%)`}
+                              style={{
+                                marginLeft: 8,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: '#16A34A',
+                                background: '#ECFDF5',
+                                border: '1px solid #BBF7D0',
+                                borderRadius: 999,
+                                padding: '2px 8px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {d.present} present
+                            </span>
+                          </span>
                         </div>
-                        <span className="donut-legend-count">{d.value}</span>
+                        {/* The bar now overlays a green "present" segment
+                            on top of the department's coloured total bar,
+                            so HR can eyeball today's attendance density
+                            per dept at a glance. */}
+                        <div className="donut-bar-bg" style={{ position: 'relative' }}>
+                          <div
+                            className="donut-bar-fill"
+                            style={{
+                              width: `${(d.value / totalForChart * 100).toFixed(1)}%`,
+                              background: d.color,
+                            }}
+                          />
+                          {d.present > 0 && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0, left: 0,
+                                height: '100%',
+                                width: `${((d.present / totalForChart) * 100).toFixed(1)}%`,
+                                background: 'rgba(22, 163, 74, 0.45)',
+                                borderRadius: 'inherit',
+                              }}
+                              title={`${d.present} present today`}
+                            />
+                          )}
+                        </div>
                       </div>
-                      <div className="donut-bar-bg">
-                        <div className="donut-bar-fill" style={{ width: `${(d.value / totalForChart * 100).toFixed(1)}%`, background: d.color }} />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             ) : (
@@ -349,45 +439,6 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* ── Full Width Tracking Map ── */}
-      <div className="full-width-map-row" style={{ marginBottom: 20 }}>
-        <CompactTrackingMap sidebarOpen={sidebarOpen} onOpenFullMap={() => setActiveView('live-tracking')} />
-      </div>
-
-      {/* ── Bottom Row ── */}
-      <div className="bottom-row">
-
-        {/* Department Headcount */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Department Headcount</div>
-              <div className="card-subtitle">Employee distribution by team</div>
-            </div>
-            <span className="card-action" onClick={() => setActiveView('department')} style={{ cursor: 'pointer' }}>
-              View all <ChevronRight size={13} />
-            </span>
-          </div>
-
-          <div style={{ padding: 12 }}>
-            {deptData.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-light)', fontSize: 12 }}>
-                No department data yet.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {deptData.map((d, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.color || '#94A3B8', flexShrink: 0 }} />
-                    <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text-main)' }}>{d._id || d.name || '--'}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-light)' }}>{d.value || d.count || 0}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

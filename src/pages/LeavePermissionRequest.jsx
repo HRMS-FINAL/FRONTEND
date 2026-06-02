@@ -54,16 +54,22 @@ export default function LeavePermissionRequest({ onBack }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  const handleManagerAction = async (id, newManagerStatus) => {
-    // Previously this only flipped local state — the change never reached
-    // the backend, so the employee's ERM Mobile / ERM Web app never saw
-    // that the Manager had acted. Now we PATCH the same /leave-requests
-    // endpoint HR uses, with a `managerStatus` field that the mobile
-    // backend persists alongside the row.
-    const targetReq = requests.find(r => r.id === id);
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: newManagerStatus } : r));
+  const handleManagerAction = async (rowKey, newManagerStatus) => {
+    // IMPORTANT: rowKey is the row's mongo `_id`, NOT the company
+    // employee ID. Earlier this function looked rows up by `r.id`
+    // (which equals empId like "TES026") — that key collides for
+    // every employee with > 1 pending request, so the patch landed
+    // on the wrong leave document and the employee's ERM app never
+    // saw their actual request update. Now we match on _id so each
+    // row maps to exactly one server document.
+    const targetReq = requests.find(r => r._id === rowKey);
+    if (!targetReq) {
+      showNotification('Could not locate that request locally. Please refresh.', 'error');
+      return;
+    }
+    setRequests(prev => prev.map(r => r._id === rowKey ? { ...r, managerStatus: newManagerStatus } : r));
     try {
-      const res = await fetch(`${API}/leave-requests/${targetReq?._id || id}`, {
+      const res = await fetch(`${API}/leave-requests/${targetReq._id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -76,32 +82,45 @@ export default function LeavePermissionRequest({ onBack }) {
       showNotification(`Manager status updated to ${newManagerStatus}!`, 'success');
     } catch (err) {
       // Roll back optimistic update if the server rejected the write.
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, managerStatus: targetReq?.managerStatus || '' } : r));
+      setRequests(prev => prev.map(r => r._id === rowKey ? { ...r, managerStatus: targetReq.managerStatus || '' } : r));
       showNotification(`Could not save manager decision: ${err.message}`, 'error');
     }
   };
 
-  const initiateAction = (id, newStatus) => {
-    const targetReq = requests.find(r => r.id === id);
-    if (targetReq && targetReq.managerStatus !== 'Approved') {
+  const initiateAction = (rowKey, newStatus) => {
+    // rowKey is the mongo _id of the row HR clicked. Same uniqueness
+    // story as handleManagerAction above.
+    const targetReq = requests.find(r => r._id === rowKey);
+    if (!targetReq) {
+      showNotification('Could not locate that request locally. Please refresh.', 'error');
+      return;
+    }
+    if (targetReq.managerStatus !== 'Approved') {
       showNotification("Cannot process request until Manager approves!", "error");
       return;
     }
-    setActionModal({ id, status: newStatus });
+    setActionModal({ rowKey, status: newStatus });
     setActionMessage('');
   };
 
   // Confirm action — sends PATCH to HRMS backend, which forwards to mobile
-  // backend, which in turn notifies the employee in-app.
+  // backend, which in turn notifies the employee in-app. Targets the row
+  // by its mongo _id so an employee with multiple pending requests has
+  // each one updated independently (employee-ID matching used to cause
+  // cross-row collisions, which is why ERM kept seeing Pending).
   const confirmAction = async () => {
     if (!actionModal) return;
-    const { id, status } = actionModal;
+    const { rowKey, status } = actionModal;
     const finalMessage = actionMessage.trim() || `Your request has been ${status.toLowerCase()}.`;
-    const targetReq = requests.find(r => r.id === id);
-    // Optimistic UI update — flip status locally so the user sees instant feedback.
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status, message: finalMessage } : r));
+    const targetReq = requests.find(r => r._id === rowKey);
+    if (!targetReq) {
+      showNotification('Could not locate that request locally. Please refresh.', 'error');
+      setActionModal(null);
+      return;
+    }
+    setRequests(prev => prev.map(r => r._id === rowKey ? { ...r, status, message: finalMessage } : r));
     try {
-      const res = await fetch(`${API}/leave-requests/${targetReq?._id || id}`, {
+      const res = await fetch(`${API}/leave-requests/${targetReq._id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -114,8 +133,7 @@ export default function LeavePermissionRequest({ onBack }) {
       if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
       showNotification(`Request successfully ${status.toLowerCase() === 'approved' ? 'approved' : 'rejected'}!`, "success");
     } catch (err) {
-      // Roll back optimistic update if the server rejected it.
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: targetReq?.status || 'Pending' } : r));
+      setRequests(prev => prev.map(r => r._id === rowKey ? { ...r, status: targetReq.status || 'Pending' } : r));
       showNotification(`Could not save: ${err.message}`, "error");
     }
     setActionModal(null);
@@ -156,18 +174,28 @@ export default function LeavePermissionRequest({ onBack }) {
       if (activeTab === 'leave-requests'      && kind !== 'leave')      return false;
       if (activeTab === 'permission-requests' && kind !== 'permission') return false;
 
-      // 2. Search query — defensive so a single null field doesn't crash
+      // 2. Search query — case-insensitive across every field HR might
+      // type into the box (name, employee id in either field, role,
+      // department, reason, type label, status). We coerce every
+      // candidate with String() so a single missing field doesn't crash
       // the whole filter and leave the table silently empty.
       const q = String(searchQuery || '').trim().toLowerCase();
-      const name   = String(item.name   || '').toLowerCase();
-      const reason = String(item.reason || '').toLowerCase();
-      const role   = String(item.role   || '').toLowerCase();
-      const eid    = String(item.employeeId || item.id || '').toLowerCase();
-      const dept   = String(item.dept   || '').toLowerCase();
-      const matchesSearch = !q ||
-        name.includes(q)   || reason.includes(q) ||
-        role.includes(q)   || eid.includes(q)    || dept.includes(q);
-      if (!matchesSearch) return false;
+      if (q) {
+        const haystack = [
+          item.name, item.employeeName,
+          item.employeeId, item.id, item.empId,
+          item.role, item.dept,
+          item.reason, item.type,
+          item.duration, item.date,
+          item.status, item.managerStatus,
+          item.employee?.userId, item.employee?.email,
+          item.employee?.designation, item.employee?.department,
+        ]
+          .filter(Boolean)
+          .map((s) => String(s).toLowerCase())
+          .join(' || ');
+        if (!haystack.includes(q)) return false;
+      }
 
       return true;
     });
@@ -420,7 +448,7 @@ export default function LeavePermissionRequest({ onBack }) {
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                         <button
                           className="req-btn reject"
-                          onClick={() => initiateAction(rec.id, 'Rejected')}
+                          onClick={() => initiateAction(rec._id, 'Rejected')}
                           style={{
                             padding: '6px 10px', fontSize: '11px', fontWeight: 700,
                             borderRadius: '6px',
@@ -435,7 +463,7 @@ export default function LeavePermissionRequest({ onBack }) {
                         </button>
                         <button
                           className="req-btn approve"
-                          onClick={() => initiateAction(rec.id, 'Approved')}
+                          onClick={() => initiateAction(rec._id, 'Approved')}
                           style={{
                             padding: '6px 10px', fontSize: '11px', fontWeight: 700,
                             borderRadius: '6px',

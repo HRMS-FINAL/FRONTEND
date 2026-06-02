@@ -53,43 +53,55 @@ export default function Allowance({ onBack }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
-  const handleManagerAction = async (id, type, newManagerStatus) => {
+  // Row identity is by mongo _id, not company empId — multiple
+  // requests for the same employee share the empId, so r.id matching
+  // would patch the wrong document and the employee's ERM app would
+  // never see their request change state.
+  const handleManagerAction = async (rowKey, type, newManagerStatus) => {
     const setList = type === 'petrol' ? setPetrolRequests : setTravelRequests;
     const sourceArr = type === 'petrol' ? petrolRequests : travelRequests;
-    const target = sourceArr.find(r => r.id === id);
-    setList(prev => prev.map(req => req.id === id ? { ...req, managerStatus: newManagerStatus } : req));
+    const target = sourceArr.find(r => r._id === rowKey);
+    if (!target) {
+      showNotification('Could not locate that request locally. Please refresh.', 'error');
+      return;
+    }
+    setList(prev => prev.map(req => req._id === rowKey ? { ...req, managerStatus: newManagerStatus } : req));
     try {
-      await fetch(`${API}/allowances/${target?._id || id}`, {
+      await fetch(`${API}/allowances/${target._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ managerStatus: newManagerStatus.toLowerCase(), reviewedBy: 'Manager' }),
       });
-      showNotification(`Manager ${newManagerStatus.toLowerCase()} request ${id}`, 'success');
+      showNotification(`Manager ${newManagerStatus.toLowerCase()} the request`, 'success');
     } catch (err) {
-      setList(prev => prev.map(req => req.id === id ? { ...req, managerStatus: target?.managerStatus || '' } : req));
+      setList(prev => prev.map(req => req._id === rowKey ? { ...req, managerStatus: target.managerStatus || '' } : req));
       showNotification('Could not save manager decision', 'error');
     }
   };
 
-  const handleAction = async (id, action, type, extras = {}) => {
+  const handleAction = async (rowKey, action, type, extras = {}) => {
     const newStatus = action === 'approve' ? 'Approved' : 'Rejected';
     const setList = type === 'petrol' ? setPetrolRequests : setTravelRequests;
     const sourceArr = type === 'petrol' ? petrolRequests : travelRequests;
-    const target = sourceArr.find(r => r.id === id);
-    if (target && target.managerStatus !== 'Approved') {
+    const target = sourceArr.find(r => r._id === rowKey);
+    if (!target) {
+      showNotification('Could not locate that request locally. Please refresh.', 'error');
+      return;
+    }
+    if (target.managerStatus !== 'Approved') {
       showNotification('Cannot process — Manager has not approved yet.', 'error');
       return;
     }
-    const requested = Number(target?.amount) || 0;
+    const requested = Number(target.amount) || 0;
     const approvedAmount = action === 'approve'
       ? Math.max(0, Math.min(Number(extras.approvedAmount) || 0, requested))
       : 0;
     const rejectedAmount = action === 'approve' ? Math.max(0, requested - approvedAmount) : requested;
-    setList(prev => prev.map(req => req.id === id
+    setList(prev => prev.map(req => req._id === rowKey
       ? { ...req, status: newStatus, approvedAmount, rejectedAmount, amountComment: extras.amountComment || req.amountComment || '' }
       : req));
     try {
-      const res = await fetch(`${API}/allowances/${target?._id || id}`, {
+      const res = await fetch(`${API}/allowances/${target._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,9 +113,9 @@ export default function Allowance({ onBack }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
-      showNotification(`Request ${id} ${newStatus}!`, action === 'approve' ? 'success' : 'error');
+      showNotification(`Request ${newStatus}!`, action === 'approve' ? 'success' : 'error');
     } catch (err) {
-      setList(prev => prev.map(req => req.id === id ? { ...req, status: target?.status || 'Pending' } : req));
+      setList(prev => prev.map(req => req._id === rowKey ? { ...req, status: target.status || 'Pending' } : req));
       showNotification(`Could not save: ${err.message}`, 'error');
     }
   };
@@ -124,7 +136,7 @@ export default function Allowance({ onBack }) {
       showNotification(`Approved amount must be between 0 and ₹${requested.toLocaleString('en-IN')}`, 'error');
       return;
     }
-    handleAction(approvalModal.req.id, 'approve', approvalModal.type, {
+    handleAction(approvalModal.req._id, 'approve', approvalModal.type, {
       approvedAmount: approved,
       amountComment: approvalModal.amountComment,
     });
@@ -244,7 +256,7 @@ export default function Allowance({ onBack }) {
                     ) : mgrApproved ? (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button onClick={() => openApprovalModal(req, type)} style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Approve</button>
-                        <button onClick={() => handleAction(req.id, 'reject', type)} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reject</button>
+                        <button onClick={() => handleAction(req._id, 'reject', type)} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reject</button>
                       </div>
                     ) : (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A' }}>

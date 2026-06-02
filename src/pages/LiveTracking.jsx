@@ -15,6 +15,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { API } from '../config/api';
+// RouteMapModal opens the per-date GPS polyline + start/end pins. The
+// Travel Report "View Route" button mounts this so HR can drill into
+// any specific day without leaving the Live Tracking page.
+import RouteMapModal from '../components/RouteMapModal';
 
 // Live tracking now starts empty — populated from the mobile backend's
 // /api/attendance/admin/all (per-employee lat/lng captured at check-in)
@@ -722,6 +726,11 @@ export default function LiveTracking() {
   // that lists every petrol + travel allowance for that employee inside
   // the range, plus totals.
   const [travelReport, setTravelReport] = useState({ loading: false, rows: [], emp: null });
+  // Per-date row drill-down modal. When HR clicks "View Route" on a row
+  // in the Travel Report, we set { open:true, date, employeeId } and
+  // mount RouteMapModal below the page tree. Modal closes by resetting
+  // open=false; the date stays so reopens are instant.
+  const [routeDrillModal, setRouteDrillModal] = useState({ open: false, date: '', employeeId: '', employeeName: '' });
   // Historical GPS track for the searched employee across [selectedDate,
   // endDate]. Fetched once per range change; rendered as a single
   // polyline on the map under the report panel.
@@ -741,6 +750,53 @@ export default function LiveTracking() {
 };
 
   const reportActive = !isLive && search.trim().length > 0;
+
+  // ── Per-date report rows ─────────────────────────────────────────────
+  // HR feedback: when a date range + employee search is active, the
+  // Travel Report should expand into ONE row per day in the range,
+  // showing date / employee / GPS distance / View Route — even on days
+  // the employee filed no allowance claim. We derive the rows directly
+  // from `historicalRoute.points` (already grouped by date by the
+  // daily-route fetch effect above) so we don't need a second network
+  // round-trip.
+  const dailyReport = React.useMemo(() => {
+    if (!reportActive) return [];
+    const start = new Date(selectedDate);
+    const end   = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return [];
+
+    // Bucket polyline points by date so we can compute per-day km.
+    const byDate = {};
+    for (const p of (historicalRoute.points || [])) {
+      if (!p?.date) continue;
+      (byDate[p.date] ||= []).push(p);
+    }
+    // Haversine between two lat/lng points (km).
+    const km = (a, b) => {
+      const R = 6371;
+      const toRad = (x) => (x * Math.PI) / 180;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+      const aa = Math.sin(dLat / 2) ** 2 +
+                 Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) *
+                 Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.min(1, Math.sqrt(aa)));
+    };
+
+    const out = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().slice(0, 10);
+      const pts = byDate[dateStr] || [];
+      let distanceKm = 0;
+      for (let i = 1; i < pts.length; i++) distanceKm += km(pts[i - 1], pts[i]);
+      out.push({
+        date: dateStr,
+        distanceKm,
+        hasRoute: pts.length >= 2,
+      });
+    }
+    return out;
+  }, [reportActive, selectedDate, endDate, historicalRoute.points]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1469,11 +1525,14 @@ export default function LiveTracking() {
               })()}
             </div>
 
-            {/* Trip list table — one row per claim in the date range */}
+            {/* Per-date report — one row per day in the picked range,
+                regardless of whether the employee filed an allowance
+                claim that day. HR wanted to see the trail dates first
+                and drill into each via the View Route button. */}
             <div style={{ padding: 14 }}>
-              {travelReport.rows.length === 0 ? (
+              {dailyReport.length === 0 ? (
                 <div style={{ fontSize: 12, color: '#64748B', padding: '20px 8px', textAlign: 'center' }}>
-                  No trips recorded for {travelReport.employeeName || 'this employee'} in the picked date range.
+                  No date range selected.
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
@@ -1481,34 +1540,48 @@ export default function LiveTracking() {
                     <thead>
                       <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
                         <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Date</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>From → To</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Distance (km)</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Amount (₹)</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Status</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Employee</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Distance travelled (km)</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'center' }}>Route</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {travelReport.rows.map((r, idx) => (
-                        <tr key={idx}>
-                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{r.date}</td>
+                      {dailyReport.map((d) => (
+                        <tr key={d.date}>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{fmtDDMMYYYY(d.date)}</td>
                           <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>
-                            {(r.fromLocation || '—')} → {(r.toLocation || '—')}
+                            {travelReport.emp?.name || search}
+                            {travelReport.emp?.employeeId && (
+                              <span style={{ marginLeft: 6, color: '#64748B', fontSize: 11 }}>
+                                ({travelReport.emp.employeeId})
+                              </span>
+                            )}
                           </td>
-                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
-                            {Number(r.distance || 0).toFixed(2)}
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right', fontWeight: d.hasRoute ? 700 : 400, color: d.hasRoute ? '#0F172A' : '#94A3B8' }}>
+                            {d.distanceKm.toFixed(2)}
                           </td>
-                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right' }}>
-                            ₹{Number(r.amount || 0).toFixed(2)}
-                          </td>
-                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>
-                            <span style={{
-                              display: 'inline-block', padding: '2px 8px', borderRadius: 10,
-                              fontSize: 10, fontWeight: 700,
-                              background: r.status === 'Approved' ? '#ECFDF5'
-                                       : r.status === 'Rejected' ? '#FEF2F2' : '#FFFBEB',
-                              color:      r.status === 'Approved' ? '#16A34A'
-                                       : r.status === 'Rejected' ? '#DC2626' : '#D97706',
-                            }}>{r.status || 'Pending'}</span>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => setRouteDrillModal({
+                                open: true,
+                                date: d.date,
+                                employeeId: travelReport.emp?.employeeId || search.trim().toUpperCase(),
+                                employeeName: travelReport.emp?.name || search.trim(),
+                              })}
+                              disabled={!d.hasRoute}
+                              style={{
+                                padding: '4px 12px', borderRadius: 6,
+                                fontSize: 11, fontWeight: 700,
+                                border: '1px solid ' + (d.hasRoute ? '#BFDBFE' : '#E2E8F0'),
+                                background: d.hasRoute ? '#EFF6FF' : '#F8FAFC',
+                                color:      d.hasRoute ? '#1D4ED8' : '#94A3B8',
+                                cursor:     d.hasRoute ? 'pointer' : 'not-allowed',
+                              }}
+                              title={d.hasRoute ? `View GPS route for ${fmtDDMMYYYY(d.date)}` : 'No GPS path recorded for this date'}
+                            >
+                              View Route
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -1520,6 +1593,16 @@ export default function LiveTracking() {
           </div>
         )}
       </div>
+
+      {/* Per-date GPS route drill-down — opens when HR clicks any
+          "View Route" button in the Travel Report table. */}
+      <RouteMapModal
+        open={routeDrillModal.open}
+        onClose={() => setRouteDrillModal((m) => ({ ...m, open: false }))}
+        employeeId={routeDrillModal.employeeId}
+        employeeName={routeDrillModal.employeeName}
+        date={routeDrillModal.date}
+      />
     </div>
   );
 }

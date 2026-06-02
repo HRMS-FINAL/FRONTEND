@@ -287,8 +287,61 @@ export default function Attendance({ onBack, employees = [] }) {
 
         {/* Left Column: Interactive Calendar Card */}
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>{monthLabel}</h3>
+          {/* Month nav — previously there were no arrows here, so HR
+              couldn't reach any month earlier than "today". The two
+              buttons below let HR step back/forward; the "Calendar
+              View" label that used to live in the corner is moved to
+              the right side of the header so the row stays balanced. */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                aria-label="Previous month"
+                onClick={() => {
+                  if (viewMonth === 0) {
+                    setViewMonth(11);
+                    setViewYear((y) => y - 1);
+                  } else {
+                    setViewMonth((m) => m - 1);
+                  }
+                  setSelectedDay(1);
+                }}
+                style={{
+                  width: 28, height: 28, borderRadius: 8,
+                  border: '1px solid var(--border-color)',
+                  background: '#fff', color: '#0F172A',
+                  cursor: 'pointer', display: 'inline-flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, lineHeight: 1,
+                }}
+              >‹</button>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>{monthLabel}</h3>
+              <button
+                type="button"
+                aria-label="Next month"
+                onClick={() => {
+                  // Block navigation beyond the current month — there are
+                  // no future logs to view.
+                  const cur = new Date();
+                  if (viewYear > cur.getFullYear() || (viewYear === cur.getFullYear() && viewMonth >= cur.getMonth())) return;
+                  if (viewMonth === 11) {
+                    setViewMonth(0);
+                    setViewYear((y) => y + 1);
+                  } else {
+                    setViewMonth((m) => m + 1);
+                  }
+                  setSelectedDay(1);
+                }}
+                style={{
+                  width: 28, height: 28, borderRadius: 8,
+                  border: '1px solid var(--border-color)',
+                  background: '#fff', color: '#0F172A',
+                  cursor: 'pointer', display: 'inline-flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, lineHeight: 1,
+                }}
+              >›</button>
+            </div>
             <span style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Calendar View</span>
           </div>
           <div className="mini-calendar" style={{ padding: 0 }}>
@@ -331,10 +384,14 @@ export default function Attendance({ onBack, employees = [] }) {
               Web), not the HR-wide attendance view. */}
         </div>
 
-        {/* Middle Column removed per HR request — employee detail now
-            lives ONLY in the Employee Details page, not inline here.
-            The grid above is now two-column (calendar + table). */}
-        {false && (
+        {/* Inline employee-detail panel. Re-enabled after HR feedback —
+            HR wants to see the clicked-row's profile (name, status,
+            check-in/out, monthly overview, contact) right next to the
+            Daily Logs table without leaving the page. The panel is
+            now hidden until a row is clicked instead of being gated
+            by `{false && …}` (the previous gate meant Suriya's data
+            stayed pinned forever because nothing could ever swap it). */}
+        {selectedLog && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Panel Header */}
           <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-main)' }}>
@@ -507,7 +564,20 @@ export default function Attendance({ onBack, employees = [] }) {
             <table className="emp-table">
               <tbody>
                 {displayLogs.map(log => (
-                  <tr key={log.id}>
+                  <tr
+                    key={log.id}
+                    // Row click drives the inline employee panel above.
+                    // Without this handler the panel was permanently
+                    // empty (or — in earlier builds — stuck on whichever
+                    // record happened to be the default seed), which
+                    // looked exactly like the "Suriya for everyone"
+                    // bug HR reported.
+                    onClick={() => setSelectedLog(log)}
+                    style={{
+                      cursor: 'pointer',
+                      background: selectedLog?.id === log.id ? 'rgba(76, 170, 23, 0.06)' : 'transparent',
+                    }}
+                  >
                     <td style={{ verticalAlign: 'middle' }}>
                       <div className="emp-table-user">
                         <div className="emp-table-avatar" style={{ background: (log.color || '#4299E1') + '15', color: log.color || '#4299E1', width: '32px', height: '32px', fontSize: '11px', flexShrink: 0 }}>
@@ -523,54 +593,36 @@ export default function Attendance({ onBack, employees = [] }) {
                     </td>
                     <td><div className="emp-table-email" style={{ fontWeight: 600 }}>{log.checkIn}</div></td>
                     <td><div className="emp-table-email" style={{ fontWeight: 600 }}>{log.checkOut}</div></td>
-                    <td><div className="emp-table-email" style={{ fontWeight: 600 }}>{log.workHours}</div></td>
+                    <td><div className="emp-table-email" style={{ fontWeight: 700 }}>{log.workHours}</div></td>
                     <td>
-                      <span style={{ fontWeight: 700, fontSize: '10.5px', padding: '4px 10px', borderRadius: '6px' }}>{log.status}</span>
+                      <span style={{
+                        display: 'inline-block', padding: '4px 10px', borderRadius: 12,
+                        fontSize: 11, fontWeight: 700,
+                        background: log.status === 'Present'    ? '#ECFDF5'
+                                  : log.status === 'Late'       ? '#FFFBEB'
+                                  : log.status === 'On Leave'   ? '#FEF2F2'
+                                  : log.status === 'Permission' ? '#F5F3FF'
+                                  : '#F1F5F9',
+                        color:      log.status === 'Present'    ? '#16A34A'
+                                  : log.status === 'Late'       ? '#D97706'
+                                  : log.status === 'On Leave'   ? '#DC2626'
+                                  : log.status === 'Permission' ? '#7C3AED'
+                                  : '#64748B',
+                      }}>
+                        {log.status}
+                      </span>
                     </td>
-                  
                   </tr>
                 ))}
-                {displayLogs.length === 0 && (
-                  <tr><td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-light)' }}>No attendance records for this day.</td></tr>
-                )}
               </tbody>
             </table>
+            {dailyLogs.length === 0 && (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)', fontSize: 13 }}>
+                No records for {MONTH_NAMES[viewMonth]} {String(selectedDay).padStart(2, '0')}, {viewYear}.
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Selected log detail modal (optional, kept simple) */}
-        {selectedLog && (
-          <div
-            onClick={() => setSelectedLog(null)}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              zIndex: 1000,
-            }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 12, padding: 20, minWidth: 320, maxWidth: '90vw' }}
-            >
-              <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>{selectedLog.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-light)', marginBottom: 12 }}>
-                {selectedLog.employeeId} · {selectedLog.role}
-              </div>
-              <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <div><b>Status:</b> {selectedLog.status}</div>
-                <div><b>Check-In:</b> {selectedLog.checkIn || '—'}</div>
-                <div><b>Check-Out:</b> {selectedLog.checkOut || '—'}</div>
-                <div><b>Work Hours:</b> {selectedLog.workHours || '—'}</div>
-              </div>
-              <button
-                onClick={() => setSelectedLog(null)}
-                style={{ marginTop: 14, padding: '6px 14px', borderRadius: 8, background: '#0F172A', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

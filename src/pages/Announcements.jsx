@@ -485,60 +485,8 @@ export default function Announcements({ onBack }) {
                 ></textarea>
                 {postErrors.content && <span className="error-text" style={{ color: '#E53E3E', fontSize: '11px', marginTop: '4px' }}>{postErrors.content}</span>}
               </div>
-              <div className="ne-field">
-                <label className="ne-label">Attachments (optional)</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <label
-                    htmlFor="ann-file-input"
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                      padding: '8px 12px', borderRadius: 6,
-                      background: '#F8FAFC', color: '#0F172A',
-                      border: '1px dashed #CBD5E1', cursor: 'pointer',
-                      fontSize: 12, fontWeight: 600,
-                      opacity: uploadingFile ? 0.6 : 1,
-                    }}
-                  >
-                    <Paperclip size={14} /> {uploadingFile ? 'Reading…' : 'Choose files'}
-                  </label>
-                  <input
-                    id="ann-file-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.txt,.csv"
-                    style={{ display: 'none' }}
-                    onChange={(e) => { handlePickFiles(e.target.files); e.target.value = ''; }}
-                  />
-                  <span style={{ fontSize: 11, color: '#64748B' }}>Up to 5 MB per file.</span>
-                </div>
-                {newPost.attachments.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                    {newPost.attachments.map((att, i) => (
-                      <span
-                        key={`pick-${i}`}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          padding: '5px 10px', borderRadius: 6,
-                          background: '#F1F5F9', color: '#0F172A',
-                          border: '1px solid #E2E8F0', fontSize: 11, fontWeight: 600,
-                        }}
-                      >
-                        <FileText size={12} />
-                        <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-                        <span style={{ color: '#64748B', fontWeight: 500 }}>· {fmtBytes(att.size)}</span>
-                        <button
-                          type="button"
-                          onClick={() => removePickedFile(i)}
-                          title="Remove"
-                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: '#94A3B8' }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Attachment upload removed — announcements are text-only now. */}
+
 
               <div className="ne-modal-footer">
                 <button type="button" className="ne-btn-secondary" onClick={() => setShowPostModal(false)}>Cancel</button>
