@@ -160,6 +160,12 @@ export default function Announcements({ onBack }) {
     if (!newPost.title.trim())   errors.title   = 'Title is required';
     if (!newPost.content.trim()) errors.content = 'Content cannot be empty';
     if (Object.keys(errors).length > 0) { setPostErrors(errors); return; }
+    // Confirm before broadcasting — announcements blast to every
+    // employee's ERM Mobile + Web feed instantly, so HR asked for a
+    // safety prompt to avoid accidental sends.
+    if (!window.confirm(`Post this announcement to all employees?\n\nTitle: "${newPost.title.trim()}"`)) {
+      return;
+    }
 
     // Send the create request and check the response BEFORE closing the
     // modal. The previous code closed the modal in the finally branch

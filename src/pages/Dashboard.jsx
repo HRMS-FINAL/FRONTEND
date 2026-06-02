@@ -393,6 +393,91 @@ export default function Dashboard({
 
       </div>
 
+      {/* ── Live Tracking widget + Department headcounts ─────────────── */}
+      {/* Restored row — the Live Tracking compact map and the per-dept
+          headcount card used to live here before an earlier refactor
+          accidentally trimmed them. Both come back as a 2-column grid
+          that collapses to a stack under 900 px. */}
+      <div
+        className="dashboard-secondary-row"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)',
+          gap: 16,
+          marginBottom: 20,
+        }}
+      >
+        {/* Live Tracking — uses the existing CompactTrackingMap that
+            already powers a working map elsewhere on the dashboard. */}
+        <CompactTrackingMap
+          onOpenFullMap={() => setActiveView('live-tracking')}
+          sidebarOpen={sidebarOpen}
+        />
+
+        {/* Department headcounts — bar list, biggest first. Click any
+            row to drill into the Department admin page. */}
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div
+            className="card-header"
+            style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}
+          >
+            <div>
+              <div className="card-title">Department Headcounts</div>
+              <div className="card-subtitle">Active employees per department</div>
+            </div>
+            <span
+              className="card-action"
+              onClick={() => setActiveView('department')}
+              style={{ cursor: 'pointer' }}
+            >
+              Manage <ChevronRight size={13} />
+            </span>
+          </div>
+
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {deptData.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
+                {loading ? 'Loading…' : 'No departments yet.'}
+              </div>
+            ) : (
+              deptData.map((d) => (
+                <div key={d.name}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--text-main)' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, display: 'inline-block' }} />
+                      {d.name}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-main)' }}>
+                      {d.value}
+                      <span style={{ marginLeft: 6, fontSize: 10, color: '#16A34A', fontWeight: 700 }}>
+                        · {d.present} present
+                      </span>
+                    </span>
+                  </div>
+                  <div style={{
+                    background: '#F1F5F9', borderRadius: 999, height: 8, overflow: 'hidden',
+                    position: 'relative',
+                  }}>
+                    <div style={{
+                      width: `${((d.value / totalForChart) * 100).toFixed(1)}%`,
+                      background: d.color, height: '100%',
+                    }} />
+                    {d.present > 0 && (
+                      <div style={{
+                        position: 'absolute', top: 0, left: 0,
+                        height: '100%',
+                        width: `${((d.present / totalForChart) * 100).toFixed(1)}%`,
+                        background: 'rgba(22, 163, 74, 0.55)',
+                      }} />
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* ── Quick Actions ── */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header">

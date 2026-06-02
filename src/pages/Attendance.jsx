@@ -283,9 +283,16 @@ export default function Attendance({ onBack, employees = [] }) {
         })}
       </div>
 
-      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
+      <div className="attendance-logs-container" style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
 
-        {/* Left Column: Interactive Calendar Card */}
+        {/* Left Column: switches between the Interactive Calendar (no
+            row selected) and the Employee Detail panel (a row IS
+            selected). HR asked the layout to match the design mock,
+            where the selected employee's card appears on the left and
+            the Daily Logs table sits on the right. Calendar still
+            available via the "Back to calendar" button at the top of
+            the detail panel. */}
+        {selectedLog ? null : (
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
           {/* Month nav — previously there were no arrows here, so HR
               couldn't reach any month earlier than "today". The two
@@ -383,6 +390,7 @@ export default function Attendance({ onBack, employees = [] }) {
               belong to a single employee's calendar (ERM Mobile / ERM
               Web), not the HR-wide attendance view. */}
         </div>
+        )}
 
         {/* Inline employee-detail panel. Re-enabled after HR feedback —
             HR wants to see the clicked-row's profile (name, status,
@@ -491,7 +499,7 @@ export default function Attendance({ onBack, employees = [] }) {
                 <button
                   onClick={() => setSelectedLog(null)}
                   style={{ flex: 1, padding: '8px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '7px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', color: 'var(--text-muted)' }}
-                >Clear</button>
+                >← Back to calendar</button>
                 <button
                   onClick={handleExportEmployeeReport}
                   style={{ flex: 1, padding: '8px', background: 'var(--primary)', border: 'none', borderRadius: '7px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', color: 'white' }}
@@ -611,7 +619,7 @@ export default function Attendance({ onBack, employees = [] }) {
                       }}>
                         {log.status}
                       </span>
-                    </td>
+    </td>
                   </tr>
                 ))}
               </tbody>

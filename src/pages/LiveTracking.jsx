@@ -920,46 +920,64 @@ export default function LiveTracking() {
     return () => { cancelled = true; };
   }, [reportActive, search, selectedDate, endDate]);
 
-  // CSV export — kept dependency-free so we don't have to import xlsx here.
+  // ── Per-date downloads (CSV / PDF / Excel) ────────────────────────
+  // All three exports operate on `dailyReport` — the same per-date rows
+  // HR sees on screen — so the printed/downloaded version matches the
+  // panel exactly. We compute one summary line at the bottom (total
+  // distance + days with GPS path) for at-a-glance auditing.
+
+  const _empNameForFile = () => {
+    const e = travelReport.emp || {};
+    const id = e.employeeId || search.trim().toUpperCase();
+    return (id || 'employee').replace(/[^a-zA-Z0-9]+/g, '_');
+  };
+
   const downloadTravelReportCsv = () => {
-    const gpsKm = polylineKm(historicalRoute.points || []);
-    const header = ['Date', 'Type', 'From', 'To', 'Claimed Distance (km)', 'Amount (₹)', 'Status'];
-    const rows = travelReport.rows.map(r => [
-      fmtDDMMYYYY(r.date), r.kind === 'petrol' ? 'Petrol' : 'Travel',
-      r.from || '', r.to || '', r.distance ?? 0, r.amount ?? 0, r.status || '',
+    const empName = travelReport.emp?.name || search.trim() || '—';
+    const empId   = travelReport.emp?.employeeId || '';
+    const totalKm = dailyReport.reduce((s, d) => s + (d.distanceKm || 0), 0);
+    const daysWithRoute = dailyReport.filter((d) => d.hasRoute).length;
+
+    const header = ['Date', 'Employee', 'Employee ID', 'Distance travelled (km)', 'GPS route'];
+    const rows = dailyReport.map((d) => [
+      fmtDDMMYYYY(d.date),
+      empName,
+      empId,
+      Number(d.distanceKm.toFixed(2)),
+      d.hasRoute ? 'Yes' : 'No',
     ]);
-    // Trailing summary so HR can see, in the same file, the claimed total
-    // alongside the GPS-measured total computed from the map polyline.
-    const claimedTotal = travelReport.rows.reduce((s, r) => s + (Number(r.distance) || 0), 0);
     const summary = [
       [],
-      ['', '', '', 'Claimed Total (km)', claimedTotal.toFixed(2)],
-      ['', '', '', 'GPS Distance from Map (km)', gpsKm.toFixed(2)],
+      ['', '', 'Total days',             dailyReport.length],
+      ['', '', 'Days with GPS route',    daysWithRoute],
+      ['', '', 'Total distance (km)',    Number(totalKm.toFixed(2))],
+      ['', '', 'Period from',            fmtDDMMYYYY(selectedDate)],
+      ['', '', 'Period to',              fmtDDMMYYYY(endDate)],
     ];
     const csv = [header, ...rows, ...summary]
-      .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .map((row) => row.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a    = document.createElement('a');
     a.href = url;
-    a.download = `travel-report_${travelReport.emp?.employeeId || 'employee'}_${selectedDate}_${endDate}.csv`;
+    a.download = `travel-report_${_empNameForFile()}_${selectedDate}_${endDate}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Professional PDF — header band, employee + date range info, summary
-  // tiles, then a striped table of trips. Mirrors the on-screen Travel
-  // Report layout so HR can hand the PDF to finance without reformatting.
+  // Pro-format PDF — brand band, employee + date range header, one
+  // table row per day in the picked range, footer with totals + page
+  // numbers. autoTable handles pagination automatically when the
+  // range is long.
   const downloadTravelReportPdf = () => {
     try {
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       const pageW = doc.internal.pageSize.getWidth();
       const M = 40;
-      let y = 50;
 
       // Header band
-      doc.setFillColor(76, 170, 23);   // brand green
+      doc.setFillColor(76, 170, 23);
       doc.rect(0, 0, pageW, 64, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(18);
@@ -967,13 +985,13 @@ export default function LiveTracking() {
       doc.text('TESCO STRUCTURES — Travel Report', M, 38);
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.text('HR · Live Tracking · Field Operations', M, 54);
+      doc.text('HR · Live Tracking · Daily GPS Distance', M, 54);
 
-      y = 100;
-      // Subject line — employee + date range
-      const emp = travelReport.emp || {};
-      const empName = emp.name || 'All Employees';
+      // Subject (employee + range)
+      const emp     = travelReport.emp || {};
+      const empName = emp.name || search.trim() || 'All Employees';
       const empId   = emp.employeeId ? ` · ${emp.employeeId}` : '';
+      let y = 100;
       doc.setFontSize(13);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -987,133 +1005,102 @@ export default function LiveTracking() {
         M, y + 16
       );
 
-      // Summary tiles
-      const rs = travelReport.rows;
-      const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
-      const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
-      const trips       = rs.length;
-      const days        = new Set(rs.map(r => r.date)).size;
-      const gpsKm       = polylineKm(historicalRoute.points || []);
-
-      const tiles = [
-        { lbl: 'Trips',             val: String(trips) },
-        { lbl: 'Days Travelled',    val: String(days) },
-        { lbl: 'Claimed Distance',  val: claimedKm.toFixed(1) + ' km' },
-        { lbl: 'GPS Distance',      val: gpsKm.toFixed(1) + ' km' },
-        { lbl: 'Total Amount',      val: '₹ ' + totalAmount.toLocaleString('en-IN') },
-      ];
-      const tileW = (pageW - M * 2 - 4 * 8) / 5;
-      const tileY = y + 38;
-      tiles.forEach((t, i) => {
-        const x = M + i * (tileW + 8);
-        doc.setDrawColor(226, 232, 240);
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(x, tileY, tileW, 52, 6, 6, 'FD');
-        doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139);
-        doc.setFont('helvetica', 'bold');
-        doc.text(t.lbl.toUpperCase(), x + 10, tileY + 16);
-        doc.setFontSize(14);
-        doc.setTextColor(15, 23, 42);
-        doc.text(t.val, x + 10, tileY + 38);
-      });
-
-      // Table of trips
-      const head = [['Date', 'Type', 'From → To', 'Distance', 'Amount', 'Status']];
-      const body = rs.map(r => [
-        fmtDDMMYYYY(r.date),
-        r.kind === 'petrol' ? 'Petrol' : 'Travel',
-        `${r.from || '—'} → ${r.to || '—'}`,
-        ((Number(r.distance) || 0).toFixed(1) + ' km'),
-        '₹ ' + Number(r.amount || 0).toLocaleString('en-IN'),
-        r.status || 'Pending',
+      // Per-date table
+      const head = [['Date', 'Employee', 'Distance (km)', 'GPS route']];
+      const body = dailyReport.map((d) => [
+        fmtDDMMYYYY(d.date),
+        empName,
+        d.distanceKm.toFixed(2),
+        d.hasRoute ? 'Yes' : 'No',
       ]);
       autoTable(doc, {
-        startY:  tileY + 70,
+        startY: y + 36,
         head, body,
-        theme:   'striped',
-        styles:  { fontSize: 9, cellPadding: 6 },
+        theme:  'striped',
+        styles: { fontSize: 10, cellPadding: 7 },
         headStyles: { fillColor: '#4CAA17', textColor: '#fff', fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
-          0: { cellWidth: 70 },
-          1: { cellWidth: 55 },
-          3: { halign: 'right', cellWidth: 70 },
-          4: { halign: 'right', cellWidth: 80 },
-          5: { cellWidth: 70 },
+          0: { cellWidth: 90 },
+          2: { halign: 'right', cellWidth: 110 },
+          3: { halign: 'center', cellWidth: 80 },
+        },
+        didDrawPage: (data) => {
+          const str = `Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${doc.internal.getNumberOfPages()}`;
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184);
+          doc.text(
+            `Tesco Structures HRMS  ·  Daily GPS distance from Live Tracking pings`,
+            M, doc.internal.pageSize.getHeight() - 28
+          );
+          doc.text(str, pageW - M - doc.getTextWidth(str), doc.internal.pageSize.getHeight() - 28);
         },
       });
 
-      // Footer
-      const finalY = doc.lastAutoTable?.finalY || tileY + 100;
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
+      // Totals strip
+      const finalY      = doc.lastAutoTable?.finalY || y + 60;
+      const totalKm     = dailyReport.reduce((s, d) => s + (d.distanceKm || 0), 0);
+      const daysWith    = dailyReport.filter((d) => d.hasRoute).length;
+      const totalDays   = dailyReport.length;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
       doc.text(
-        `Tesco Structures HRMS · GPS distance computed from Live Tracking pings · ` +
-        `Page 1 of ${doc.internal.getNumberOfPages()}`,
+        `Total days: ${totalDays}    |    Days with GPS route: ${daysWith}    |    Total distance: ${totalKm.toFixed(2)} km`,
         M, finalY + 24
       );
 
-      const file = `travel-report_${(emp.employeeId || 'employee').replace(/[^a-zA-Z0-9]+/g, '_')}_${selectedDate}_${endDate}.pdf`;
-      doc.save(file);
+      doc.save(`travel-report_${_empNameForFile()}_${selectedDate}_${endDate}.pdf`);
     } catch (err) {
       console.error('[downloadTravelReportPdf]', err);
       alert('Could not generate PDF: ' + (err?.message || 'unknown error'));
     }
   };
 
-  // Excel (XLSX) export — single workbook with a "Summary" sheet (employee
-  // + range + tiles) and a "Trips" sheet for the row-level table. HR can
-  // pivot / sum / filter inside Excel from here.
+  // Excel (XLSX) export — Summary sheet (employee + range + totals)
+  // and a Daily sheet with one row per date. HR can pivot the Daily
+  // sheet for ad-hoc analysis.
   const downloadTravelReportExcel = () => {
     try {
-      const rs = travelReport.rows;
-      const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
-      const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
-      const trips       = rs.length;
-      const days        = new Set(rs.map(r => r.date)).size;
-      const gpsKm       = polylineKm(historicalRoute.points || []);
       const emp = travelReport.emp || {};
+      const empName = emp.name || search.trim() || 'All Employees';
+      const totalKm = dailyReport.reduce((s, d) => s + (d.distanceKm || 0), 0);
+      const daysWith = dailyReport.filter((d) => d.hasRoute).length;
 
       const summary = [
         ['Tesco Structures — Travel Report'],
         [],
-        ['Employee',        emp.name || 'All Employees'],
+        ['Employee',        empName],
         ['Employee ID',     emp.employeeId || ''],
         ['Period From',     fmtDDMMYYYY(selectedDate)],
         ['Period To',       fmtDDMMYYYY(endDate)],
         ['Generated',       fmtDDMMYYYY(new Date().toISOString().slice(0,10))],
         [],
-        ['Trips',                 trips],
-        ['Days Travelled',        days],
-        ['Claimed Distance (km)', Number(claimedKm.toFixed(2))],
-        ['GPS Distance (km)',     Number(gpsKm.toFixed(2))],
-        ['Total Amount (₹)',      Number(totalAmount.toFixed(2))],
+        ['Total days',              dailyReport.length],
+        ['Days with GPS route',     daysWith],
+        ['Total distance (km)',     Number(totalKm.toFixed(2))],
       ];
-      const trips_data = [
-        ['Date', 'Type', 'From', 'To', 'Distance (km)', 'Amount (₹)', 'Status'],
-        ...rs.map(r => [
-          fmtDDMMYYYY(r.date),
-          r.kind === 'petrol' ? 'Petrol' : 'Travel',
-          r.from || '',
-          r.to || '',
-          Number(r.distance) || 0,
-          Number(r.amount) || 0,
-          r.status || 'Pending',
+
+      const daily_data = [
+        ['Date', 'Employee', 'Employee ID', 'Distance travelled (km)', 'GPS route'],
+        ...dailyReport.map((d) => [
+          fmtDDMMYYYY(d.date),
+          empName,
+          emp.employeeId || '',
+          Number(d.distanceKm.toFixed(2)),
+          d.hasRoute ? 'Yes' : 'No',
         ]),
       ];
 
       const wb = XLSX.utils.book_new();
       const wsSummary = XLSX.utils.aoa_to_sheet(summary);
-      const wsTrips   = XLSX.utils.aoa_to_sheet(trips_data);
-      // Column widths for readability.
-      wsSummary['!cols'] = [{ wch: 24 }, { wch: 28 }];
-      wsTrips['!cols']   = [{ wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+      const wsDaily   = XLSX.utils.aoa_to_sheet(daily_data);
+      wsSummary['!cols'] = [{ wch: 26 }, { wch: 30 }];
+      wsDaily['!cols']   = [{ wch: 14 }, { wch: 28 }, { wch: 14 }, { wch: 24 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-      XLSX.utils.book_append_sheet(wb, wsTrips,   'Trips');
+      XLSX.utils.book_append_sheet(wb, wsDaily,   'Daily');
 
-      const file = `travel-report_${(emp.employeeId || 'employee').replace(/[^a-zA-Z0-9]+/g, '_')}_${selectedDate}_${endDate}.xlsx`;
-      XLSX.writeFile(wb, file);
+      XLSX.writeFile(wb, `travel-report_${_empNameForFile()}_${selectedDate}_${endDate}.xlsx`);
     } catch (err) {
       console.error('[downloadTravelReportExcel]', err);
       alert('Could not generate Excel: ' + (err?.message || 'unknown error'));
@@ -1501,29 +1488,9 @@ export default function LiveTracking() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, padding: 14, borderBottom: '1px solid var(--border-color)' }}>
-              {(() => {
-                const rs = travelReport.rows;
-                const claimedKm   = rs.reduce((s, r) => s + (Number(r.distance) || 0), 0);
-                const totalAmount = rs.reduce((s, r) => s + (Number(r.amount)   || 0), 0);
-                const trips       = rs.length;
-                const days        = new Set(rs.map(r => r.date)).size;
-                const gpsKm       = polylineKm(historicalRoute.points || []);
-                const tile = (lbl, val, color) => (
-                  <div key={lbl} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}</div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.4 }}>{lbl}</div>
-                  </div>
-                );
-                return [
-                  tile('Trips', trips, '#0F172A'),
-                  tile('Days', days, '#0F172A'),
-                  tile('Claimed (km)', claimedKm.toFixed(2), '#2563EB'),
-                  tile('Amount (₹)', `₹${totalAmount.toFixed(2)}`, '#16A34A'),
-                  tile('GPS (km)', gpsKm.toFixed(2), '#7C3AED'),
-                ];
-              })()}
-            </div>
+            {/* Summary tile row removed — the per-date table below is
+                the canonical view now. HR didn't need trips/amount
+                aggregates here; the downloads still carry the totals. */}
 
             {/* Per-date report — one row per day in the picked range,
                 regardless of whether the employee filed an allowance

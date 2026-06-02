@@ -148,6 +148,11 @@ export default function Topbar({
   }, []);
 
   const handleLogout = () => {
+    // Native confirm — keeps the dependency footprint zero. The
+    // surrounding NotificationContext could host a custom modal but
+    // window.confirm is enough for the destructive-action gate HR asked
+    // for, and matches the rest of the app's "Are you sure?" prompts.
+    if (!window.confirm('Are you sure you want to log out?')) return;
     showNotification('Logging out...', 'info');
     setTimeout(() => {
       logout();
