@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ClipboardList, AlertCircle, Search, Check, X, Clock, Inbox } from 'lucide-react';
+// `Search` icon dropped Jun 2026 — search bar removed from the page.
+import { ChevronRight, ClipboardList, AlertCircle, Check, X, Clock, Inbox } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 
 // Mobile-app leave & permission requests arrive via HRMS backend proxy at
@@ -309,31 +310,9 @@ export default function LeavePermissionRequest({ onBack }) {
 
         {/* Filters & Search Row */}
         <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {/* Dropdown of everyone who filed a request currently visible in
-              HRMS (Jun 2026 brief — second pass). Options are deduped by
-              employee so the same person doesn't appear twice when they
-              have multiple pending rows. */}
-          <div className="topbar-search" style={{ flex: 1, maxWidth: '280px' }}>
-            <Search size={14} />
-            <select
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent', cursor: 'pointer' }}
-            >
-              <option value="">All requesters</option>
-              {Array.from(new Map(
-                requests
-                  .filter(r => classify(r) === (activeTab === 'leave-requests' ? 'leave' : 'permission'))
-                  .map(r => [String(r.employeeId || r.name || r._id), r])
-              ).values())
-                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
-                .map(r => (
-                  <option key={r._id || r.employeeId} value={(r.name || r.employeeName || '').toLowerCase()}>
-                    {r.name || r.employeeName || '—'}{r.employeeId ? ` · ${r.employeeId}` : ''}
-                  </option>
-                ))}
-            </select>
-          </div>
+          {/* Search bar removed entirely (Jun 2026 final brief — HR
+              didn't want it). The list already filters to pending +
+              tab-relevant rows, and HR scrolls visually. */}
           
           {/* Secondary Permission / Leave selector removed per HR request —
               the two cards at the top already drive the active tab and this
