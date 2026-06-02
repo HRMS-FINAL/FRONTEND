@@ -44,26 +44,53 @@ export default function Department({ onBack }) {
   const [newDept, setNewDept] = useState({ name: '', manager: '' });
   const [editTarget, setEditTarget] = useState(null);
   const [openMenu, setOpenMenu]     = useState(null);  // id whose 3-dot menu is open
-  // List of every existing manager — anyone whose name appears in some
-  // employee's `assignedTo` field is treated as a manager. We fetch it
-  // once on mount and use it to power the Department Manager dropdown
-  // in both the Add and Edit drawers below.
-  // Seed from the canonical MANAGERS list so the dropdown matches the
-  // New Employee form's "Assigned To" 1:1. We also union in anyone the
-  // live API reports as someone else's assignedTo, so a manager added
-  // after the static list was written still shows up here.
-  const [managers, setManagers] = useState(() => MANAGERS.map(m => m.name));
+  // List of every existing manager. Rebuilt Jun 2026 — the dropdown now
+  // carries a {name, title} pair (e.g. "Vivek — Technical Lead
+  // Consultant") so HR can disambiguate when two people share a first
+  // name, and we dedupe aggressively: a fuzzy first-name match against
+  // a canonical MANAGERS entry wins, so "Vivek Kumar" pulled from a
+  // live employee's `assignedTo` field is collapsed into the canonical
+  // "Vivek — Technical Lead Consultant" row rather than rendering as a
+  // duplicate. Same for Vishnu / Vishnu K, etc.
+  const [managers, setManagers] = useState(() => MANAGERS.slice());
   useEffect(() => {
     fetch(`${API}/employees?limit=200`)
       .then(r => r.json())
       .then(d => {
         if (!d?.success || !Array.isArray(d.employees)) return;
-        const referenced = new Set(MANAGERS.map(m => m.name));
+        // Index canonical MANAGERS by lowercased first name so we can
+        // de-dupe variants ("Vishnu" / "Vishnu K", "Vivek" / "Vivek
+        // Kumar") into the single canonical entry.
+        const byFirst = new Map();
+        for (const m of MANAGERS) {
+          const fn = String(m.name || '').trim().split(/\s+/)[0].toLowerCase();
+          if (fn) byFirst.set(fn, m);
+        }
+        const merged = [...MANAGERS];
+        const seenFull = new Set(MANAGERS.map(m => String(m.name || '').toLowerCase().trim()));
         for (const e of d.employees) {
           const a = String(e.assignedTo || '').trim();
-          if (a) referenced.add(a);
+          if (!a) continue;
+          const fn = a.split(/\s+/)[0].toLowerCase();
+          // Collapse onto an existing canonical entry when the first
+          // name already exists in MANAGERS.
+          if (byFirst.has(fn)) continue;
+          // Otherwise it's a brand-new manager — add it, with the
+          // role pulled from the employee's *own* role/designation if
+          // we can find them in the same response (best-effort).
+          const key = a.toLowerCase();
+          if (seenFull.has(key)) continue;
+          seenFull.add(key);
+          // Try to find that manager's own row to grab their title.
+          const ownRow = d.employees.find(x =>
+            String(x.name || '').trim().toLowerCase() === key
+          );
+          const title = (ownRow && (ownRow.role || ownRow.designation)) || '';
+          merged.push({ name: a, title });
         }
-        setManagers(Array.from(referenced).sort((a, b) => a.localeCompare(b)));
+        // Sort by name for predictable ordering in the dropdown.
+        merged.sort((x, y) => String(x.name || '').localeCompare(String(y.name || '')));
+        setManagers(merged);
       })
       .catch(() => { /* keep the static seed */ });
   }, []);
@@ -331,9 +358,11 @@ export default function Department({ onBack }) {
                   >
                     <option value="">— Select a manager —</option>
                     {managers.map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={`${m.name}-${m.title || ''}`} value={m.name}>
+                        {m.name}{m.title ? ` — ${m.title}` : ''}
+                      </option>
                     ))}
-                    {editTarget.manager && !managers.includes(editTarget.manager) && (
+                    {editTarget.manager && !managers.some(m => m.name === editTarget.manager) && (
                       <option value={editTarget.manager}>{editTarget.manager} (current)</option>
                     )}
                   </select>
@@ -378,7 +407,9 @@ export default function Department({ onBack }) {
                   >
                     <option value="">— Select a manager —</option>
                     {managers.map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={`${m.name}-${m.title || ''}`} value={m.name}>
+                        {m.name}{m.title ? ` — ${m.title}` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>

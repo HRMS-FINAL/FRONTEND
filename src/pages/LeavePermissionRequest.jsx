@@ -308,16 +308,11 @@ export default function LeavePermissionRequest({ onBack }) {
           </div>
         </div>
 
-        {/* Filters & Search Row */}
-        <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {/* Search bar removed entirely (Jun 2026 final brief — HR
-              didn't want it). The list already filters to pending +
-              tab-relevant rows, and HR scrolls visually. */}
-          
-          {/* Secondary Permission / Leave selector removed per HR request —
-              the two cards at the top already drive the active tab and this
-              row was just duplicating that control. */}
-        </div>
+        {/* Filters & Search row removed entirely (Jun 2026 final brief).
+            The two stat cards at the top of the page are now the only
+            way to switch between leave and permission tabs; the search
+            input and the secondary type selector were both dropped per
+            HR's "keep it clean" request. */}
 
         <div style={{ overflowX: 'auto' }}>
           <table className="emp-table" style={{ tableLayout: 'fixed', width: '100%' }}>
