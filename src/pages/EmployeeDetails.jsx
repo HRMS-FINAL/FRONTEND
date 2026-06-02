@@ -325,7 +325,14 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
     // still carried the OLD value because the write actually failed).
     let res;
     try {
-      res = await fetch(`${API}/employees/${employee.id}`, {
+      // PUT targets the mongo _id, NOT the company employeeId (TES052).
+      // The backend route resolves `/:id` via findByIdAndUpdate(req.params.id),
+      // which only accepts a real ObjectId — passing "TES052" was casting
+      // to null and the write returned 404, silently. That's why edits
+      // looked like they saved (optimistic UI) but reverted after the
+      // next 30-second poll: the actual write never landed in Mongo.
+      const targetMongoId = employee._id || employee.mongoId || employee.id;
+      res = await fetch(`${API}/employees/${targetMongoId}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -440,38 +447,9 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
             </div>
           </div>
 
-          <div className="card" style={{ padding: '24px' }}>
-            <h3 className="p-card-title" style={{ marginBottom: '6px', fontSize: '16px' }}>Productivity</h3>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
-              This month — policy: 1 CL + 2 perms (2 hrs each); 3 lates = 1/2 LOP, 6 = 1 LOP
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#48BB78' }}>{productivity.leavesUsed}/1</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>CL</div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#9F7AEA' }}>{productivity.permHoursUsed.toFixed(1)}h</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Perm</div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.absent > 0 ? '#FC8181' : '#4299E1' }}>{productivity.absent}</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Absent</div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.lateCount > 0 ? '#ECC94B' : '#4299E1' }}>{productivity.lateCount}</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>Late</div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.lopDays > 0 ? '#DC2626' : '#4299E1' }}>{productivity.lopDays}</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>LOP</div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-main)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '18px', fontWeight: 800, color: productivity.halfLopDays > 0 ? '#F97316' : '#4299E1' }}>{productivity.halfLopDays}</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase' }}>1/2 LOP</div>
-              </div>
-            </div>
-          </div>
+          {/* Productivity card removed (Jun 2026): the same numbers live in
+              the Attendance page and the Reports page — HR didn't want the
+              duplicated tiles cluttering the employee profile. */}
 
           {/* Assigned Assets — read-only mirror of what the Assets page
               shows for this employee. Hidden when the employee has no
@@ -614,18 +592,30 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 style={{ display: 'none' }}
-                onChange={handleUploadDocument}
+                onChange={(e) => onPickFiles(e.target.files)}
               />
               <button
-                type="button"
                 className="ne-btn-secondary"
-                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => onBack && onBack()}
-              >
-                Back
-              </button>
+                onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              >Upload</button>
             </div>
+            {docs.length === 0 ? (
+              <div style={{ padding: 20, color: 'var(--text-light)', fontSize: 13, textAlign: 'center' }}>
+                No documents uploaded yet.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {docs.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--bg-main)', borderRadius: 8 }}>
+                    <FileText size={16} />
+                    <a href={d.dataUrl} download={d.name} style={{ flex: 1, fontSize: 13, color: 'var(--text-main)', textDecoration: 'none' }}>{d.name}</a>
+                    <button onClick={() => removeDoc(i)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DC2626' }}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </main>
       </div>

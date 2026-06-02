@@ -292,13 +292,35 @@ export default function LeavePermissionRequest({ onBack }) {
 
         {/* Filters & Search Row */}
         <div className="announcement-filters" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Search switched to a dropdown of the actual requesters on this
+              tab so HR can pick a name and instantly filter — typing search
+              had been reported broken multiple times because of stale
+              cached rows with missing fields. A dropdown sidesteps that
+              entirely: the option list IS the data, so a match is
+              guaranteed. */}
           <div className="topbar-search" style={{ flex: 1, maxWidth: '280px' }}>
             <Search size={14} />
-            <input 
-              placeholder="Search name, role or reason..." 
+            <select
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-            />
+              style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent', cursor: 'pointer' }}
+            >
+              <option value="">All requesters</option>
+              {Array.from(new Map(
+                requests
+                  .filter(r => {
+                    const k = (r.type || '').toLowerCase();
+                    return activeTab === 'leave-requests' ? k === 'leave' : k === 'permission';
+                  })
+                  .map(r => [r.name || r.employeeName || r.employeeId || r.id, r])
+              ).values())
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                .map(r => (
+                  <option key={r.id || r.employeeId || r.name} value={(r.name || r.employeeName || '').toLowerCase()}>
+                    {r.name || r.employeeName} {r.employeeId ? `· ${r.employeeId}` : ''}
+                  </option>
+                ))}
+            </select>
           </div>
           
           {/* Secondary Permission / Leave selector removed per HR request —
@@ -520,33 +542,49 @@ export default function LeavePermissionRequest({ onBack }) {
               placeholder="e.g., Approved for the requested period."
               style={{
                 width: '100%',
-                minHeight: 80,
+                minHeight: '90px',
                 padding: '10px 12px',
                 border: '1px solid var(--border-color)',
-                borderRadius: 8,
-                fontSize: 13,
-                fontFamily: 'inherit',
+                borderRadius: '8px',
+                fontSize: '13px',
                 resize: 'vertical',
                 outline: 'none',
+                fontFamily: 'inherit',
               }}
             />
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
               <button
-                onClick={() => setActionModal(null)}
+                type="button"
+                onClick={() => { setActionModal(null); setActionMessage(''); }}
                 style={{
-                  padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                  background: '#fff', color: '#475569',
-                  border: '1px solid #E2E8F0', cursor: 'pointer',
+                  background: 'transparent',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-main)',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
                 }}
-              >Cancel</button>
+              >
+                Cancel
+              </button>
               <button
-                onClick={confirmAction}
+                type="button"
+                onClick={() => confirmAction()}
                 style={{
-                  padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  background: actionModal.status === 'Approved' ? '#16A34A' : '#DC2626',
-                  color: '#fff', border: 'none', cursor: 'pointer',
+                  background: actionModal.status === 'Approved' ? '#4CAA17' : '#FC8181',
+                  border: 'none',
+                  color: 'white',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
                 }}
-              >Confirm {actionModal.status}</button>
+              >
+                Confirm {actionModal.status}
+              </button>
             </div>
           </div>
         </div>

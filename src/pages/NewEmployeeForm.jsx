@@ -29,6 +29,12 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
     // HR types in the company's actual Emp ID (e.g. TSL-024). No auto-prefix.
     employeeId: '', department: '', role: '', designation: '', employmentType: '',
     joiningDate: '', salary: '', assignedTo: '',
+    // Petrol allowance eligibility flag (Jun 2026 HR brief). When true,
+    // the petrol allowance for this employee is computed daily as
+    //   GPS km (check-in → check-out polyline) × ₹3.50
+    // and submitted automatically. When false, petrol claims for this
+    // person are blocked at the API layer.
+    petrolEligible: false,
     degree: '', university: '', fieldOfStudy: '', graduationYear: ''
   });
 
@@ -149,8 +155,15 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
     return parts.join('-');
   };
   const handleJoiningDateChange = (e) => {
-    const masked = formatJoiningDateInput(e.target.value);
-    setForm(prev => ({ ...prev, joiningDate: masked }));
+    // The input is now <input type="date">, so the browser hands us an
+    // ISO yyyy-mm-dd string. We still store the user-facing dd-mm-yyyy
+    // in form state because every downstream display + validation already
+    // assumes that shape (and we convert it back to ISO at submit time).
+    const raw = e.target.value || '';
+    const ddmmyyyy = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? raw.slice(8, 10) + '-' + raw.slice(5, 7) + '-' + raw.slice(0, 4)
+      : formatJoiningDateInput(raw);
+    setForm(prev => ({ ...prev, joiningDate: ddmmyyyy }));
     if (errors.joiningDate) {
       setErrors(prev => { const n = { ...prev }; delete n.joiningDate; return n; });
     }
@@ -210,6 +223,10 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
       joiningDate:    ddmmyyyyToIso(form.joiningDate) || form.joiningDate,
       salary:         form.salary,
       assignedTo:     form.assignedTo,
+      // Backend reads this flag in the petrol-allowance auto-bill cron
+      // (services/petrolDailyJob.js) — ineligible employees are simply
+      // skipped, eligible ones get a row per workday at GPS km × 3.50.
+      petrolEligible: !!form.petrolEligible,
       dob:            form.dob,
       gender:         form.gender,
       bloodGroup:     form.bloodGroup,
@@ -450,14 +467,22 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                       <span className="required">*</span> Joining Date
                       <span style={{ fontSize: 11, color: '#64748B', marginLeft: 6, fontWeight: 400 }}>(dd-mm-yyyy)</span>
                     </label>
+                    {/* Calendar picker (Jun 2026 HR brief): HR was keying in
+                        the date by hand and typos were common. The browser
+                        date picker enforces a valid date and we keep the
+                        existing dd-mm-yyyy form-state shape via the helper
+                        in handleJoiningDateChange. */}
                     <input
-                      type="text"
+                      type="date"
                       id="joiningDate"
-                      inputMode="numeric"
-                      placeholder="dd-mm-yyyy"
-                      maxLength={10}
                       className={`form-input ${errors.joiningDate ? 'error' : ''}`}
-                      value={form.joiningDate}
+                      value={(() => {
+                        const v = form.joiningDate || '';
+                        // form state is dd-mm-yyyy; <input type="date"> needs yyyy-mm-dd.
+                        return /^\d{2}-\d{2}-\d{4}$/.test(v)
+                          ? v.slice(6, 10) + '-' + v.slice(3, 5) + '-' + v.slice(0, 2)
+                          : '';
+                      })()}
                       onChange={handleJoiningDateChange}
                     />
                   </div>
@@ -514,6 +539,26 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                       ))}
                     </select>
                     {errors.assignedTo && <span className="error-text"><AlertCircle size={12} /> {errors.assignedTo}</span>}
+                  </div>
+
+                  {/* Petrol-eligible toggle — added Jun 2026. Yes = the system
+                      auto-calculates petrol allowance daily from the GPS
+                      check-in→check-out polyline at ₹3.50/km. No = this
+                      employee can't claim petrol (e.g. an office-only HR
+                      role doesn't burn fuel for the company). */}
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: '#F9FAFB', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!form.petrolEligible}
+                        onChange={(e) => setForm(prev => ({ ...prev, petrolEligible: e.target.checked }))}
+                        style={{ width: 18, height: 18, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>Eligible for petrol allowance?</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 500, marginLeft: 'auto' }}>
+                        If yes, we auto-bill daily GPS distance × ₹3.50/km from check-in to check-out.
+                      </span>
+                    </label>
                   </div>
                 </div>
               </div>

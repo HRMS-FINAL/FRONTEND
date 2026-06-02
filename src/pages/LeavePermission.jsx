@@ -331,35 +331,17 @@ export default function LeavePermission({ onBack }) {
                       }}
                     >
                       <span className="day-num" style={isSelected ? { color: 'white' } : {}}>{day}</span>
-                      <div style={{ display: 'flex', gap: '3px', justifyContent: 'center', position: 'absolute', bottom: '4px' }}>
-                        {hasLeave && <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: isSelected ? 'white' : '#FC8181' }} />}
-                        {hasPermission && <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: isSelected ? 'white' : '#9F7AEA' }} />}
-                        {hasLate && <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: isSelected ? 'white' : '#ECC94B' }} />}
-                      </div>
+                      {/* Per HR (Jun 2026 brief): status dots removed from each
+                          day — the table below already tells the whole story
+                          and the dots were just visual clutter. */}
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Status Legend */}
-            <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-              <h4 style={{ margin: '0 0 12px 0', fontSize: '11px', color: 'var(--text-light)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status Indicators</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#FC8181' }} />
-                  On Leave
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#9F7AEA' }} />
-                  Permission
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-main)', fontWeight: 600 }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ECC94B' }} />
-                  Late Arrival
-                </div>
-              </div>
-            </div>
+            {/* Status legend removed — the dot indicators it explained are
+                gone too (Jun 2026 HR brief: keep the calendar clean). */}
           </div>
 
         {/* Right Column: Attendance Records or Requests */}

@@ -90,6 +90,8 @@ export default function Dashboard({
   // people check in. The lookup is case-insensitive on dept name to
   // tolerate "Development" vs "development" data drift.
   const [presentByDept, setPresentByDept] = useState({});   // { 'development': 9, ... }
+  // Total tallies for the top stat cards (Jun 2026 HR brief).
+  const [liveTallies, setLiveTallies] = useState({ present: 0, late: 0, halfLop: 0 });
   useEffect(() => {
     let cancelled = false;
     const fetchPresent = async () => {
@@ -100,6 +102,9 @@ export default function Dashboard({
         const j = await r.json().catch(() => ({}));
         if (cancelled || !j?.success || !Array.isArray(j.data)) return;
         const out = {};
+        let presentTotal = 0;
+        let lateTotal    = 0;
+        let halfLopTotal = 0;
         for (const row of j.data) {
           const dept = String(row.department || row.dept || 'Unassigned').toLowerCase().trim();
           const s    = String(row.status || '').toLowerCase();
@@ -109,9 +114,17 @@ export default function Dashboard({
           // strictly how many are full-day).
           if (s === 'present' || s === 'late' || s === 'on time' || s === 'half day' || s === 'permission') {
             out[dept] = (out[dept] || 0) + 1;
+            presentTotal += 1;
+          }
+          if (s === 'late') lateTotal += 1;
+          // Half-LOP today: anyone whose status flags a half-day-LOP (the
+          // mobile/HRMS pipeline tags these explicitly when policy fires).
+          if (s === 'half day' || s === 'half-lop' || s === '1/2 lop' || row.halfLop === true) {
+            halfLopTotal += 1;
           }
         }
         setPresentByDept(out);
+        setLiveTallies({ present: presentTotal, late: lateTotal, halfLop: halfLopTotal });
       } catch { /* leave previous value */ }
     };
     fetchPresent();
@@ -123,14 +136,34 @@ export default function Dashboard({
     ...d,
     present: presentByDept[String(d.name || '').toLowerCase().trim()] || 0,
   }));
+  // Total for the headcount bar widget — still the full roster, not the
+  // present-today count (that view lives in the Employee Overview now).
   const totalForChart = deptData.reduce((s, d) => s + d.value, 0) || 1;
+  // Per Jun 2026 HR brief, the Employee Overview pie/legend should show
+  // *present-today* per department, not the total headcount. We mirror
+  // the same array shape (name/color/value) but swap `value` for the
+  // live present count. Departments with zero present today drop out
+  // automatically — keeping the donut readable.
+  const presentDeptData = deptData
+    .map((d) => ({ name: d.name, color: d.color, value: d.present }))
+    .filter((d) => d.value > 0);
+  const totalPresentForChart = presentDeptData.reduce((s, d) => s + d.value, 0) || 1;
 
+  // Top cards now show *live* attendance for the current date (Jun 2026
+  // HR brief). "Active Staff" was misleading — it counted every Active
+  // employee on the roster regardless of whether they showed up. We
+  // replaced it with Present Today, and added Late + Half-LOP so HR can
+  // spot policy hits at a glance without leaving the dashboard.
   const statCards = [
-    { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),  trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',       Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Active Staff',    value: loading ? '...' : activeStaff.toLocaleString(),trend: stats?.cards?.activeStaff?.trend    || '—', up: stats?.cards?.activeStaff?.up    ?? true,  sub: 'currently working',    Icon: UserCheck,  target: 'live-tracking',    color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'On Leave',        value: loading ? '...' : onLeave.toLocaleString(),    trend: stats?.cards?.onLeave?.trend         || '—', up: false,                                     sub: 'today',                Icon: CalendarOff,target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Permission',      value: loading ? '...' : permission.toLocaleString(), trend: stats?.cards?.permission?.trend      || '—', up: stats?.cards?.permission?.up      ?? false, sub: 'today',     Icon: Clock,      target: 'leave-permission', color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),                   trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',     Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Present Today',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: '—', up: true,                                                                                  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',       color: '#16A34A',        bg: '#F0FDF4' },
+    { label: 'Late Today',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: '—', up: false,                                                                                 sub: 'after cut-off',      Icon: Clock,      target: 'attendance',       color: '#D97706',        bg: '#FFFBEB' },
+    { label: 'Half-LOP',        value: loading ? '...' : (liveTallies.halfLop || 0).toLocaleString(), trend: '—', up: false,                                                                                 sub: 'today',              Icon: CalendarOff,target: 'leave-permission', color: '#F97316',        bg: '#FFF7ED' },
   ];
+  // `activeStaff`, `onLeave`, `permission` are still computed above so
+  // any downstream chart or widget that reads them keeps working — only
+  // the top-card lineup changed.
+  void activeStaff; void onLeave; void permission;
 
   return (
     <div className="dashboard-body">
@@ -291,101 +324,60 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Employee Overview — real dept data */}
+        {/* Employee Overview — live PRESENT per department (Jun 2026 HR
+            brief). Replaces the old "total headcount per department"
+            view; the headcount totals already live in the Department
+            Headcounts card below, so showing both was redundant. */}
         <div className="card">
           <div className="card-header">
             <div>
               <div className="card-title">Employee Overview</div>
-              <div className="card-subtitle">By Department</div>
+              <div className="card-subtitle">Present today · all departments</div>
             </div>
-            <span className="card-action" onClick={() => setActiveView('employee-list')}>View all <ChevronRight size={13} /></span>
+            <span className="card-action" onClick={() => setActiveView('attendance')}>View attendance <ChevronRight size={13} /></span>
           </div>
 
           <div className="donut-wrap">
-            {deptData.length > 0 ? (
+            {presentDeptData.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height={140}>
                   <PieChart>
-                    <Pie data={deptData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3} dataKey="value" stroke="none">
-                      {deptData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    <Pie data={presentDeptData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3} dataKey="value" stroke="none">
+                      {presentDeptData.map((d, i) => <Cell key={i} fill={d.color} />)}
                     </Pie>
                     <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div style={{ textAlign: 'center', marginTop: -12 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-main)' }}>{totalEmp.toLocaleString()}</div>
-                  <div className="donut-center-label">Total Employees</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#16A34A' }}>{liveTallies.present.toLocaleString()}</div>
+                  <div className="donut-center-label">Present Today</div>
                 </div>
                 <div className="donut-legend-list">
-                  {deptData.map(d => {
-                    const presentPct = d.value > 0
-                      ? Math.min(100, Math.round((d.present / d.value) * 100))
-                      : 0;
-                    return (
-                      <div key={d.name}>
-                        <div className="donut-legend-item">
-                          <div className="donut-legend-left">
-                            <div className="donut-legend-dot" style={{ background: d.color }} />
-                            {d.name}
-                          </div>
-                          <span className="donut-legend-count">
-                            {d.value}
-                            {/* Present-today badge (HR ask: see who's in
-                                the office per department right inside the
-                                same chart). Tooltip spells out the math
-                                so the number is unambiguous. */}
-                            <span
-                              title={`${d.present} of ${d.value} checked in today (${presentPct}%)`}
-                              style={{
-                                marginLeft: 8,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: '#16A34A',
-                                background: '#ECFDF5',
-                                border: '1px solid #BBF7D0',
-                                borderRadius: 999,
-                                padding: '2px 8px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {d.present} present
-                            </span>
-                          </span>
+                  {presentDeptData.map(d => (
+                    <div key={d.name}>
+                      <div className="donut-legend-item">
+                        <div className="donut-legend-left">
+                          <div className="donut-legend-dot" style={{ background: d.color }} />
+                          {d.name}
                         </div>
-                        {/* The bar now overlays a green "present" segment
-                            on top of the department's coloured total bar,
-                            so HR can eyeball today's attendance density
-                            per dept at a glance. */}
-                        <div className="donut-bar-bg" style={{ position: 'relative' }}>
-                          <div
-                            className="donut-bar-fill"
-                            style={{
-                              width: `${(d.value / totalForChart * 100).toFixed(1)}%`,
-                              background: d.color,
-                            }}
-                          />
-                          {d.present > 0 && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: 0, left: 0,
-                                height: '100%',
-                                width: `${((d.present / totalForChart) * 100).toFixed(1)}%`,
-                                background: 'rgba(22, 163, 74, 0.45)',
-                                borderRadius: 'inherit',
-                              }}
-                              title={`${d.present} present today`}
-                            />
-                          )}
-                        </div>
+                        <span className="donut-legend-count">{d.value}</span>
                       </div>
-                    );
-                  })}
+                      <div className="donut-bar-bg">
+                        <div
+                          className="donut-bar-fill"
+                          style={{
+                            width: `${((d.value / totalPresentForChart) * 100).toFixed(1)}%`,
+                            background: d.color,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </>
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-                {loading ? 'Loading...' : 'No employee data yet. Add employees to see department breakdown.'}
+                {loading ? 'Loading...' : 'No one has checked in yet today.'}
               </div>
             )}
           </div>
@@ -447,29 +439,21 @@ export default function Dashboard({
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, display: 'inline-block' }} />
                       {d.name}
                     </span>
+                    {/* Headcount card now shows just the total — the
+                        live present-today number was moved out to the
+                        Employee Overview donut per Jun 2026 HR brief
+                        (no duplicate "N present" badge here). */}
                     <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-main)' }}>
                       {d.value}
-                      <span style={{ marginLeft: 6, fontSize: 10, color: '#16A34A', fontWeight: 700 }}>
-                        · {d.present} present
-                      </span>
                     </span>
                   </div>
                   <div style={{
                     background: '#F1F5F9', borderRadius: 999, height: 8, overflow: 'hidden',
-                    position: 'relative',
                   }}>
                     <div style={{
                       width: `${((d.value / totalForChart) * 100).toFixed(1)}%`,
                       background: d.color, height: '100%',
                     }} />
-                    {d.present > 0 && (
-                      <div style={{
-                        position: 'absolute', top: 0, left: 0,
-                        height: '100%',
-                        width: `${((d.present / totalForChart) * 100).toFixed(1)}%`,
-                        background: 'rgba(22, 163, 74, 0.55)',
-                      }} />
-                    )}
                   </div>
                 </div>
               ))

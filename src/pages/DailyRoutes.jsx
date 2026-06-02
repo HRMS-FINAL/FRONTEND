@@ -432,19 +432,31 @@ export default function DailyRoutes({ onBack }) {
                 style={{ border: 'none', outline: 'none', fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}
               />
             </div>
+            {/* Search → dropdown of active employees for this date (Jun 2026
+                HR brief). The roster comes from the same `items` we render,
+                so HR picks from the same list they see below. Blank value
+                means "all employees" — i.e. no filter. */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
               background: '#fff', border: '1px solid #E2E8F0',
               borderRadius: 8, padding: '6px 10px', minWidth: 240,
             }}>
               <Search size={14} color="#64748B" />
-              <input
-                type="text"
-                placeholder="Search name / ID / dept"
+              <select
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%' }}
-              />
+                style={{ border: 'none', outline: 'none', fontSize: 13, width: '100%', background: 'transparent', cursor: 'pointer' }}
+              >
+                <option value="">All active employees ({items.length})</option>
+                {items
+                  .slice()
+                  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                  .map((it) => (
+                    <option key={it.employeeId || it.empId || it.email || it.name} value={it.name || it.employeeId || ''}>
+                      {it.name || it.employeeId} {it.employeeId ? `· ${it.employeeId}` : ''} {it.department ? `· ${it.department}` : ''}
+                    </option>
+                  ))}
+              </select>
             </div>
             <button
               type="button"
