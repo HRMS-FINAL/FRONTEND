@@ -30,53 +30,10 @@ export default function Allowance({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [approvalModal, setApprovalModal] = useState(null);
 
-  // ── Petrol backfill modal state ─────────────────────────────────────
-  // HR opens this when an eligible employee's check-in/out didn't
-  // generate the petrol allowance row automatically. POSTs to
-  // /api/allowances/backfill-petrol which forwards to the mobile
-  // backend's admin endpoint and creates the missing rows.
-  const todayYmd = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
-  const [backfillOpen, setBackfillOpen] = useState(false);
-  const [backfillDate, setBackfillDate] = useState(todayYmd());
-  const [backfillBusy, setBackfillBusy] = useState(false);
-  const [backfillResult, setBackfillResult] = useState(null);
-
-  const runBackfill = async () => {
-    if (backfillBusy) return;
-    setBackfillBusy(true);
-    setBackfillResult(null);
-    try {
-      const res = await fetch(`${API}/allowances/backfill-petrol`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: backfillDate }),
-      });
-      const data = await res.json().catch(() => ({}));
-      setBackfillResult(data);
-      if (res.ok && data.success) {
-        showNotification(
-          `Backfill complete — created ${data.createdCount || 0} row(s), skipped ${data.skippedCount || 0}.`,
-          'success'
-        );
-        // Refresh the table so the new rows appear immediately.
-        try {
-          const r = await fetch(`${API}/allowances?limit=300`);
-          const d = await r.json();
-          if (Array.isArray(d.petrol)) setPetrolRequests(d.petrol);
-          if (Array.isArray(d.travel)) setTravelRequests(d.travel);
-        } catch {}
-      } else {
-        showNotification(data.message || 'Backfill failed. Check the mobile backend logs.', 'error');
-      }
-    } catch (e) {
-      showNotification('Could not reach the backend. ' + e.message, 'error');
-    } finally {
-      setBackfillBusy(false);
-    }
-  };
+  // Petrol allowance rows are now generated automatically by the mobile
+  // backend's autoPetrolBilling cron — every 5 min it scans checked-out
+  // petrol-eligible employees and creates the missing row. No HR action
+  // is required, so the manual "Backfill Petrol" button has been removed.
 
   useEffect(() => {
     let cancelled = false;
@@ -523,15 +480,6 @@ export default function Allowance({ onBack }) {
               </select>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
-              {allowanceType === 'petrol' && (
-                <button
-                  type="button"
-                  onClick={() => { setBackfillResult(null); setBackfillOpen(true); }}
-                  title="Create missing petrol rows for eligible employees who checked in/out but didn't auto-generate a row."
-                  style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', cursor: 'pointer' }}>
-                  Backfill Petrol
-                </button>
-              )}
               <button type="button" onClick={downloadPdf} disabled={rows.length === 0}
                 style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', cursor: rows.length === 0 ? 'not-allowed' : 'pointer', opacity: rows.length === 0 ? 0.5 : 1 }}>
                 Download PDF
@@ -561,122 +509,6 @@ export default function Allowance({ onBack }) {
           approved / rejected split. The manager's decision (set via
           ERM Web's Approve Allowance modal) is the canonical breakdown
           and propagates to the employee with the note. */}
-
-      {/* ── Backfill Petrol modal ──────────────────────────────────
-          For HR to retroactively create missing petrol allowance rows
-          for petrol-eligible employees who checked in/out on a given
-          date. Bypasses the mobile check-out auto-bill entirely so
-          rows can be created from the HRMS side even if the mobile
-          backend isn't redeployed yet. */}
-      {backfillOpen && (
-        <div
-          onClick={() => !backfillBusy && setBackfillOpen(false)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: 12, width: 460, maxWidth: '92vw',
-              padding: '20px 22px', boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <Fuel size={20} color="#4CAA17" />
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0F172A' }}>
-                Backfill Petrol Allowances
-              </h3>
-            </div>
-            <p style={{ margin: '0 0 14px 0', fontSize: 12.5, color: '#475569', lineHeight: 1.55 }}>
-              Creates the petrol allowance row for every petrol-eligible employee who
-              checked in/out on the selected date but is missing a row. Amount is
-              computed from GPS distance × ₹3.50/km. Already-existing rows are skipped.
-            </p>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
-              Date
-            </label>
-            <input
-              type="date"
-              value={backfillDate}
-              max={todayYmd()}
-              disabled={backfillBusy}
-              onChange={(e) => setBackfillDate(e.target.value)}
-              style={{
-                width: '100%', padding: '8px 10px', border: '1px solid #E2E8F0',
-                borderRadius: 8, fontSize: 13, color: '#0F172A', background: '#fff',
-              }}
-            />
-
-            {backfillResult && (
-              <div style={{
-                marginTop: 14, padding: '10px 12px', borderRadius: 8,
-                background: backfillResult.success ? '#F0FDF4' : '#FEF2F2',
-                border: `1px solid ${backfillResult.success ? '#BBF7D0' : '#FECACA'}`,
-                fontSize: 12, color: backfillResult.success ? '#15803D' : '#B91C1C',
-                maxHeight: 240, overflow: 'auto',
-              }}>
-                {backfillResult.success ? (
-                  <>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      Created {backfillResult.createdCount || 0}, skipped {backfillResult.skippedCount || 0}.
-                    </div>
-                    {Array.isArray(backfillResult.created) && backfillResult.created.length > 0 && (
-                      <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                        {backfillResult.created.slice(0, 8).map((c, i) => (
-                          <li key={i} style={{ fontSize: 11.5 }}>
-                            {c.name || c.employeeId || c.userId} — {Number(c.distance || 0).toFixed(2)} km, ₹{Number(c.amount || 0).toFixed(2)}
-                          </li>
-                        ))}
-                        {backfillResult.created.length > 8 && (
-                          <li style={{ fontSize: 11.5, opacity: 0.7 }}>…and {backfillResult.created.length - 8} more</li>
-                        )}
-                      </ul>
-                    )}
-                    {backfillResult.createdCount === 0 && (
-                      <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.85 }}>
-                        Nothing to create — every eligible employee for {backfillDate} already has a row, or no
-                        eligible employees checked in that day.
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div>{backfillResult.message || 'Backfill failed.'}</div>
-                )}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button
-                type="button"
-                disabled={backfillBusy}
-                onClick={() => setBackfillOpen(false)}
-                style={{
-                  padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: '#fff', color: '#475569', border: '1px solid #E2E8F0',
-                  cursor: backfillBusy ? 'not-allowed' : 'pointer',
-                }}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                disabled={backfillBusy || !backfillDate}
-                onClick={runBackfill}
-                style={{
-                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800,
-                  background: backfillBusy ? '#94A3B8' : '#4CAA17', color: '#fff',
-                  border: 'none', cursor: (backfillBusy || !backfillDate) ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {backfillBusy ? 'Running…' : 'Run Backfill'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
