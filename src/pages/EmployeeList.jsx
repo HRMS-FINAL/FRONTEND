@@ -51,6 +51,9 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
       city:           emp.address?.city    || emp.city    || '',
       state:          emp.address?.state   || emp.state   || '',
       country:        emp.address?.country || emp.country || '',
+      // Petrol allowance opt-in (Jun 2026) — seed from the existing
+      // record so HR can see and toggle the current value.
+      petrolEligible: !!emp.petrolEligible,
     });
   };
 
@@ -106,6 +109,12 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
             state:   editForm.state,
             country: editForm.country,
           },
+          // Petrol allowance opt-in — flips the flag on the existing
+          // Employee doc so the mobile backend's auto-bill cron picks
+          // up the employee on their next check-out. Critical for
+          // pre-existing employees who were created before the flag
+          // existed.
+          petrolEligible: !!editForm.petrolEligible,
         }),
       });
     } catch (err) {
@@ -733,6 +742,26 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                     className="filter-input-small"
                     style={{ width: '100%', padding: '10px 12px', fontSize: '13px' }}
                   />
+                </div>
+
+                {/* Petrol allowance opt-in (Jun 2026) -- lets HR enable
+                    existing employees who were created before the flag
+                    existed. The mobile backend's auto-bill cron reads
+                    this on check-out and creates a petrol allowance row
+                    at GPS km x Rs3.50 when true. */}
+                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: '#F9FAFB', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!editForm.petrolEligible}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, petrolEligible: e.target.checked }))}
+                      style={{ width: 18, height: 18, cursor: 'pointer' }}
+                    />
+                    <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>Eligible for petrol allowance?</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 500, marginLeft: 'auto' }}>
+                      When on, a petrol claim auto-bills daily at GPS km x Rs3.50 between check-in and check-out.
+                    </span>
+                  </label>
                 </div>
               </div>
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

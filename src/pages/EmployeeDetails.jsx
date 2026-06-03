@@ -35,6 +35,12 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
     city: '',
     state: '',
     country: '',
+    // Petrol allowance opt-in (Jun 2026). Mirror of the toggle on the
+    // Add Employee form. Lets HR enable existing employees who were
+    // created BEFORE the flag existed — without this, employees like
+    // PETROL TEST who already had a record couldn't be flipped to
+    // eligible from any UI.
+    petrolEligible: false,
   });
 
   const departments = useMemo(() => {
@@ -302,6 +308,7 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
       city:           employee.address?.city    || '',
       state:          employee.address?.state   || '',
       country:        employee.address?.country || '',
+      petrolEligible: !!employee.petrolEligible,
     });
   };
 
@@ -358,6 +365,12 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
           },
           salary:      editForm.salary,
           joiningDate: editForm.joiningDate,
+          // Petrol allowance opt-in — sent through so HR can flip an
+          // existing employee to/from eligible after they were created.
+          // Backend PUT spreads req.body so this lands on the Employee
+          // doc, which is the same shared collection the mobile backend
+          // reads at check-out time for the auto-bill decision.
+          petrolEligible: !!editForm.petrolEligible,
         }),
       });
     } catch (err) {
