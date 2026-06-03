@@ -273,12 +273,13 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     showNotification("Excel file exported!", "success");
   };
 
-  // Status tab config
+  // Status tab config — "On Leave" dropped Jun 2026. HR doesn't filter
+  // the employee directory by who's on leave today; that's what the
+  // Leave & Permission page is for. Keep only the lifecycle states.
   const statusTabs = [
     { key: 'All',      label: 'All Employees', color: '#64748b', bg: '#F1F5F9', activeBg: '#0F172A', activeColor: '#fff' },
     { key: 'Active',   label: 'Active',        color: '#16a34a', bg: '#F0FDF4', activeBg: '#16a34a', activeColor: '#fff' },
     { key: 'Resigned', label: 'Resigned',      color: '#dc2626', bg: '#FEF2F2', activeBg: '#dc2626', activeColor: '#fff' },
-    { key: 'On Leave', label: 'On Leave',      color: '#d97706', bg: '#FFFBEB', activeBg: '#d97706', activeColor: '#fff' },
   ];
 
   return (

@@ -4,6 +4,12 @@ import {
   User, ClipboardList, AlertCircle, Bookmark, Check, X, CalendarCheck, CalendarOff, FileText
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+// Reports for Leave & Permission (Jun 2026): wire jsPDF + xlsx so the
+// header button generates a real downloadable file instead of just
+// firing a toast. Same libraries the rest of the HRMS already uses.
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 // Approved leaves & permissions from the mobile app arrive via HRMS backend
 // proxy at /api/leave-requests?status=approved. The UI below is unchanged —
@@ -177,10 +183,40 @@ export default function LeavePermission({ onBack }) {
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
+  // Rewritten Jun 2026 — the old impl only looked at day numbers in the
+  // formatted `date` string, so a May 15 record matched June 15 too
+  // (any month's 15th lit up as "on leave"). Now we also derive the
+  // record's MONTH + YEAR (preferring the raw startDate/endDate /
+  // permissionDate fields the backend reshape sets) and only match if
+  // the calendar's selected day falls inside the record's true range.
+  // This lets HR navigate to any past month and see exactly who was
+  // out that day.
   const isRecordActiveOnDay = (rec, day) => {
-    const dateStr = rec.date.toLowerCase();
+    // Prefer the raw ISO fields the backend reshape always sets.
+    const startIso = rec.startDate || rec.permissionDate || '';
+    const endIso   = rec.endDate   || rec.permissionDate || rec.startDate || '';
+    if (startIso && /^\d{4}-\d{2}-\d{2}/.test(startIso)) {
+      const s = new Date(startIso.slice(0, 10) + 'T00:00:00');
+      const e = endIso && /^\d{4}-\d{2}-\d{2}/.test(endIso)
+        ? new Date(endIso.slice(0, 10) + 'T00:00:00')
+        : s;
+      const target = new Date(viewYear, viewMonth, day);
+      return target >= s && target <= e;
+    }
+
+    // Fallback for legacy / mock rows where only the formatted display
+    // string exists. Still gated on month-name match so we don't bleed
+    // across months any more.
+    const dateStr = String(rec.date || '').toLowerCase();
+    const monthName = MONTH_NAMES[viewMonth].toLowerCase();
+    if (!dateStr.includes(monthName.slice(0, 3))) return false;
+    const yearMatch = dateStr.match(/\b(\d{4})\b/);
+    if (yearMatch && Number(yearMatch[1]) !== viewYear) return false;
     const dayPart = dateStr.split('(')[0].split(',')[0].trim();
-    const matches = dayPart.match(/\b\d+\b/g);
+    // Strip the year so it doesn't get treated as a day number.
+    const matches = dayPart
+      .replace(/\b\d{4}\b/g, '')
+      .match(/\b\d+\b/g);
     if (!matches) return false;
     const dayNumbers = matches.map(Number);
     if (dayNumbers.length === 1) {
@@ -251,7 +287,65 @@ export default function LeavePermission({ onBack }) {
             <p className="ne-page-sub">View list of employees currently on leave or out on permissions, and manage requests.</p>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="ne-btn-secondary" onClick={() => showNotification("Reports prepared!", "success")}>
+            <button
+              className="ne-btn-secondary"
+              onClick={() => {
+                // Build the rows from the currently-displayed records.
+                // We use `displayRecords` so HR's calendar selection +
+                // tab + search filter all carry through to the export.
+                const rows = displayRecords.map((r) => ({
+                  Employee:    r.name || r.employeeName || '—',
+                  'Emp ID':    r.employeeId || r.id || '',
+                  Role:        r.role || '',
+                  Department:  r.dept || '',
+                  Type:        r.type || '',
+                  Duration:    r.duration || '',
+                  'Date':      r.date || '',
+                  Reason:      r.reason || '',
+                  Status:      r.status || 'Approved',
+                }));
+                if (rows.length === 0) {
+                  showNotification('No records to export for the current filter.', 'info');
+                  return;
+                }
+                try {
+                  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+                  const pageW = doc.internal.pageSize.getWidth();
+                  doc.setFillColor(76, 170, 23);
+                  doc.rect(0, 0, pageW, 56, 'F');
+                  doc.setFont('helvetica', 'bold');
+                  doc.setFontSize(16);
+                  doc.setTextColor(255, 255, 255);
+                  doc.text('TESCO — Leave & Permission Report', 40, 36);
+                  doc.setFont('helvetica', 'normal');
+                  doc.setFontSize(10);
+                  doc.setTextColor(15, 23, 42);
+                  doc.text(
+                    `${MONTH_NAMES[viewMonth]} ${viewYear} · ${activeTab === 'leave' ? 'Leave' : 'Permission'} · ${rows.length} records`,
+                    40, 80
+                  );
+                  autoTable(doc, {
+                    startY: 96,
+                    head: [Object.keys(rows[0])],
+                    body: rows.map((r) => Object.values(r)),
+                    styles: { fontSize: 9, cellPadding: 6 },
+                    headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
+                    alternateRowStyles: { fillColor: [248, 250, 252] },
+                  });
+                  doc.save(`leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.pdf`);
+
+                  // Excel companion — same shape, lets HR slice and dice.
+                  const ws = XLSX.utils.json_to_sheet(rows);
+                  const wb = XLSX.utils.book_new();
+                  XLSX.utils.book_append_sheet(wb, ws, 'Leave-Permission');
+                  XLSX.writeFile(wb, `leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.xlsx`);
+                  showNotification(`Downloaded ${rows.length} records (PDF + Excel).`, 'success');
+                } catch (err) {
+                  console.error('[LeavePermission] report error:', err);
+                  showNotification('Could not generate report. Check the console.', 'error');
+                }
+              }}
+            >
               <FileText size={16} /> Reports
             </button>
           </div>
@@ -293,9 +387,39 @@ export default function LeavePermission({ onBack }) {
         
         {/* Left Column: Interactive Calendar Card */}
         <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
+            {/* Month navigator — added Jun 2026 so HR can browse past
+                months and see who was on leave / permission on any
+                given day. Today button jumps back to the current month
+                and selects today's day. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <button
+                onClick={() => {
+                  // Step one month back. December wraps the year.
+                  if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+                  else { setViewMonth(viewMonth - 1); }
+                  setSelectedDay(1);
+                }}
+                style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', fontWeight: 700, color: 'var(--text-main)' }}
+                title="Previous month"
+              >‹</button>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>{monthLabel}</h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-light)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Calendar View</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {(viewMonth !== today.getMonth() || viewYear !== today.getFullYear()) && (
+                  <button
+                    onClick={() => { setViewMonth(today.getMonth()); setViewYear(today.getFullYear()); setSelectedDay(today.getDate()); }}
+                    style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, color: 'var(--primary)', background: 'var(--primary-light)', border: '1px solid var(--primary)', cursor: 'pointer' }}
+                  >Today</button>
+                )}
+                <button
+                  onClick={() => {
+                    if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+                    else { setViewMonth(viewMonth + 1); }
+                    setSelectedDay(1);
+                  }}
+                  style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border-color)', background: '#fff', cursor: 'pointer', fontWeight: 700, color: 'var(--text-main)' }}
+                  title="Next month"
+                >›</button>
+              </div>
             </div>
             <div className="mini-calendar" style={{ padding: 0 }}>
               <div className="cal-grid" style={{ gap: '6px' }}>
@@ -462,12 +586,12 @@ export default function LeavePermission({ onBack }) {
                       </div>
                     </td>
                     <td>
-                      <span style={{ 
-                        fontWeight: 800, 
-                        fontSize: '10px', 
-                        padding: '4px 8px', 
-                        borderRadius: '6px', 
-                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE', 
+                      <span style={{
+                        fontWeight: 800,
+                        fontSize: '10px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE',
                         color: rec.status === 'Rejected' ? '#FC8181' : '#4CAA17',
                         border: rec.status === 'Rejected' ? '1px solid #FED7D7' : '1px solid #C2E7B0',
                         display: 'inline-block'
@@ -476,12 +600,12 @@ export default function LeavePermission({ onBack }) {
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <span style={{ 
-                        fontWeight: 800, 
-                        fontSize: '10px', 
-                        padding: '4px 8px', 
-                        borderRadius: '6px', 
-                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE', 
+                      <span style={{
+                        fontWeight: 800,
+                        fontSize: '10px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        background: rec.status === 'Rejected' ? '#FFF5F5' : '#F1F9EE',
                         color: rec.status === 'Rejected' ? '#FC8181' : '#4CAA17',
                         border: rec.status === 'Rejected' ? '1px solid #FED7D7' : '1px solid #C2E7B0',
                         display: 'inline-block'

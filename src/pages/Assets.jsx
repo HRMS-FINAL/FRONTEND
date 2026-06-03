@@ -194,19 +194,27 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
   const [empError, setEmpError] = useState('');
   const [searched, setSearched] = useState(false);
 
-  const [form, setForm] = useState({
-    assetName:  initialAsset?.assetName  || '',
-    // Asset types is a SET — when adding, HR can tick multiple
-    // checkboxes and we'll create one asset row per ticked type
-    // sharing the same serial root + issue date. When editing,
-    // only the asset's original type is selected (we update in place).
-    types:      isEdit
-                  ? [initialAsset?.type || 'Laptop']
-                  : ['Laptop'],
-    serialNo:   initialAsset?.serialNo   || '',
-    issuedDate: initialAsset?.issuedDate || new Date().toISOString().split('T')[0],
-    condition:  initialAsset?.condition  || 'Good',
-    status:     initialAsset?.status     || 'Assigned',
+  const [form, setForm] = useState(() => {
+    const initialTypes = isEdit ? [initialAsset?.type || 'Laptop'] : ['Laptop'];
+    // perType: { [type]: { assetName, serialNo } } — separate field bag
+    // so HR can give each ticked asset its own name + serial. Seed each
+    // entry from the shared single fields so existing behaviour is
+    // preserved when only one type is ticked.
+    const seedName   = initialAsset?.assetName || '';
+    const seedSerial = initialAsset?.serialNo  || '';
+    const perType = {};
+    for (const t of initialTypes) {
+      perType[t] = { assetName: seedName, serialNo: seedSerial };
+    }
+    return {
+      assetName:  seedName,
+      types:      initialTypes,
+      serialNo:   seedSerial,
+      issuedDate: initialAsset?.issuedDate || new Date().toISOString().split('T')[0],
+      condition:  initialAsset?.condition  || 'Good',
+      status:     initialAsset?.status     || 'Assigned',
+      perType,
+    };
   });
   // Local save-error string — replaces the undefined `showNotification`
   // call that used to crash this modal whenever the API rejected a save.
@@ -265,10 +273,16 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
   const validate = () => {
     const e = {};
     if (!foundEmp)                            e.emp        = 'Please look up a valid employee first.';
-    if (!form.assetName.trim())               e.assetName  = 'Asset name is required.';
-    if (!form.serialNo.trim())                e.serialNo   = 'Serial / Asset number is required.';
     if (!form.issuedDate)                     e.issuedDate = 'Issue date is required.';
     if (!form.types || form.types.length === 0) e.types    = 'Pick at least one asset type.';
+    // Per-type validation (Jun 2026) — every ticked asset needs its own
+    // name + serial. Keyed errors so the inline messages show under the
+    // right pair when more than one asset is being added in one go.
+    for (const t of (form.types || [])) {
+      const pt = (form.perType && form.perType[t]) || {};
+      if (!String(pt.assetName || '').trim()) e['assetName_' + t] = 'Asset name is required.';
+      if (!String(pt.serialNo  || '').trim()) e['serialNo_'  + t] = 'Serial / Asset number is required.';
+    }
     return e;
   };
 
@@ -294,13 +308,27 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
       const newlyAddedIdCard = !has && /id ?card/i.test(t);
       if (newlyAddedIdCard) {
         const empty = !assetName || !assetName.trim();
-        // Also overwrite when the existing name was previously set by us
-        // (matches the literal "ID Card") — keeps the UX consistent even
-        // if the user is toggling ID Card on/off.
         const previouslyAuto = String(assetName).trim().toLowerCase() === 'id card';
         if (empty || previouslyAuto) assetName = 'ID Card';
       }
-      return { ...f, types: next, assetName };
+
+      // Per-type field bag (Jun 2026 brief — HR needs distinct asset-
+      // name + serial inputs per type when multiple are ticked). When a
+      // type is newly added, seed it with empty strings or a sensible
+      // default (ID Card name). When a type is removed, drop its entry
+      // so stale values can't sneak into a future submit.
+      const perType = { ...(f.perType || {}) };
+      if (has) {
+        delete perType[t];
+      } else {
+        if (!perType[t]) {
+          perType[t] = {
+            assetName: /id ?card/i.test(t) ? 'ID Card' : '',
+            serialNo:  '',
+          };
+        }
+      }
+      return { ...f, types: next, assetName, perType };
     });
   };
 
@@ -314,19 +342,20 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
       if (isEdit) {
         // Multi-select edit:
         //   • Update the original row to point at form.types[0].
-        //   • For every other ticked type, POST a new row with a
-        //     type-suffixed serial (matches Add-mode behaviour so the
-        //     unique-serial DB constraint can't reject the second row).
-        const baseSerial = form.serialNo.trim();
-        const editTypes  = form.types.slice();
+        //   • For every other ticked type, POST a new row using THAT
+        //     type's own per-asset name + serial (Jun 2026 brief).
+        const editTypes   = form.types.slice();
         const primaryType = editTypes[0];
+        const primaryPt   = (form.perType && form.perType[primaryType]) || {};
+        const primaryName    = String(primaryPt.assetName || form.assetName || '').trim();
+        const primarySerial  = String(primaryPt.serialNo  || form.serialNo  || '').trim();
 
         const primaryPayload = {
-          assetName:    nameForType(primaryType, form.assetName.trim()),
+          assetName:    nameForType(primaryType, primaryName),
           type:         primaryType,
           employeeId:   foundEmp.employeeId,
           employeeName: foundEmp.name || '',
-          serialNo:     baseSerial,
+          serialNo:     primarySerial,
           issuedDate:   form.issuedDate,
           condition:    form.condition,
           status:       form.status,
@@ -340,19 +369,20 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
         if (!data?.success || !data?.data) throw new Error(data?.message || 'Failed to save asset');
         onSave(mapApiAsset(data.data), 'edit');
 
-        // POST extra rows for the additional ticked types.
+        // POST extra rows for the additional ticked types — each row
+        // uses its OWN per-type assetName + serialNo so HR's "Laptop +
+        // ID Card" save creates two rows with distinct identities.
         const extras = editTypes.slice(1);
         for (const t of extras) {
-          const suffix = '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase();
+          const pt = (form.perType && form.perType[t]) || {};
+          const ptName   = String(pt.assetName || form.assetName || '').trim();
+          const ptSerial = String(pt.serialNo  || form.serialNo  || '').trim();
           const extraPayload = {
-            // Per-type name so the table doesn't show "DELL" for an ID
-            // Card row; ID Card always reads "ID Card", every other type
-            // inherits the typed brand/model.
-            assetName:    nameForType(t, form.assetName.trim()),
+            assetName:    nameForType(t, ptName),
             type:         t,
             employeeId:   foundEmp.employeeId,
             employeeName: foundEmp.name || '',
-            serialNo:     baseSerial + suffix,
+            serialNo:     ptSerial,
             issuedDate:   form.issuedDate,
             condition:    form.condition,
             status:       form.status,
@@ -371,23 +401,21 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
         return;
       }
 
-      // ADD mode — create one asset per ticked type. Serial number gets
-      // a type suffix when more than one row shares a base serial, so the
-      // unique-serial constraint can't trip the second POST.
-      const baseSerial = form.serialNo.trim();
+      // ADD mode — create one asset per ticked type. Each row uses its
+      // OWN name + serial pulled from form.perType, so HR who ticks
+      // Laptop + ID Card sees both rows save with the distinct values
+      // they typed (LAP-003 + ID-003, not LAP-003 + LAP-003-IDCA).
       const created = [];
       for (const t of form.types) {
-        const suffix = form.types.length > 1
-          ? '-' + t.replace(/[^A-Z0-9]+/gi, '').slice(0, 4).toUpperCase()
-          : '';
+        const pt = (form.perType && form.perType[t]) || {};
+        const ptName   = String(pt.assetName || form.assetName || '').trim();
+        const ptSerial = String(pt.serialNo  || form.serialNo  || '').trim();
         const payload = {
-          // Per-type name: ID Card rows always read "ID Card", everything
-          // else inherits the typed name.
-          assetName:    nameForType(t, form.assetName.trim()),
+          assetName:    nameForType(t, ptName),
           type:         t,
           employeeId:   foundEmp.employeeId,
           employeeName: foundEmp.name || '',
-          serialNo:     baseSerial + suffix,
+          serialNo:     ptSerial,
           issuedDate:   form.issuedDate,
           condition:    form.condition,
           status:       form.status,
@@ -558,33 +586,79 @@ function AssetModal({ onClose, onSave, mode = 'add', initialAsset = null, employ
               {errors.types && <div style={drawerStyles.fieldErr}>{errors.types}</div>}
             </div>
 
-            {/* Asset Name */}
-            <div style={drawerStyles.fieldGroup}>
-              <label style={drawerStyles.label}>
-                Asset Name / Model <span style={{ color: 'var(--red)' }}>*</span>
-              </label>
-              <input
-                style={{ ...drawerStyles.input, ...(errors.assetName ? drawerStyles.inputErr : {}) }}
-                placeholder='e.g. MacBook Pro M2 14"'
-                value={form.assetName}
-                onChange={(e) => handleChange('assetName', e.target.value)}
-              />
-              {errors.assetName && <div style={drawerStyles.fieldErr}>{errors.assetName}</div>}
-            </div>
+            {/* Per-asset Name + Serial inputs (Jun 2026). When HR ticks
+                more than one asset type, we render one Name + Serial
+                pair PER type so each gets its own identity (e.g. the
+                Laptop gets "DELL Latitude" / LAP-003 while the ID Card
+                gets "ID Card" / ID-003). When only one type is ticked,
+                the section reads as a single block. */}
+            {form.types.map((t) => {
+              const pt = (form.perType && form.perType[t]) || { assetName: '', serialNo: '' };
+              const nameErrKey   = 'assetName_' + t;
+              const serialErrKey = 'serialNo_'  + t;
+              const updatePer = (field, val) => {
+                setForm((f) => ({
+                  ...f,
+                  perType: {
+                    ...(f.perType || {}),
+                    [t]: { ...((f.perType || {})[t] || {}), [field]: val },
+                  },
+                  // Keep the shared single fields in sync with the FIRST
+                  // ticked type so legacy handlers (validation, etc.)
+                  // still see something meaningful in form.assetName /
+                  // form.serialNo.
+                  ...(f.types[0] === t ? { [field]: val } : {}),
+                }));
+                setErrors((cur) => ({ ...cur, [field === 'assetName' ? nameErrKey : serialErrKey]: '', [field]: '' }));
+              };
+              return (
+                <div
+                  key={t}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 10,
+                    padding: 12,
+                    marginBottom: 10,
+                    background: form.types.length > 1 ? 'var(--bg-main)' : 'transparent',
+                  }}
+                >
+                  {form.types.length > 1 && (
+                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--primary-dark)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {typeIcon(t, 12)} {t} details
+                    </div>
+                  )}
+                  <div style={drawerStyles.fieldGroup}>
+                    <label style={drawerStyles.label}>
+                      Asset Name / Model <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      style={{ ...drawerStyles.input, ...(errors[nameErrKey] || (form.types[0] === t && errors.assetName) ? drawerStyles.inputErr : {}) }}
+                      placeholder={/id ?card/i.test(t) ? 'e.g. ID Card' : 'e.g. MacBook Pro M2 14"'}
+                      value={pt.assetName}
+                      onChange={(e) => updatePer('assetName', e.target.value)}
+                    />
+                    {(errors[nameErrKey] || (form.types[0] === t && errors.assetName)) && (
+                      <div style={drawerStyles.fieldErr}>{errors[nameErrKey] || errors.assetName}</div>
+                    )}
+                  </div>
 
-            {/* Serial No */}
-            <div style={drawerStyles.fieldGroup}>
-              <label style={drawerStyles.label}>
-                Serial / Asset No. <span style={{ color: 'var(--red)' }}>*</span>
-              </label>
-              <input
-                style={{ ...drawerStyles.input, fontFamily: 'monospace', ...(errors.serialNo ? drawerStyles.inputErr : {}) }}
-                placeholder="e.g. MBP-2024-001"
-                value={form.serialNo}
-                onChange={(e) => handleChange('serialNo', e.target.value)}
-              />
-              {errors.serialNo && <div style={drawerStyles.fieldErr}>{errors.serialNo}</div>}
-            </div>
+                  <div style={drawerStyles.fieldGroup}>
+                    <label style={drawerStyles.label}>
+                      Serial / Asset No. <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      style={{ ...drawerStyles.input, fontFamily: 'monospace', ...(errors[serialErrKey] || (form.types[0] === t && errors.serialNo) ? drawerStyles.inputErr : {}) }}
+                      placeholder={/id ?card/i.test(t) ? 'e.g. ID-003' : 'e.g. MBP-2024-001'}
+                      value={pt.serialNo}
+                      onChange={(e) => updatePer('serialNo', e.target.value)}
+                    />
+                    {(errors[serialErrKey] || (form.types[0] === t && errors.serialNo)) && (
+                      <div style={drawerStyles.fieldErr}>{errors[serialErrKey] || errors.serialNo}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
             {/* Issue Date + Condition */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

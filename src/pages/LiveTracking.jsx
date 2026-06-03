@@ -1182,26 +1182,62 @@ export default function LiveTracking() {
             </div>
           </div>
           
-          <div className="panel-search" style={{ marginTop: '12px' }}>
-            <Search size={18} className="search-icon" />
-            <input
-              list="livetrack-employees"
-              placeholder="Search by Name or Emp ID..."
+          {/* Polished search dropdown (Jun 2026). The previous datalist
+              autocomplete looked too plain — we now render an explicit
+              styled <select> with a green focus ring, employee name +
+              ID per option, and a "Clear" affordance via the empty
+              option. Switching to <select> from datalist also makes
+              the dropdown work on mobile browsers where datalist is
+              quietly broken. */}
+          <div style={{ marginTop: '12px', position: 'relative' }}>
+            <Search
+              size={16}
+              style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#4CAA17', pointerEvents: 'none' }}
+            />
+            <select
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              autoComplete="off"
-            />
-            {/* Browser-native autocomplete dropdown — lists every employee
-                currently being tracked so HR can pick from a menu instead
-                of typing. */}
-            <datalist id="livetrack-employees">
-              {/* In live mode: list everyone currently being tracked.
-                  In historical mode: only employees who actually checked
-                  in inside the selected from→to range. */}
-              {(isLive ? employees : historicalEmployees).map(e => (
-                <option key={e.id} value={e.employeeId || e.name}>{e.name}{e.employeeId ? ' — ' + e.employeeId : ''}</option>
-              ))}
-            </datalist>
+              style={{
+                width: '100%',
+                padding: '10px 36px 10px 36px',
+                border: '1.5px solid #BBF7D0',
+                borderRadius: '10px',
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#0F172A',
+                background: '#FFFFFF',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                MozAppearance: 'none',
+                cursor: 'pointer',
+                outline: 'none',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#4CAA17';
+                e.target.style.boxShadow = '0 0 0 3px rgba(76,170,23,0.18)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#BBF7D0';
+                e.target.style.boxShadow = '0 1px 2px rgba(15,23,42,0.04)';
+              }}
+            >
+              <option value="">Search by Name or Emp ID…</option>
+              {(isLive ? employees : historicalEmployees)
+                .slice()
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                .map((e) => (
+                  <option key={e.id} value={e.employeeId || e.name}>
+                    {e.name}{e.employeeId ? ' · ' + e.employeeId : ''}
+                  </option>
+                ))}
+            </select>
+            {/* Chevron — pure CSS so it stays put when the select is focused */}
+            <div style={{
+              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+              pointerEvents: 'none', color: '#64748B',
+            }}>▾</div>
           </div>
 
           <div className="panel-filters">
@@ -1291,13 +1327,14 @@ export default function LiveTracking() {
           </div>
         </div>
 
-        {/* Map Container — collapses entirely when an employee filter +
-            date range are active (reportActive). HR only wants the per-
-            date "View Route" table in that state; the map's min-height
-            would otherwise leave a tall empty block above the table. */}
+        {/* Right column: in Live mode this is the Google Map; in filter
+            mode it's the Travel Report card. Both live in the same grid
+            slot so the column TOP aligns with the side-panel's FROM date
+            picker (Jun 2026 brief — previously the report rendered below
+            the grid and started ~150 px lower than the date pickers). */}
         <div
           className="tracking-map-container"
-          style={reportActive ? { display: 'none' } : undefined}
+          style={reportActive ? { background: 'transparent', border: 'none', boxShadow: 'none', padding: 0, height: 'auto', minHeight: 0 } : undefined}
         >
           {/* Travel report panel was here previously — moved BELOW the
               map so HR can see the GPS polyline and the trip table at
@@ -1433,13 +1470,10 @@ export default function LiveTracking() {
               visible={visible}
             />
           )}
-        </div>
-
-        {/* Travel Report — rendered BELOW the map so the polyline + start/
-            end markers are visible at the same time as the trip table. */}
-        {reportActive && (
+          {/* Travel Report sits IN the right column when filtering, so
+              its top aligns with the side-panel's FROM date picker. */}
+          {reportActive && (
           <div style={{
-            marginTop: 16,
             background: '#fff',
             border: '1px solid var(--border-color)',
             borderRadius: 12,
@@ -1567,8 +1601,9 @@ export default function LiveTracking() {
               )}
             </div>
           </div>
-        )}
-      </div>
+          )}
+        </div>{/* /tracking-map-container */}
+      </div>{/* /tracking-layout */}
 
       {/* Per-date GPS route drill-down — opens when HR clicks any
           "View Route" button in the Travel Report table. */}
