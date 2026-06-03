@@ -1291,9 +1291,14 @@ export default function LiveTracking() {
           </div>
         </div>
 
-        {/* Map Container — replaced by Travel Report panel when historical
-            date range + emp filter are active. */}
-        <div className="tracking-map-container">
+        {/* Map Container — collapses entirely when an employee filter +
+            date range are active (reportActive). HR only wants the per-
+            date "View Route" table in that state; the map's min-height
+            would otherwise leave a tall empty block above the table. */}
+        <div
+          className="tracking-map-container"
+          style={reportActive ? { display: 'none' } : undefined}
+        >
           {/* Travel report panel was here previously — moved BELOW the
               map so HR can see the GPS polyline and the trip table at
               the same time. The render block has been relocated after
@@ -1411,15 +1416,23 @@ export default function LiveTracking() {
               </div>
             </div>
           )}
-          <LiveTrackingGoogleMap
-            effectiveOffice={effectiveOffice}
-            mapType={mapType}
-            selected={selected}
-            setSelected={setSelected}
-            reportActive={reportActive}
-            historicalRoute={historicalRoute}
-            visible={visible}
-          />
+          {/* Hide the map entirely when HR has filtered to a specific
+              employee + date range (Jun 2026 brief). HR doesn't need
+              the live map at that point — only the from-date / to-date
+              "View Route" table below. The map still renders for the
+              default Live view (no filter) where the office anchor +
+              all currently-checked-in employees are useful. */}
+          {!reportActive && (
+            <LiveTrackingGoogleMap
+              effectiveOffice={effectiveOffice}
+              mapType={mapType}
+              selected={selected}
+              setSelected={setSelected}
+              reportActive={reportActive}
+              historicalRoute={historicalRoute}
+              visible={visible}
+            />
+          )}
         </div>
 
         {/* Travel Report — rendered BELOW the map so the polyline + start/
