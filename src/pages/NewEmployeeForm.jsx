@@ -530,6 +530,21 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                     {errors.designation && <span className="error-text"><AlertCircle size={12} /> {errors.designation}</span>}
                   </div>
                   <div className="form-group">
+                    <label className="form-label" htmlFor="employmentType">Employee Type</label>
+                    <select
+                      id="employmentType"
+                      className={`form-input ${errors.employmentType ? 'error' : ''}`}
+                      value={form.employmentType}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Select type</option>
+                      <option value="Full-time">Full-time</option>
+                      <option value="Part-time">Part-time</option>
+                      <option value="Contract">Contract</option>
+                      <option value="Intern">Intern</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
                     <label className="form-label" htmlFor="salary"><span className="required">*</span> Salary</label>
                     <input type="number" id="salary" className={`form-input ${errors.salary ? 'error' : ''}`} placeholder="Enter salary" value={form.salary} onChange={handleInputChange} />
                   </div>

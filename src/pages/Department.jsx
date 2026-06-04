@@ -52,45 +52,25 @@ export default function Department({ onBack }) {
   // live employee's `assignedTo` field is collapsed into the canonical
   // "Vivek — Technical Lead Consultant" row rather than rendering as a
   // duplicate. Same for Vishnu / Vishnu K, etc.
+  // Department Manager dropdown — sources straight from the Manager
+  // directory (/api/managers) so every entry has both a name AND a
+  // designation/title. Earlier code merged in raw `assignedTo` strings
+  // from the employees list, which produced "name-only" rows (no
+  // designation visible) whenever the referenced employee didn't have
+  // a designation on file. The new flow only renders rows with a
+  // title — guaranteed "Name — Designation" in the dropdown.
   const [managers, setManagers] = useState(() => MANAGERS.slice());
   useEffect(() => {
-    fetch(`${API}/employees?limit=200`)
-      .then(r => r.json())
-      .then(d => {
-        if (!d?.success || !Array.isArray(d.employees)) return;
-        // Index canonical MANAGERS by lowercased first name so we can
-        // de-dupe variants ("Vishnu" / "Vishnu K", "Vivek" / "Vivek
-        // Kumar") into the single canonical entry.
-        const byFirst = new Map();
-        for (const m of MANAGERS) {
-          const fn = String(m.name || '').trim().split(/\s+/)[0].toLowerCase();
-          if (fn) byFirst.set(fn, m);
+    fetch(`${API}/managers`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.data) && data.data.length > 0) {
+          const fromApi = data.data
+            .map((m) => ({ name: String(m.name || '').trim(), title: String(m.title || '').trim() }))
+            .filter((m) => m.name);
+          fromApi.sort((a, b) => a.name.localeCompare(b.name));
+          setManagers(fromApi);
         }
-        const merged = [...MANAGERS];
-        const seenFull = new Set(MANAGERS.map(m => String(m.name || '').toLowerCase().trim()));
-        for (const e of d.employees) {
-          const a = String(e.assignedTo || '').trim();
-          if (!a) continue;
-          const fn = a.split(/\s+/)[0].toLowerCase();
-          // Collapse onto an existing canonical entry when the first
-          // name already exists in MANAGERS.
-          if (byFirst.has(fn)) continue;
-          // Otherwise it's a brand-new manager — add it, with the
-          // role pulled from the employee's *own* role/designation if
-          // we can find them in the same response (best-effort).
-          const key = a.toLowerCase();
-          if (seenFull.has(key)) continue;
-          seenFull.add(key);
-          // Try to find that manager's own row to grab their title.
-          const ownRow = d.employees.find(x =>
-            String(x.name || '').trim().toLowerCase() === key
-          );
-          const title = (ownRow && (ownRow.role || ownRow.designation)) || '';
-          merged.push({ name: a, title });
-        }
-        // Sort by name for predictable ordering in the dropdown.
-        merged.sort((x, y) => String(x.name || '').localeCompare(String(y.name || '')));
-        setManagers(merged);
       })
       .catch(() => { /* keep the static seed */ });
   }, []);

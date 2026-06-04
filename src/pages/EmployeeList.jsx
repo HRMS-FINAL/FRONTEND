@@ -136,6 +136,45 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
 
     let data = {};
     try { data = await res.json(); } catch { /* non-JSON */ }
+
+    // Convert-to-Manager toggle → sync to the Manager directory.
+    // We fire this AFTER the employee PUT succeeds (or the role change
+    // is already in the DB). When toggled ON we POST an entry keyed on
+    // name + email so the person appears in the Assigned-To dropdown
+    // and gets ERM Web manager access (the backend route promotes the
+    // matching employee row). When toggled OFF and they were previously
+    // a manager, we find + soft-delete their Manager directory row so
+    // they drop from the dropdown and get demoted.
+    if (res.ok && data?.success) {
+      const isMgr = editForm.accessRole === 'Manager';
+      try {
+        if (isMgr) {
+          // Upsert (the route uses findOneAndUpdate with upsert).
+          await fetch(`${API}/managers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name:  editForm.name,
+              title: editForm.role || '',
+              email: emailClean,
+            }),
+          });
+        } else if (editingEmp.role === 'manager' || editingEmp.accessRole === 'Manager') {
+          // Was a manager, now isn't — soft-delete by name match.
+          const list = await fetch(`${API}/managers`).then(r => r.json()).catch(() => null);
+          if (list?.success && Array.isArray(list.data)) {
+            const hit = list.data.find(m => String(m.name).toLowerCase() === String(editForm.name).toLowerCase());
+            if (hit?._id) {
+              await fetch(`${API}/managers/${hit._id}`, { method: 'DELETE' });
+            }
+          }
+        }
+      } catch (mgrErr) {
+        // Non-fatal — the employee save itself succeeded. Log a hint.
+        console.warn('[EmployeeList] manager-directory sync failed:', mgrErr?.message);
+      }
+    }
+
     if (!res.ok || !data?.success) {
       // Surface the actual failure mode instead of pretending it worked.
       if (data?.code === 'READ_ONLY') {
@@ -872,10 +911,36 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                     <input
                       type="checkbox"
                       checked={editForm.accessRole === 'Manager'}
-                      onChange={(e) => setEditForm(prev => ({
-                        ...prev,
-                        accessRole: e.target.checked ? 'Manager' : 'Employee',
-                      }))}
+                      onChange={async (e) => {
+                        const wantsManager = e.target.checked;
+                        const empName = editForm.name || editingEmp?.name || 'this employee';
+                        if (wantsManager) {
+                          const yes = await confirmDialog({
+                            title: 'Convert to Manager?',
+                            message:
+                              `Convert ${empName} to a Manager?\n\n` +
+                              `They will:\n` +
+                              `  • be added to the Manager directory\n` +
+                              `  • appear in the Assigned-To Manager dropdown app-wide\n` +
+                              `  • gain Manager access on the ERM Web app`,
+                            confirmText: 'Yes, Convert',
+                            tone: 'primary',
+                          });
+                          if (!yes) return;
+                          setEditForm(prev => ({ ...prev, accessRole: 'Manager' }));
+                        } else {
+                          const yes = await confirmDialog({
+                            title: 'Demote to Employee?',
+                            message:
+                              `Remove ${empName} from the Manager directory and demote them to Employee?\n\n` +
+                              `They will lose ERM Web Manager access on next sign-in and drop out of the Assigned-To dropdown.`,
+                            confirmText: 'Yes, Demote',
+                            tone: 'danger',
+                          });
+                          if (!yes) return;
+                          setEditForm(prev => ({ ...prev, accessRole: 'Employee' }));
+                        }
+                      }}
                       style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#F59E0B' }}
                     />
                     <div style={{ flex: 1 }}>
