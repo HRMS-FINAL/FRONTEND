@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
+import { MANAGERS } from '../data/companyData';
 
 export default function EmployeeList({ onBack, employees, setEmployees, setSelectedEmployee, setActiveView }) {
   const { showNotification, confirmDialog } = useNotification();
@@ -825,16 +826,18 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Assigned To Manager</label>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Assigned to (Manager)</label>
                   <select
                     value={editForm.manager}
                     onChange={e => setEditForm(prev => ({ ...prev, manager: e.target.value }))}
                     className="filter-select"
                     style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
                   >
-                    <option value="">— None —</option>
-                    {candidateManagers.map(name => (
-                      <option key={name} value={name}>{name}</option>
+                    <option value="">Select Manager</option>
+                    {MANAGERS.map(m => (
+                      <option key={`${m.name}-${m.title}`} value={m.name}>
+                        {m.name}{m.title ? ` — ${m.title}` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
