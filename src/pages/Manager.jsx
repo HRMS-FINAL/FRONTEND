@@ -75,11 +75,20 @@ export default function Manager({ onBack }) {
         showNotification(data?.message || 'Could not add manager.', 'error');
         return;
       }
-      showNotification(
-        `Manager "${form.name}" added.` +
-          (data.promoted ? ' ERM Web manager access granted.' : ''),
-        'success'
-      );
+      // Concrete confirmation: tell HR who was promoted (if anyone)
+      // and what to do if no employee matched.
+      if (data.promoted) {
+        showNotification(
+          `Manager "${form.name}" added. ERM Web manager access granted to ${data.promotedRef || form.name}.`,
+          'success'
+        );
+      } else {
+        showNotification(
+          `Manager "${form.name}" added to the directory. ` +
+          `No matching employee row found — they will not be able to sign into ERM Web until HR creates their Employee record (with the same name or email).`,
+          'success'
+        );
+      }
       setShowModal(false);
       setForm({ name: '', title: '', email: '' });
       load();
