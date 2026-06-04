@@ -569,7 +569,7 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
               </div>
               <div className="ps-info-block">
                 <label>SALARY</label>
-                <div>{employee.salary ? `$${Number(employee.salary).toLocaleString()} / mo` : 'N/A'}</div>
+                <div>{employee.salary ? `₹${Number(employee.salary).toLocaleString('en-IN')} / mo` : 'N/A'}</div>
               </div>
             </div>
           </div>

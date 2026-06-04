@@ -302,8 +302,8 @@ export default function Login() {
       </form>
 
       <div className="login-footer">
-        Don't have an account?{' '}
-        <button className="text-btn" onClick={() => { setMode('signup'); setPassword(''); setName(''); }}>
+        Need access? Contact your administrator.{' '}
+        <button className="text-btn" style={{ display: 'none' }} onClick={() => { setMode('signup'); setPassword(''); setName(''); }}>
           Sign Up
         </button>
       </div>

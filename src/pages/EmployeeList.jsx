@@ -91,6 +91,12 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
           designation:    editForm.role,
           department:     editForm.dept,
           assignedTo:     editForm.manager,
+          // Access role (Employee / Manager / HR) — flipped via the
+          // 'Convert to Manager' toggle in the edit drawer. Backend
+          // stores this on Employee.role so manager dropdowns + ERM
+          // Web manager access pick it up automatically.
+          role:           editForm.accessRole === 'Manager' ? 'manager' : (editForm.accessRole === 'HR' ? 'hr' : 'employee'),
+          accessRole:     editForm.accessRole,
           status:         editForm.status,
           salary:         editForm.salary,
           joiningDate:    editForm.joiningDate,
@@ -511,29 +517,74 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
       {editingEmp && (
         <>
           <div className="edit-panel-overlay" onClick={() => setEditingEmp(null)} />
-          <div className="edit-panel">
-            <div className="edit-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div className="emp-table-avatar" style={{ background: editingEmp.color + '20', color: editingEmp.color, width: '40px', height: '40px', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{editingEmp.initials}</div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-main)' }}>Edit Profile</h3>
-                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-light)', fontWeight: 600 }}>{editingEmp.employeeId || `EMP-10${editingEmp.id}`}</p>
+          <div className="edit-panel" style={{ width: 520, maxWidth: '92vw' }}>
+            {/* Hero header — gradient strip + avatar + name + role chip.
+                Replaces the older flat 16px title. Sticky so it stays
+                visible while HR scrolls through the long form below. */}
+            <div className="edit-panel-header" style={{
+              position: 'relative',
+              padding: '22px 24px 18px',
+              borderBottom: '1px solid var(--border-color)',
+              background: 'linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%)',
+            }}>
+              <button
+                type="button"
+                onClick={() => setEditingEmp(null)}
+                aria-label="Close"
+                style={{ position: 'absolute', top: 14, right: 14, width: 32, height: 32, borderRadius: 16, background: '#fff', border: '1px solid var(--border-color)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}
+              >
+                <X size={16} />
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div className="emp-table-avatar" style={{
+                  background: (editingEmp.color || '#4CAA17') + '22',
+                  color: editingEmp.color || '#4CAA17',
+                  width: 52, height: 52, borderRadius: 26,
+                  fontSize: 18, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: `2px solid ${editingEmp.color || '#4CAA17'}33`,
+                }}>{editingEmp.initials}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.2px' }}>
+                    {editingEmp.name || 'Edit Profile'}
+                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: '#64748B', fontWeight: 700, letterSpacing: 0.3 }}>
+                      {editingEmp.employeeId || `EMP-10${editingEmp.id}`}
+                    </span>
+                    {editingEmp.role && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#4CAA17', background: '#ECFDF5', padding: '2px 8px', borderRadius: 999, border: '1px solid #BBF7D0' }}>
+                        {editingEmp.role}
+                      </span>
+                    )}
+                    {editingEmp.dept && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#1D4ED8', background: '#EFF6FF', padding: '2px 8px', borderRadius: 999, border: '1px solid #BFDBFE' }}>
+                        {editingEmp.dept}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <button 
-                onClick={() => setEditingEmp(null)} 
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)', transition: 'background-color 0.2s' }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-main)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-              >
-                <X size={20} />
-              </button>
             </div>
 
-            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 81px)' }}>
-              <div className="edit-panel-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                
-                {/* Form Group: Name */}
+            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 112px)' }}>
+              <div className="edit-panel-body" style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '20px 24px 28px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 24,
+                background: '#FAFBFC',
+              }}>
+
+                {/* ─── Personal Information ───────────────────────── */}
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 18px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: '#4CAA17' }} />
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.1px' }}>Personal Information</h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Full Name</label>
                   <input 
@@ -633,7 +684,16 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                   </select>
                 </div>
 
-                {/* Address */}
+                  </div>
+                </div>
+
+                {/* ─── Address ────────────────────────────────────── */}
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 18px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: '#1D4ED8' }} />
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.1px' }}>Address</h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Street</label>
                   <input
@@ -677,6 +737,16 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                   </div>
                 </div>
 
+                  </div>
+                </div>
+
+                {/* ─── Employment Details ─────────────────────────── */}
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 18px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: '#7C3AED' }} />
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.1px' }}>Employment Details</h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Department</label>
@@ -744,29 +814,106 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                   />
                 </div>
 
-                {/* Petrol allowance opt-in (Jun 2026) -- lets HR enable
-                    existing employees who were created before the flag
-                    existed. The mobile backend's auto-bill cron reads
-                    this on check-out and creates a petrol allowance row
-                    at GPS km x Rs3.50 when true. */}
+                  </div>
+                </div>
+
+                {/* ─── Manager & Access ───────────────────────────── */}
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 18px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: '#F59E0B' }} />
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.1px' }}>Manager & Access</h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: '#F9FAFB', cursor: 'pointer' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Assigned To Manager</label>
+                  <select
+                    value={editForm.manager}
+                    onChange={e => setEditForm(prev => ({ ...prev, manager: e.target.value }))}
+                    className="filter-select"
+                    style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
+                  >
+                    <option value="">— None —</option>
+                    {candidateManagers.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Convert to Manager toggle (Jun 2026). When on, flips
+                    the employee's access role to Manager, which:
+                      - Adds them to the Assigned-To dropdown app-wide
+                      - Grants ERM Web manager-side access (Leave /
+                        Allowance / Attendance approvals)
+                    Flip back to Employee to revoke. */}
+                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid #E5E7EB', borderRadius: 10, background: editForm.accessRole === 'Manager' ? '#FFFBEB' : '#FAFAFA', cursor: 'pointer', transition: 'background 0.15s' }}>
+                    <input
+                      type="checkbox"
+                      checked={editForm.accessRole === 'Manager'}
+                      onChange={(e) => setEditForm(prev => ({
+                        ...prev,
+                        accessRole: e.target.checked ? 'Manager' : 'Employee',
+                      }))}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#F59E0B' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 13 }}>Convert to Manager</div>
+                      <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 2 }}>
+                        Grants ERM Web manager access + adds them to the Assigned-To dropdown app-wide.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                  </div>
+                </div>
+
+                {/* ─── Allowances ─────────────────────────────────── */}
+                <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '18px 18px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: '#DC2626' }} />
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.1px' }}>Allowances</h4>
+                  </div>
+                <div className="edit-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid #E5E7EB', borderRadius: 10, background: editForm.petrolEligible ? '#F0FDF4' : '#FAFAFA', cursor: 'pointer', transition: 'background 0.15s' }}>
                     <input
                       type="checkbox"
                       checked={!!editForm.petrolEligible}
                       onChange={(e) => setEditForm(prev => ({ ...prev, petrolEligible: e.target.checked }))}
-                      style={{ width: 18, height: 18, cursor: 'pointer' }}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#4CAA17' }}
                     />
-                    <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>Eligible for petrol allowance?</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 500, marginLeft: 'auto' }}>
-                      When on, a petrol claim auto-bills daily at GPS km x Rs3.50 between check-in and check-out.
-                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, color: '#0F172A', fontSize: 13 }}>Eligible for petrol allowance</div>
+                      <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 2 }}>
+                        Auto-bills daily at GPS km × ₹3.50 between check-in and check-out.
+                      </div>
+                    </div>
                   </label>
                 </div>
+                </div>
               </div>
-              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" className="ne-btn-secondary" onClick={() => setEditingEmp(null)}>Cancel</button>
-                <button type="submit" className="ne-btn-primary">Save Changes</button>
+              <div style={{
+                padding: '14px 24px',
+                borderTop: '1px solid #E5E7EB',
+                background: '#FFFFFF',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+                boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingEmp(null)}
+                  style={{ padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#FFFFFF', color: '#475569', border: '1px solid #E5E7EB', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '10px 22px', borderRadius: 8, fontSize: 13, fontWeight: 800, background: '#4CAA17', color: '#fff', border: 'none', cursor: 'pointer', boxShadow: '0 2px 6px rgba(76,170,23,0.3)' }}
+                >
+                  Save Changes
+                </button>
               </div>
             </form>
           </div>

@@ -192,7 +192,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text('Kerala, India', M, y + 14);
+    doc.text('Chennai, Tamilnadu', M, y + 14);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
@@ -589,7 +589,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       <img src={logo} alt="Logo" style={{ height: '28px', maxWidth: '120px', objectFit: 'contain' }} />
                       <div>
                         <h1 style={{ margin: 0, fontSize: '20px', color: '#1E293B', fontWeight: 800 }}>TESCO STRUCTURES</h1>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Kerala India</p>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Chennai, Tamilnadu</p>
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>

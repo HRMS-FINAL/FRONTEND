@@ -69,13 +69,19 @@ export default function RolePermissions({ onBack }) {
         .then(r => r.json())
         .then(data => {
           if (cancelled || !data.success || !Array.isArray(data.data)) return;
-          const apiRoles = data.data.map((r, i) => ({
-            id:      r._id,
-            name:    r.name,
-            icon:    ROLE_ICONS_FN[i % ROLE_ICONS_FN.length],
-            color:   r.color || '#4CAA17',
-            members: r.members || 0,
-          }));
+          // Filter out the 'Employee' tier (Jun 2026 — HR brief).
+          // Regular employees have no HRMS access, so configuring a
+          // permission matrix for them is meaningless. Only HR and
+          // Manager tiles appear on the Access Management page now.
+          const apiRoles = data.data
+            .filter((r) => !/^employee$/i.test(String(r.name || '').trim()))
+            .map((r, i) => ({
+              id:      r._id,
+              name:    r.name,
+              icon:    ROLE_ICONS_FN[i % ROLE_ICONS_FN.length],
+              color:   r.color || '#4CAA17',
+              members: r.members || 0,
+            }));
           setRoles(apiRoles);
 
           // Build the canonical permission map from the API's actual rows.
