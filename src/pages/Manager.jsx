@@ -103,7 +103,13 @@ export default function Manager({ onBack }) {
         showNotification(data?.message || 'Could not remove manager.', 'error');
         return;
       }
-      showNotification(`${m.name} removed.`, 'success');
+      // Surface the cleanup summary so HR sees the cascade kicked in.
+      const c = data?.cleanup || {};
+      const parts = [];
+      if (c.demoted)    parts.push(`${c.demoted} employee${c.demoted === 1 ? '' : 's'} demoted`);
+      if (c.unassigned) parts.push(`${c.unassigned} report${c.unassigned === 1 ? '' : 's'} unassigned`);
+      const suffix = parts.length ? ` — ${parts.join(', ')}.` : '';
+      showNotification(`${m.name} removed.${suffix}`, 'success');
       load();
     } catch (err) {
       showNotification('Network error. Try again.', 'error');
