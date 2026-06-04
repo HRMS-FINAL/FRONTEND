@@ -61,7 +61,7 @@ export default function Sidebar({
         </div>
 
         <div 
-          className={`nav-item nav-dropdown-trigger ${['new-employee','employee-list','roles','department','designation'].includes(activeView) ? 'active' : ''}`} 
+          className={`nav-item nav-dropdown-trigger ${['new-employee','employee-list','roles','department','designation','manager'].includes(activeView) ? 'active' : ''}`} 
           onClick={() => handleNavClick('employee-list', true, 'hr')}
         >
           <div className="trigger-left">
@@ -71,7 +71,7 @@ export default function Sidebar({
           <ChevronRight className={`nav-chevron ${hrOpen ? 'open' : ''}`} size={16} color="var(--primary)" />
         </div>
         <div className={`nav-submenu ${hrOpen && sidebarOpen ? 'open' : ''}`}>
-          {['new-employee', 'employee-list', 'roles', 'department', 'designation'].map(v => {
+          {['new-employee', 'employee-list', 'roles', 'department', 'designation', 'manager'].map(v => {
             let label = v.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
             if (v === 'roles') label = 'Access management';
             

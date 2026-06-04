@@ -11,6 +11,7 @@ import EmployeeList from './pages/EmployeeList';
 import RolePermissions from './pages/RolePermissions';
 import Department from './pages/Department';
 import Designation from './pages/Designation';
+import Manager from './pages/Manager';
 import Performance from './pages/Performance';
 import Payroll from './pages/Payroll';
 import Attendance from './pages/Attendance';
@@ -241,6 +242,7 @@ function MainApp() {
       case 'roles':            return <RolePermissions {...props} />;
       case 'department':       return <Department {...props} />;
       case 'designation':      return <Designation {...props} />;
+      case 'manager':          return <Manager {...props} onBack={() => setActiveView('dashboard')} />;
       case 'performance':      return <Performance {...props} />;
       case 'payroll':          return <Payroll {...props} employees={employees} updateEmployeeSalary={updateEmployeeSalary} />;
       case 'allowance':        return <Allowance {...props} employees={employees} />;

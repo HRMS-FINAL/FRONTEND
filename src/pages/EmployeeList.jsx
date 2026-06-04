@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronRight, FileText, Download, Table, Filter, X, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -8,6 +8,11 @@ import { useNotification } from '../context/NotificationContext';
 
 import { API } from '../config/api';
 import { MANAGERS } from '../data/companyData';
+
+// Live manager catalogue — fetched once per mount from /api/managers so
+// new entries added via the HRMS Manager directory appear in the
+// Assigned-To dropdown automatically. The static MANAGERS array stays
+// as the boot-time fallback so the dropdown is never empty.
 
 export default function EmployeeList({ onBack, employees, setEmployees, setSelectedEmployee, setActiveView }) {
   const { showNotification, confirmDialog } = useNotification();
@@ -94,10 +99,10 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
           assignedTo:     editForm.manager,
           // Access role (Employee / Manager / HR) — flipped via the
           // 'Convert to Manager' toggle in the edit drawer. Backend
-          // stores this on Employee.role so manager dropdowns + ERM
-          // Web manager access pick it up automatically.
+          // stores this on Employee.role (a String enum). We DO NOT
+          // send accessRole — that field is an ObjectId ref on the
+          // model and the string 'Manager' would CastError on save.
           role:           editForm.accessRole === 'Manager' ? 'manager' : (editForm.accessRole === 'HR' ? 'hr' : 'employee'),
-          accessRole:     editForm.accessRole,
           status:         editForm.status,
           salary:         editForm.salary,
           joiningDate:    editForm.joiningDate,
@@ -164,6 +169,20 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     if (!editingEmp) return [];
     return employees.filter(emp => emp.id !== editingEmp.id).map(emp => emp.name).sort();
   }, [employees, editingEmp]);
+
+  // Live manager list from the API. Initialises to the static MANAGERS
+  // array so the first paint of the edit drawer is never empty.
+  const [managerOptions, setManagerOptions] = useState(MANAGERS.slice());
+  useEffect(() => {
+    fetch(`${API}/managers`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.data) && data.data.length > 0) {
+          setManagerOptions(data.data.map((m) => ({ name: m.name, title: m.title || '' })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const onViewDetails = (emp) => {
     setSelectedEmployee(emp);
@@ -834,7 +853,7 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                     style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
                   >
                     <option value="">Select Manager</option>
-                    {MANAGERS.map(m => (
+                    {managerOptions.map(m => (
                       <option key={`${m.name}-${m.title}`} value={m.name}>
                         {m.name}{m.title ? ` — ${m.title}` : ''}
                       </option>

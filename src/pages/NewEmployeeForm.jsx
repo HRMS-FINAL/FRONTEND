@@ -84,7 +84,21 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
   // auto-promote anyone in `employees` whose title happens to contain
   // Head / Manager / Director / Lead. HR explicitly asked for exactly
   // these 7 people, so a misnamed live employee can't widen the list.
-  const managerOptions = React.useMemo(() => MANAGERS.slice(), []);
+  // Manager catalogue — fetched live from /api/managers so newly-added
+  // managers (HRMS → Employees → Manager) appear automatically. Falls
+  // back to the static MANAGERS array baked into companyData.js until
+  // the API call resolves so the dropdown is never empty on first paint.
+  const [managerOptions, setManagerOptions] = React.useState(MANAGERS.slice());
+  React.useEffect(() => {
+    fetch(`${API}/managers`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.data) && data.data.length > 0) {
+          setManagerOptions(data.data.map((m) => ({ name: m.name, title: m.title || '' })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const validateStep = () => {
     let newErrors = {};
