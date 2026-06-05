@@ -719,7 +719,7 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                       style={{ width: '100%', padding: '10px 12px', fontSize: '13px', height: '40px' }}
                     >
                       <option value="">— Select —</option>
-                      {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(bg => (
+                      {['A+','A-','A1+','A1-','B+','B-','AB+','AB-','O+','O-'].map(bg => (
                         <option key={bg} value={bg}>{bg}</option>
                       ))}
                     </select>

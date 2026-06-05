@@ -440,6 +440,7 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                     >
                       <option value="">Select blood group</option>
                       <option>A+</option><option>A-</option>
+                      <option>A1+</option><option>A1-</option>
                       <option>B+</option><option>B-</option>
                       <option>AB+</option><option>AB-</option>
                       <option>O+</option><option>O-</option>
