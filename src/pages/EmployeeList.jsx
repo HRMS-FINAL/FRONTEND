@@ -250,16 +250,41 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     }
   };
 
-  // Extract unique departments and roles for filters
+  // Department + Designation dropdown sources.
+  // Live-fetched from /api/departments + /api/designations so newly-
+  // added entries appear immediately, AND merged with any values that
+  // already exist on the loaded employees list so legacy free-text
+  // values aren't lost from filter / dropdown options.
+  const [apiDepts, setApiDepts] = useState([]);
+  const [apiDesigs, setApiDesigs] = useState([]);
+  useEffect(() => {
+    fetch(`${API}/departments`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success && Array.isArray(d.data)) {
+          setApiDepts(d.data.map((x) => x.name).filter(Boolean));
+        }
+      })
+      .catch(() => {});
+    fetch(`${API}/designations`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success && Array.isArray(d.data)) {
+          setApiDesigs(d.data.map((x) => x.title).filter(Boolean));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const departments = useMemo(() => {
-    const depts = employees.map(emp => emp.dept);
-    return [...new Set(depts)].sort();
-  }, [employees]);
+    const all = [...apiDepts, ...employees.map((emp) => emp.dept)];
+    return [...new Set(all.filter(Boolean))].sort();
+  }, [employees, apiDepts]);
 
   const roles = useMemo(() => {
-    const r = employees.map(emp => emp.role);
-    return [...new Set(r)].sort();
-  }, [employees]);
+    const all = [...apiDesigs, ...employees.map((emp) => emp.role)];
+    return [...new Set(all.filter(Boolean))].sort();
+  }, [employees, apiDesigs]);
 
   // Status category counts
   const statusCategories = useMemo(() => {
