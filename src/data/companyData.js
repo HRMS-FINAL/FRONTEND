@@ -24,49 +24,11 @@ export const MANAGERS = [
   { name: 'Vimal M',      title: 'Finance Head' },
 ];
 
-// Designation list — used as a static fallback if the /api/designations
-// call hasn't completed yet (or fails). Mirrors the seed list on the
-// backend so the dropdown looks the same either way.
-export const DESIGNATIONS = [
-  'Managing Director',
-  'Sales head',
-  'Execution Head',
-  'Business Development Head',
-  'Business Development manager',
-  'Business Development Associate',
-  'Design Head',
-  'Design Manager',
-  'Design Engineer',
-  'Designer Engineer',
-  'Senior Engineer',
-  'Site Engineer',
-  'Structural Engineer',
-  'Technical Lead',
-  'Technical Lead Consultant',
-  'Project Engineer',
-  'Web Developer',
-  'UI/UX Developer',
-  'Sales Coordinator',
-  'Sales Executive',
-  'Techno Commercial Coordinator',
-  'Digital Marketing Manager',
-  'SEO',
-  'Video editor',
-  'HR',
-  'Accountant',
-];
-
-export const DEPARTMENTS = [
-  'Management',
-  'Sales',
-  'Execution',
-  'Business Development',
-  'Design',
-  'Engineering',
-  'Marketing',
-  'HR',
-  'Project Management',
-  'Development',
-  'Accounts',
-  'Finance',
-];
+// Designation + Department catalogues — emptied for go-live (Jun 2026).
+// The HRMS Designation + Department pages are now the only source of
+// truth; both are loaded live from /api/designations and /api/departments.
+// Keeping these arrays as empty exports so existing imports across the
+// codebase don't break — the dropdowns just start empty and populate
+// once the API responds.
+export const DESIGNATIONS = [];
+export const DEPARTMENTS  = [];
