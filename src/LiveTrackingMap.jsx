@@ -56,11 +56,11 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // Live data fetched from /api/live-tracking — same endpoint the full
   // Live Tracking page uses, so counts/markers match exactly.
   const [employees, setEmployees] = useState([]);
-  const [office,    setOffice]    = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
-  // The canonical office is wherever RANGANAYAGI is currently pinging from
-  // (she sits in the office). Mirror of LiveTracking.jsx.
-  const OFFICE_ANCHOR = { name: /^ranganayagi/i };
-  const RADIUS_M      = 200;
+  // Office anchor — locked to Tesco Structures HQ (Jun 2026, HR confirmed
+  // from Google Maps pin). No employee-anchor override, no backend override.
+  // See pages/LiveTracking.jsx for the full rationale.
+  const [office] = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
+  const RADIUS_M = 200;
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
@@ -74,7 +74,8 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
       const r = await fetch(`${API}/live-tracking`);
       const d = await r.json().catch(() => ({}));
       if (!d?.success || !Array.isArray(d.data)) return;
-      if (d.office) setOffice(d.office);
+      // Intentionally ignore d.office — the office anchor is now locked
+      // in the hooks above to prevent backend drift.
       const rawRows = d.data
         .filter(e => e.lat != null && e.lng != null)
         .map(e => ({
@@ -93,15 +94,10 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
           initials:   (e.name || '?').split(' ').map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '??',
         }));
 
-      // Resolve the office anchor and compute bucket + colour for each row.
-      const anchor = rawRows.find(r =>
-        (OFFICE_ANCHOR.employeeId && String(r.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId) ||
-        OFFICE_ANCHOR.name.test(String(r.name || ''))
-      );
-      const officePt = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
-        ? { lat: anchor.lat, lng: anchor.lng, radiusM: RADIUS_M, name: 'Office (' + (anchor.name || 'anchor') + ')' }
-        : { ...office, radiusM: RADIUS_M };
-      setOffice(officePt);
+      // Office is now a hard-coded constant — no anchor lookup, no
+      // setOffice() to mutate it. Just attach the radius for the
+      // downstream bucket computation.
+      const officePt = { ...office, radiusM: RADIUS_M };
 
       const rows = rawRows.map(r => {
         const distMTo = distMeters(r.lat, r.lng, officePt.lat, officePt.lng);
@@ -120,7 +116,11 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
 
   useEffect(() => {
     loadLive();
-    const id = setInterval(loadLive, 2 * 60 * 1000);
+    // 45 s polling (tightened from 2 min in Jun 2026) — see comment in
+    // pages/LiveTracking.jsx. Keeps the dashboard widget in lockstep
+    // with the full Live Tracking page so HR doesn't see two different
+    // "last updated" times when flipping between dashboard and map.
+    const id = setInterval(loadLive, 45 * 1000);
     return () => clearInterval(id);
   }, [loadLive]);
 

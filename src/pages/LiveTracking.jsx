@@ -563,13 +563,18 @@ export default function LiveTracking() {
   // a GPS ping every 2 minutes while checked in, so we re-fetch every 30s
   // here — the data is at most ~2 min old by design.
   const [liveEmployees, setLiveEmployees] = useState([]);
+  // Office anchor (Jun 2026 — HR confirmed exact pin from Google Maps).
+  // Tesco Structures HQ: 37, 15th Street, Gandhi Nagar, Ashok Nagar,
+  // Chennai, Tamil Nadu 600083.
+  //
+  // Previously we anchored the office marker to whichever employee
+  // matched /^ranganayagi/i was currently pinging from, so the green
+  // HQ circle drifted across the map every time she moved her desk
+  // or stepped outside. HR asked for a fixed pin so the geofence is
+  // deterministic. We now lock the office to the constant coordinates
+  // below — `effectiveOffice` later just returns this object unchanged.
   const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, radiusM: 200, name: 'Tesco Structures HQ' });
-  // Designated office anchor — by HR's request the canonical office
-  // location is wherever RANGANAYAGI is currently pinging from (she sits
-  // in the office). Match by first name only; if her GPS is unavailable
-  // we fall through to whatever the backend gave us.
-  const OFFICE_ANCHOR = { name: /^ranganayagi/i };
-  const RADIUS_M      = 200;
+  const RADIUS_M = 200;
   // Drives the spinner on the Force Refresh button so the click feels
   // responsive and we can prevent rapid-fire double fetches.
   const [refreshing, setRefreshing]   = useState(false);
@@ -591,7 +596,8 @@ export default function LiveTracking() {
       const d = await r.json().catch(() => ({}));
       if (cancelledRef.current) return;
       if (!d?.success || !Array.isArray(d.data)) return;
-      if (d.office) setOffice(d.office);
+      // Intentionally ignore d.office — the office anchor is locked
+      // to a constant (see above) so the backend can't drift the marker.
       const rows = d.data
         .filter(e => e.lat != null && e.lng != null)
         .map(e => ({
@@ -637,22 +643,26 @@ export default function LiveTracking() {
     if (!isLive) return;
     cancelledRef.current = false;
     loadLive();
-    // Match the mobile ping cadence: the app sends one GPS sample every
-    // 2 minutes, so refreshing more often than that buys nothing but
-    // backend load. HR can always hit "Force Refresh" for an instant pull.
-    const id = setInterval(loadLive, 2 * 60 * 1000);
+    // Live-poll cadence (Jun 2026): tightened from 2 min → 45 s.
+    //
+    // The mobile app emits a GPS sample roughly every 60-90 seconds
+    // (foreground watcher fires every 30 s + check, background OS task
+    // delivers every 90 s on most OEMs). Polling every 2 min lagged
+    // HR's view by up to 3 min behind real position — feels broken
+    // when the employee phones HR saying "I'm at the site now".
+    //
+    // 45 s polling gives HR a near-real-time view (~1 ping worth of
+    // lag) while keeping backend load trivial (24 calls/min/HR seat).
+    // The endpoint is a single Mongo read on a small collection, so
+    // even at 50 HR seats this is well within Render's free tier.
+    const id = setInterval(loadLive, 45 * 1000);
     return () => { cancelledRef.current = true; clearInterval(id); };
   }, [isLive, loadLive]);
 
-  // Resolve the office anchor lazily on every render so HR sees the
-  // office move with Ranganayagi if she ever clocks in from a new desk.
-  const anchorRow = liveEmployees.find(e =>
-    (OFFICE_ANCHOR.employeeId && String(e.employeeId || '').toUpperCase() === OFFICE_ANCHOR.employeeId) ||
-    OFFICE_ANCHOR.name.test(String(e.name || ''))
-  );
-  const effectiveOffice = (anchorRow && typeof anchorRow.lat === 'number' && typeof anchorRow.lng === 'number')
-    ? { lat: anchorRow.lat, lng: anchorRow.lng, radiusM: RADIUS_M, name: 'Office (' + (anchorRow.name || 'anchor') + ')' }
-    : office;
+  // Office anchor is now a hard-coded constant (see above) — no
+  // employee-pinning lookup. The previous Ranganayagi-anchor logic
+  // was removed in Jun 2026 at HR's request.
+  const effectiveOffice = office;
 
   // Attach distance-to-office + the resolved bucket on every employee so
   // we don't recompute it inline three times in the renderer.
