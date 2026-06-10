@@ -73,7 +73,9 @@ export default function Attendance({ onBack, employees = [] }) {
       email: log.email || '',
       dept: log.department || '',
       employeeId: log.employeeId || '',
-      status: log.status === 'On Time' ? 'Present' : log.status === 'Absent' ? 'On Leave' : log.status === 'Half Day' ? 'Permission' : log.status,
+      // 'On Time' → 'Present' for the badge; 'Absent' → 'On Leave';
+      // 'Half Day' is now distinct from 'Permission' (Jun 2026 — policy fix). 'Permission' = filed permission request; 'Half Day' = early checkout without permission (counts toward LOP).
+      status: log.status === 'On Time' ? 'Present' : log.status === 'Absent' ? 'On Leave' : log.status,
       checkIn: log.checkIn || '--:--',
       checkOut: log.checkOut || '--:--',
       workHours: log.workHours || '0h',
@@ -131,7 +133,7 @@ export default function Attendance({ onBack, employees = [] }) {
           (empId    && log.employeeId === empId) ||
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
-        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s === 'Half Day' ? 'Permission' : s;
+        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s;
         // Present count folds Late in (employee did come in); the Late
         // figure is preserved separately so the monthly view can still
         // surface it.
@@ -158,7 +160,7 @@ export default function Attendance({ onBack, employees = [] }) {
           (empId    && log.employeeId === empId) ||
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
-        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s === 'Half Day' ? 'Permission' : s;
+        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s;
         const doc = new jsPDF({ unit: 'pt', format: 'a4' });
         doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
@@ -608,15 +610,20 @@ export default function Attendance({ onBack, employees = [] }) {
                       <span style={{
                         display: 'inline-block', padding: '4px 10px', borderRadius: 12,
                         fontSize: 11, fontWeight: 700,
+                        // 'Half Day' (early checkout without permission, counts
+                        // toward LOP) gets its own amber pill so HR can tell
+                        // it apart from the purple 'Permission' pill at a glance.
                         background: log.status === 'Present'    ? '#ECFDF5'
                                   : log.status === 'Late'       ? '#FFFBEB'
                                   : log.status === 'On Leave'   ? '#FEF2F2'
                                   : log.status === 'Permission' ? '#F5F3FF'
+                                  : log.status === 'Half Day'   ? '#FEF3C7'
                                   : '#F1F5F9',
                         color:      log.status === 'Present'    ? '#16A34A'
                                   : log.status === 'Late'       ? '#D97706'
                                   : log.status === 'On Leave'   ? '#DC2626'
                                   : log.status === 'Permission' ? '#7C3AED'
+                                  : log.status === 'Half Day'   ? '#B45309'
                                   : '#64748B',
                       }}>
                         {log.status}
