@@ -55,6 +55,22 @@ export default function GoogleMapView({
   onMarkerClick = null,
   children = null,
 }) {
+  // EARLY API-KEY GATE (Jun 2026 — #278).
+  // Previously this check was AFTER the loadError + isLoaded branches,
+  // which made it unreachable: useJsApiLoader with an empty key
+  // resolves with isLoaded=true and no loadError, so the user just got
+  // a watermarked / blocked map with no explanation. Surfacing it
+  // FIRST means dev/QA can see immediately when a deploy is missing
+  // the VITE_GOOGLE_MAPS_API_KEY variable.
+  if (!API_KEY) {
+    return (
+      <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFFBEB', color: '#92400E', fontSize: 13, padding: 16, textAlign: 'center' }}>
+        VITE_GOOGLE_MAPS_API_KEY is not set on this deployment. Add it to
+        the host's environment variables and rebuild.
+      </div>
+    );
+  }
+
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: API_KEY,
     libraries: LIBRARIES,
@@ -88,10 +104,17 @@ export default function GoogleMapView({
   }, [markers, polyline, fitToBounds]);
 
   if (loadError) {
+    // The most common causes of loadError are surfaced explicitly so
+    // ops can triage in 5 seconds instead of digging through DevTools:
+    //  • Key restricted to a different HTTP referrer (Google Cloud
+    //    Console → Credentials → key → Application restrictions).
+    //  • Billing not enabled on the GCP project.
+    //  • Maps JavaScript API not enabled on the project.
     return (
       <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FEF2F2', color: '#B91C1C', fontSize: 13, padding: 16, textAlign: 'center' }}>
-        Failed to load Google Maps — check VITE_GOOGLE_MAPS_API_KEY and the
-        "Maps JavaScript API" enablement / HTTP-referrer restriction.
+        Failed to load Google Maps. Check the GCP Console: (1) Maps
+        JavaScript API enabled, (2) billing enabled, (3) HTTP referrer
+        restriction includes this domain.
       </div>
     );
   }
@@ -99,13 +122,6 @@ export default function GoogleMapView({
     return (
       <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8FAFC', color: '#64748B', fontSize: 13 }}>
         Loading Google Maps…
-      </div>
-    );
-  }
-  if (!API_KEY) {
-    return (
-      <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFFBEB', color: '#92400E', fontSize: 13, padding: 16, textAlign: 'center' }}>
-        VITE_GOOGLE_MAPS_API_KEY is not set on this deployment.
       </div>
     );
   }
