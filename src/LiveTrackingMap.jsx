@@ -59,8 +59,11 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
   // Office anchor — locked to Tesco Structures HQ (Jun 2026, HR confirmed
   // from Google Maps pin). No employee-anchor override, no backend override.
   // See pages/LiveTracking.jsx for the full rationale.
-  const [office] = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
-  const RADIUS_M = 200;
+  // Office anchor is now sourced from the backend (SystemConfig.officeAnchor
+  // when set, else env-var defaults) so HR's manual lock takes effect on
+  // the Dashboard widget as well, not just the Live Tracking page.
+  const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, name: 'Tesco Structures HQ' });
+  const RADIUS_M = 60;
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
@@ -74,8 +77,15 @@ export function CompactTrackingMap({ onOpenFullMap, sidebarOpen }) {
       const r = await fetch(`${API}/live-tracking`);
       const d = await r.json().catch(() => ({}));
       if (!d?.success || !Array.isArray(d.data)) return;
-      // Intentionally ignore d.office — the office anchor is now locked
-      // in the hooks above to prevent backend drift.
+      // Sync office anchor from backend so the Dashboard widget tracks
+      // whatever HR last locked via the Lock Office endpoint.
+      if (d.office && typeof d.office.lat === 'number' && typeof d.office.lng === 'number') {
+        setOffice({
+          lat: d.office.lat,
+          lng: d.office.lng,
+          name: d.office.name || 'Tesco Structures HQ',
+        });
+      }
       const rawRows = d.data
         .filter(e => e.lat != null && e.lng != null)
         .map(e => ({

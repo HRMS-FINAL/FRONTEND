@@ -25,6 +25,36 @@ import RouteMapModal from '../components/RouteMapModal';
 // plus the location-ping collection. Hardcoded Mumbai demo data removed.
 const EMPLOYEES = [];
 
+// ──────────────────────────────────────────────────────────────────────
+// OFFICE LOCATION OVERRIDE (Jun 2026)
+// ──────────────────────────────────────────────────────────────────────
+// Edit the lat/lng below to MOVE THE GREEN OFFICE MARKER on the map.
+//
+// Highest priority — wins over backend `d.office` AND the React state
+// default. Set lat=null AND lng=null to disable the override and fall
+// back to whatever the backend's SystemConfig.officeAnchor says.
+//
+// HOW TO FIND THE COORDINATES:
+//   1. Open Google Maps → right-click on the exact office position.
+//   2. The first row of the popup shows "13.0xxx, 80.2xxx" — copy it.
+//   3. Paste here, save, then `npm run build` and redeploy the frontend.
+//
+// Once set, the marker will NOT move on its own — no GPS update,
+// check-in/out, ping or tracking event can change it. Only an HR edit
+// of this constant + a rebuild will move it.
+// ──────────────────────────────────────────────────────────────────────
+const OFFICE_OVERRIDE = {
+  lat: null,    // ← put office latitude here, e.g. 13.0420
+  lng: null,    // ← put office longitude here, e.g. 80.2105
+  radiusM: 60,
+  name: 'Tesco Structures HQ',
+};
+const HAS_OFFICE_OVERRIDE =
+  typeof OFFICE_OVERRIDE.lat === 'number' &&
+  typeof OFFICE_OVERRIDE.lng === 'number' &&
+  isFinite(OFFICE_OVERRIDE.lat) &&
+  isFinite(OFFICE_OVERRIDE.lng);
+
 // Three-bucket model that HR cares about:
 //   active    — checked in, GPS on, but NOT at the office (field / travel)
 //   office    — checked in, GPS on, inside the office geofence
@@ -626,8 +656,12 @@ export default function LiveTracking() {
   // or stepped outside. HR asked for a fixed pin so the geofence is
   // deterministic. We now lock the office to the constant coordinates
   // below — `effectiveOffice` later just returns this object unchanged.
-  const [office, setOffice] = useState({ lat: 13.0412, lng: 80.2127, radiusM: 200, name: 'Tesco Structures HQ' });
-  const RADIUS_M = 200;
+  const [office, setOffice] = useState(
+    HAS_OFFICE_OVERRIDE
+      ? { lat: OFFICE_OVERRIDE.lat, lng: OFFICE_OVERRIDE.lng, radiusM: OFFICE_OVERRIDE.radiusM, name: OFFICE_OVERRIDE.name }
+      : { lat: 13.0412, lng: 80.2127, radiusM: 60, name: 'Tesco Structures HQ' }
+  );
+  const RADIUS_M = HAS_OFFICE_OVERRIDE ? OFFICE_OVERRIDE.radiusM : 60;
   // Drives the spinner on the Force Refresh button so the click feels
   // responsive and we can prevent rapid-fire double fetches.
   const [refreshing, setRefreshing]   = useState(false);
@@ -649,8 +683,23 @@ export default function LiveTracking() {
       const d = await r.json().catch(() => ({}));
       if (cancelledRef.current) return;
       if (!d?.success || !Array.isArray(d.data)) return;
-      // Intentionally ignore d.office — the office anchor is locked
-      // to a constant (see above) so the backend can't drift the marker.
+      // Office anchor (Jun 2026 — production fix). Backend now serves
+      // the locked SystemConfig.officeAnchor in d.office. Reflect it
+      // on the map so the green geofence circle sits exactly where HR
+      // pinned it via the Lock Office endpoint, not where the
+      // hardcoded default used to be.
+      // Override wins; otherwise sync from backend SystemConfig.officeAnchor.
+      if (HAS_OFFICE_OVERRIDE) {
+        // No-op — initial state already holds the override and we never
+        // want the backend to move it.
+      } else if (d.office && typeof d.office.lat === 'number' && typeof d.office.lng === 'number') {
+        setOffice({
+          lat: d.office.lat,
+          lng: d.office.lng,
+          radiusM: typeof d.office.radiusM === 'number' ? d.office.radiusM : 60,
+          name: d.office.name || 'Tesco Structures HQ',
+        });
+      }
       const rows = d.data
         .filter(e => e.lat != null && e.lng != null)
         .map(e => ({
