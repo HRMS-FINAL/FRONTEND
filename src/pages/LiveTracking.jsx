@@ -1287,6 +1287,24 @@ export default function LiveTracking() {
                       <span className="item-dept">{emp.role || emp.dept || '—'}</span>
                       <span className="dot-sep" />
                       <span className="item-site"><MapPin size={10} style={{ marginRight: '2px', verticalAlign: 'middle' }} /> {emp.site}</span>
+                      {emp.movement && (
+                        <>
+                          <span className="dot-sep" />
+                          <span
+                            className="item-movement"
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: emp.movement === 'moving' ? '#dbeafe' : '#f1f5f9',
+                              color:      emp.movement === 'moving' ? '#1d4ed8' : '#475569',
+                            }}
+                          >
+                            {emp.movement === 'moving' ? 'Moving' : 'Stationary'}
+                          </span>
+                        </>
+                      )}
                       {emp.dept === 'Sales' && (
                         <>
                           <span className="dot-sep" />

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronRight, FileText, Download, Table, Filter, X, Trash2 } from 'lucide-react';
+import { ChevronRight, FileText, Download, Table, Filter, X, Trash2, ArrowLeft } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -611,6 +611,28 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
               borderBottom: '1px solid var(--border-color)',
               background: 'linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%)',
             }}>
+              {/* Back button (#276). Visible at the top of the edit
+                  drawer so HR can dismiss it the same way they would on
+                  the details page. Sits alongside the existing X close. */}
+              <button
+                type="button"
+                onClick={() => setEditingEmp(null)}
+                aria-label="Back"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '6px 12px',
+                  background: '#FFFFFF',
+                  color: '#0F172A',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '8px',
+                  fontSize: '12px', fontWeight: 600,
+                  cursor: 'pointer',
+                  marginBottom: '12px',
+                  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                }}
+              >
+                <ArrowLeft size={14} /> Back
+              </button>
               <button
                 type="button"
                 onClick={() => setEditingEmp(null)}

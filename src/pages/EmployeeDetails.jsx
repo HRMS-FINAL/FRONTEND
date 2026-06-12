@@ -408,9 +408,29 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
   return (
     <div className="emp-list-page">
       <div className="emp-list-header">
-        <div className="ne-breadcrumb">
-          <span className="ne-breadcrumb-link" onClick={onBack}><ArrowLeft size={14} /> Back to Directory</span>
-        </div>
+        {/* Back button (Jun 2026 — #276). Promoted from a small
+            breadcrumb link to a proper button so HR can clearly find
+            the way out of the details view. */}
+        <button
+          type="button"
+          onClick={onBack}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px',
+            background: '#FFFFFF',
+            color: '#0F172A',
+            border: '1px solid #E2E8F0',
+            borderRadius: '8px',
+            fontSize: '13px', fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+            marginBottom: '14px',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#F8FAFC'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#FFFFFF'; }}
+        >
+          <ArrowLeft size={16} /> Back to Directory
+        </button>
         <div className="emp-list-title-row">
           <div className="emp-details-profile-header">
             <div className="emp-table-avatar" style={{ width: '64px', height: '64px', fontSize: '24px', background: employee.color + '20', color: employee.color }}>
