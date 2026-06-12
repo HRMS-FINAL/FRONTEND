@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 // supported, properly billed, and stable.
 // ─────────────────────────────────────────────────────────────────────────────
 import { GoogleMap, useJsApiLoader, MarkerF, PolylineF, InfoWindowF, OverlayViewF } from '@react-google-maps/api';
-import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone } from 'lucide-react';
+import { Search, X as CloseIcon, Navigation, Filter, Users, MapPin, RefreshCw, Battery, Signal, Phone, MessageSquare, User, Clock, Timer, Route, TrendingUp, Layers, Calendar, Laptop, Smartphone, Lock } from 'lucide-react';
 import '../tracking.css';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -407,6 +407,59 @@ function LiveTrackingGoogleMap({
             <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>
               <Clock size={10} style={{ verticalAlign: 'middle' }} /> Last ping: {activePopup.emp.lastSeen}
             </div>
+            {/* Lock Office to this employee's current GPS (#281).
+                Calls HRMS proxy → mobile backend → upserts SystemConfig.
+                Confirms first so HR doesn't accidentally re-anchor. */}
+            <button
+              type="button"
+              onClick={async () => {
+                const empId = activePopup.emp.employeeId || '';
+                if (!empId) {
+                  alert('This employee record has no employeeId — cannot lock anchor.');
+                  return;
+                }
+                if (!window.confirm(
+                  `Lock the office anchor permanently to ${activePopup.emp.name}'s current GPS?\n\n` +
+                  `From now on the live-tracking map will use this employee's last position as the office centre. ` +
+                  `It will not auto-recalculate — only changes when an admin pins it again.`
+                )) return;
+                try {
+                  const r = await fetch(`${API}/live-tracking/lock-office`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ employeeId: empId }),
+                  });
+                  const data = await r.json().catch(() => ({}));
+                  if (!r.ok) {
+                    alert('Could not lock office: ' + (data?.message || `HTTP ${r.status}`));
+                    return;
+                  }
+                  const a = data.officeAnchor || {};
+                  alert(
+                    `Office anchor locked.\n\n` +
+                    `Lat: ${Number(a.lat).toFixed(6)}\n` +
+                    `Lng: ${Number(a.lng).toFixed(6)}\n` +
+                    `Source: ${a.source?.employeeName || empId}\n\n` +
+                    `Live Tracking will use this anchor from the next refresh.`
+                  );
+                } catch (err) {
+                  alert('Network error: ' + (err?.message || err));
+                }
+              }}
+              style={{
+                marginTop: 10,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 10px',
+                background: '#4CAF50',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                fontSize: 11, fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <Lock size={11} /> Lock Office Here
+            </button>
           </div>
         </InfoWindowF>
       )}
