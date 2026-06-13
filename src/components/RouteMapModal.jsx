@@ -176,9 +176,24 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
   // anything in `data` is unexpected we fall back to safe defaults so
   // the map still renders (centered on Tesco HQ in Ashok Nagar) and HR
   // gets a useful empty-state instead of a crash.
-  const polyline = Array.isArray(data?.polyline) ? data.polyline.filter(
-    (p) => p && typeof p.lat === 'number' && typeof p.lng === 'number'
-  ) : [];
+  // Accept whatever shape the backend returns — `polyline`, `route`, or
+  // `points`. Older versions of the mobile backend's adminDailyRoute
+  // emitted only `route`, and the frontend was silently reading
+  // `polyline` and finding nothing — every employee's modal said
+  // "No GPS path recorded" even when the database had hundreds of pings.
+  // Reading all three field names here means the modal renders no
+  // matter which backend version is live.
+  const rawPath = Array.isArray(data?.polyline) ? data.polyline
+                : Array.isArray(data?.route)    ? data.route
+                : Array.isArray(data?.points)   ? data.points
+                : [];
+  const polyline = rawPath
+    .map((p) => ({
+      lat: Number(p?.lat ?? p?.latitude),
+      lng: Number(p?.lng ?? p?.longitude),
+      at:  p?.at ?? p?.t ?? p?.recordedAt ?? null,
+    }))
+    .filter((p) => isFinite(p.lat) && isFinite(p.lng));
   const hasPath = polyline.length >= 2;
 
   // Office default — Tesco Structures HQ, Ashok Nagar, Chennai
