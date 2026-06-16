@@ -7,6 +7,7 @@ import {
 import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { allEmployees } from '../data/mockData';
 
 import { API } from '../config/api';
@@ -253,8 +254,79 @@ export default function Attendance({ onBack, employees = [] }) {
             <p className="ne-page-sub">Monitor daily logs, select calendar dates, and manage leave/permission requests.</p>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="ne-btn-secondary" onClick={() => showNotification("Attendance report prepared!", "success")}>
-              <FileText size={16} /> Reports
+            {/* PDF + Excel split (#288). Replaces the single "Reports"
+                button that only fired a toast. Both buttons export the
+                currently-visible day's attendance log. */}
+            <button
+              className="ne-btn-secondary"
+              onClick={() => {
+                try {
+                  const rows = displayLogs;
+                  if (!rows.length) {
+                    showNotification('No attendance records for this date.', 'info');
+                    return;
+                  }
+                  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+                  doc.setFontSize(16);
+                  doc.setFont('helvetica', 'bold');
+                  doc.text('Attendance Log', 40, 50);
+                  doc.setFontSize(11);
+                  doc.setFont('helvetica', 'normal');
+                  doc.setTextColor(100, 116, 139);
+                  doc.text(`Date: ${selectedDate || new Date().toDateString()}`, 40, 68);
+                  autoTable(doc, {
+                    startY: 86,
+                    head: [['Emp ID', 'Name', 'Role', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status']],
+                    body: rows.map(r => [
+                      r.employeeId || '', r.name || '',
+                      r.role || r.designation || '',
+                      r.department || r.dept || '',
+                      r.checkIn || '--', r.checkOut || '--',
+                      r.workHours || '0h', r.status || '',
+                    ]),
+                    styles:     { fontSize: 9, cellPadding: 5 },
+                    headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
+                    theme:      'grid',
+                  });
+                  doc.save(`attendance_${selectedDate || 'today'}.pdf`);
+                  showNotification('Attendance PDF downloaded.', 'success');
+                } catch (e) {
+                  showNotification('Could not build PDF: ' + (e?.message || 'unknown'), 'error');
+                }
+              }}
+            >
+              <FileText size={16} /> Download PDF
+            </button>
+            <button
+              className="ne-btn-secondary"
+              onClick={() => {
+                try {
+                  const rows = displayLogs;
+                  if (!rows.length) {
+                    showNotification('No attendance records for this date.', 'info');
+                    return;
+                  }
+                  const sheet = rows.map(r => ({
+                    'Emp ID':     r.employeeId || '',
+                    'Name':       r.name || '',
+                    'Role':       r.role || r.designation || '',
+                    'Department': r.department || r.dept || '',
+                    'Check In':   r.checkIn || '',
+                    'Check Out':  r.checkOut || '',
+                    'Work Hours': r.workHours || '0h',
+                    'Status':     r.status || '',
+                  }));
+                  const wb = XLSX.utils.book_new();
+                  const ws = XLSX.utils.json_to_sheet(sheet);
+                  XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+                  XLSX.writeFile(wb, `attendance_${selectedDate || 'today'}.xlsx`);
+                  showNotification('Attendance Excel downloaded.', 'success');
+                } catch (e) {
+                  showNotification('Could not build Excel: ' + (e?.message || 'unknown'), 'error');
+                }
+              }}
+            >
+              <FileText size={16} /> Download Excel
             </button>
           </div>
         </div>

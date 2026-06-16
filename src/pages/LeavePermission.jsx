@@ -287,12 +287,12 @@ export default function LeavePermission({ onBack }) {
             <p className="ne-page-sub">View list of employees currently on leave or out on permissions, and manage requests.</p>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
+            {/* Split into Download PDF + Download Excel (#288). Single
+                "Reports" button previously fired both at once which was
+                confusing; HR usually wants one format at a time. */}
             <button
               className="ne-btn-secondary"
               onClick={() => {
-                // Build the rows from the currently-displayed records.
-                // We use `displayRecords` so HR's calendar selection +
-                // tab + search filter all carry through to the export.
                 const rows = displayRecords.map((r) => ({
                   Employee:    r.name || r.employeeName || '—',
                   'Emp ID':    r.employeeId || r.id || '',
@@ -333,20 +333,46 @@ export default function LeavePermission({ onBack }) {
                     alternateRowStyles: { fillColor: [248, 250, 252] },
                   });
                   doc.save(`leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.pdf`);
-
-                  // Excel companion — same shape, lets HR slice and dice.
+                  showNotification(`Downloaded ${rows.length} records (PDF).`, 'success');
+                } catch (err) {
+                  console.error('[LeavePermission] PDF error:', err);
+                  showNotification('Could not generate PDF.', 'error');
+                }
+              }}
+            >
+              <FileText size={16} /> Download PDF
+            </button>
+            <button
+              className="ne-btn-secondary"
+              onClick={() => {
+                const rows = displayRecords.map((r) => ({
+                  Employee:    r.name || r.employeeName || '—',
+                  'Emp ID':    r.employeeId || r.id || '',
+                  Role:        r.role || '',
+                  Department:  r.dept || '',
+                  Type:        r.type || '',
+                  Duration:    r.duration || '',
+                  'Date':      r.date || '',
+                  Reason:      r.reason || '',
+                  Status:      r.status || 'Approved',
+                }));
+                if (rows.length === 0) {
+                  showNotification('No records to export for the current filter.', 'info');
+                  return;
+                }
+                try {
                   const ws = XLSX.utils.json_to_sheet(rows);
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(wb, ws, 'Leave-Permission');
                   XLSX.writeFile(wb, `leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.xlsx`);
-                  showNotification(`Downloaded ${rows.length} records (PDF + Excel).`, 'success');
+                  showNotification(`Downloaded ${rows.length} records (Excel).`, 'success');
                 } catch (err) {
-                  console.error('[LeavePermission] report error:', err);
-                  showNotification('Could not generate report. Check the console.', 'error');
+                  console.error('[LeavePermission] Excel error:', err);
+                  showNotification('Could not generate Excel.', 'error');
                 }
               }}
             >
-              <FileText size={16} /> Reports
+              <FileText size={16} /> Download Excel
             </button>
           </div>
         </div>

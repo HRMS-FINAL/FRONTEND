@@ -488,10 +488,7 @@ export default function Allowance({ onBack }) {
                 style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', cursor: rows.length === 0 ? 'not-allowed' : 'pointer', opacity: rows.length === 0 ? 0.5 : 1 }}>
                 Download Excel
               </button>
-              <button type="button" onClick={downloadCsv} disabled={rows.length === 0}
-                style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: '#fff', color: '#475569', border: '1px solid #E2E8F0', cursor: rows.length === 0 ? 'not-allowed' : 'pointer', opacity: rows.length === 0 ? 0.5 : 1 }}>
-                Download CSV
-              </button>
+              {/* Download CSV removed (#288 — HR uses PDF/Excel only). */}
             </div>
           </div>
         </div>
