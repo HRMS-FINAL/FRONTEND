@@ -261,11 +261,17 @@ export default function Attendance({ onBack, employees = [] }) {
               className="ne-btn-secondary"
               onClick={() => {
                 try {
-                  const rows = displayLogs;
+                  // Fall back to dailyLogs if displayLogs (filtered)
+                  // is empty so the button never silently no-ops.
+                  const rows = (Array.isArray(displayLogs) && displayLogs.length)
+                    ? displayLogs
+                    : (Array.isArray(dailyLogs) ? dailyLogs : []);
+                  console.log('[Attendance PDF] rows:', rows.length);
                   if (!rows.length) {
-                    showNotification('No attendance records for this date.', 'info');
+                    showNotification('No attendance records to export.', 'info');
                     return;
                   }
+                  const dateLabel = `${selectedDay}-${months[selectedMonth] || ''}-${selectedYear}`;
                   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
                   doc.setFontSize(16);
                   doc.setFont('helvetica', 'bold');
@@ -273,7 +279,7 @@ export default function Attendance({ onBack, employees = [] }) {
                   doc.setFontSize(11);
                   doc.setFont('helvetica', 'normal');
                   doc.setTextColor(100, 116, 139);
-                  doc.text(`Date: ${selectedDate || new Date().toDateString()}`, 40, 68);
+                  doc.text(`Date: ${dateLabel}`, 40, 68);
                   autoTable(doc, {
                     startY: 86,
                     head: [['Emp ID', 'Name', 'Role', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status']],
@@ -288,9 +294,10 @@ export default function Attendance({ onBack, employees = [] }) {
                     headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
                     theme:      'grid',
                   });
-                  doc.save(`attendance_${selectedDate || 'today'}.pdf`);
+                  doc.save(`attendance_${dateLabel}.pdf`);
                   showNotification('Attendance PDF downloaded.', 'success');
                 } catch (e) {
+                  console.error('[Attendance PDF] error:', e);
                   showNotification('Could not build PDF: ' + (e?.message || 'unknown'), 'error');
                 }
               }}
@@ -301,11 +308,15 @@ export default function Attendance({ onBack, employees = [] }) {
               className="ne-btn-secondary"
               onClick={() => {
                 try {
-                  const rows = displayLogs;
+                  const rows = (Array.isArray(displayLogs) && displayLogs.length)
+                    ? displayLogs
+                    : (Array.isArray(dailyLogs) ? dailyLogs : []);
+                  console.log('[Attendance Excel] rows:', rows.length);
                   if (!rows.length) {
-                    showNotification('No attendance records for this date.', 'info');
+                    showNotification('No attendance records to export.', 'info');
                     return;
                   }
+                  const dateLabel = `${selectedDay}-${months[selectedMonth] || ''}-${selectedYear}`;
                   const sheet = rows.map(r => ({
                     'Emp ID':     r.employeeId || '',
                     'Name':       r.name || '',
@@ -319,9 +330,10 @@ export default function Attendance({ onBack, employees = [] }) {
                   const wb = XLSX.utils.book_new();
                   const ws = XLSX.utils.json_to_sheet(sheet);
                   XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-                  XLSX.writeFile(wb, `attendance_${selectedDate || 'today'}.xlsx`);
+                  XLSX.writeFile(wb, `attendance_${dateLabel}.xlsx`);
                   showNotification('Attendance Excel downloaded.', 'success');
                 } catch (e) {
+                  console.error('[Attendance Excel] error:', e);
                   showNotification('Could not build Excel: ' + (e?.message || 'unknown'), 'error');
                 }
               }}

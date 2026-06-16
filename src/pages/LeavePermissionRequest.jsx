@@ -183,6 +183,19 @@ export default function LeavePermissionRequest({ onBack }) {
   const permissionReqCount = requests.filter(r => r.status === 'Pending' && classify(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
+    // Diagnostic — lets us confirm in DevTools that the memo IS
+    // recomputing on every tab click and that the source set is being
+    // classified correctly. Remove after a few days in prod.
+    try {
+      const distribution = requests.reduce((acc, r) => {
+        const k = classify(r);
+        acc[k] = (acc[k] || 0) + 1;
+        return acc;
+      }, {});
+      // eslint-disable-next-line no-console
+      console.log('[Approvals] tab=', activeTab, ' total=', requests.length, ' kinds=', distribution);
+    } catch (_) { /* swallow — diagnostic only */ }
+
     return requests.filter(item => {
       // 1. Tab gate — leave rows only in Leave tab, permission rows only
       //    in Permission tab. Uses the shared classifier so both the
