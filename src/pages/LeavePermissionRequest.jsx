@@ -14,11 +14,13 @@ import { API } from '../config/api';
 // stamps _kind correctly. The 30s polling refresh would eventually
 // fix it on its own, but the cache hydration that happens BEFORE the
 // first fetch lands would still serve stale, _kind-less rows.
-// v4 (#301) — duration-string is now the primary classifier signal.
+// v5 (#308) — requestType is now the primary classifier signal — it's
+// the same field the HRMS backend reshape uses to decide isPermission,
+// so trusting it directly removes the entire failure surface.
 // Rows stamped with the v3 classifier may have leaked permission→leave
 // (or vice-versa) for ambiguous types; bumping the key forces a fresh
 // classify pass on every browser that loads this build.
-const LS_KEY = 'tesco_hrms_leave_requests_cache_v4';
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v5';
 
 /**
  * Classify a single row as 'leave' or 'permission'. Runs ONCE at fetch
@@ -44,47 +46,38 @@ const LS_KEY = 'tesco_hrms_leave_requests_cache_v4';
  * Permission tab is much smaller and a leak there is louder).
  */
 function classifyRow(r) {
-  // ─── Signal 1 (STRONGEST): the visible `duration` string ───────────
-  // Per HR's own framing: leaves are MEASURED IN DAYS, permissions are
-  // MEASURED IN HOURS. The Approvals table's Duration column shows this
-  // unit directly to the user, so it's the most reliable single field
-  // — no possibility of the row "looking" like a leave but classifying
-  // as a permission (or vice-versa). Examples seen in production:
-  //   "2 Days"  / "1 Day"  / "0.5 Day"   → leave
-  //   "2 Hours" / "1h"     / "0.5 Hours" → permission
-  // Plus the mobile reshape sometimes writes "Nh" with no space.
-  const dur = String(r?.duration || '').toLowerCase().trim();
-  if (dur) {
-    if (/\b(?:hour|hrs?|h)\b/.test(dur) || /\d+\s*h\b/.test(dur) || dur.includes('hour')) {
-      return 'permission';
-    }
-    if (/\b(?:day|days|d)\b/.test(dur) || dur.includes('day')) {
-      return 'leave';
-    }
-  }
+  // #308 — PRIMARY signal: `requestType`. This is set by the HRMS
+  // backend reshape (routes/leaveRequestRoutes.js line 92) using
+  // EXACTLY the same comparison the backend uses to decide whether a
+  // row is a permission. Trusting it directly here makes the frontend
+  // filter impossible to disagree with the backend's notion of a row's
+  // kind. Anything else is a fallback for unusual data.
+  const rt = String(r?.requestType || '').toLowerCase().trim();
+  if (rt === 'permission' || rt.includes('permission')) return 'permission';
+  if (rt === 'leave'      || rt.includes('leave'))      return 'leave';
 
-  // ─── Signal 2: the visible `type` STRING ───────────────────────────
-  // Permission rows are typed as "Permission (Nh)" by the mobile reshape;
-  // leave rows are typed as the leave category ("Casual Leave", "Sick
-  // Leave", "Earned Leave", etc.). Both formats are explicit enough that
-  // a substring check is safe.
+  // FALLBACK 1: visible `type` string. Permission rows are reshaped as
+  // 'Permission (Nh)'; leave rows as 'Sick Leave' / 'Casual Leave' /
+  // 'Earned Leave' / etc.
   const t = String(r?.type || '').toLowerCase().trim();
   if (t.startsWith('permission') || t.includes('permission')) return 'permission';
   if (t.includes('leave'))                                    return 'leave';
 
-  // ─── Signal 3: structural fingerprint ──────────────────────────────
-  // Permission rows always have a time window (durationHours / startTime
-  // / endTime / permissionDate). Leave rows always have a date range
-  // (startDate / endDate). If neither overlaps we fall through.
+  // FALLBACK 2: duration unit (the user's framing — "leaves measured
+  // in days, permissions measured in hours"). Catches rows where both
+  // requestType AND type were dropped by an upstream serialiser.
+  const dur = String(r?.duration || '').toLowerCase().trim();
+  if (dur) {
+    if (/\b(?:hour|hrs?|h)\b/.test(dur) || /\d+\s*h\b/.test(dur)) return 'permission';
+    if (/\b(?:day|days|d)\b/.test(dur)) return 'leave';
+  }
+
+  // FALLBACK 3: structural — permission rows always have a time window;
+  // leave rows always have a date range.
   if (r?.durationHours || r?.startTime || r?.endTime || r?.permissionDate) return 'permission';
   if (r?.startDate || r?.endDate) return 'leave';
 
-  // ─── Signal 4 (LEGACY, checked LAST): `requestType` ────────────────
-  // We've seen this inverted on legacy mobile-backend writes; only use
-  // it after every more-reliable field has been exhausted.
-  const rt = String(r?.requestType || '').toLowerCase().trim();
-  if (rt === 'permission') return 'permission';
-  if (rt === 'leave')      return 'leave';
+  // Last resort default.
   return 'leave';
 }
 
@@ -140,6 +133,21 @@ export default function LeavePermissionRequest({ onBack }) {
           // call site got updated. Also: cache the STAMPED rows so the
           // next page-load hydrates with _kind already present.
           const stamped = stampKind(data.items);
+          // #308 — One-shot diagnostic. Logs the FIRST row's raw fields
+          // and computed _kind so we can verify in DevTools that the
+          // classifier sees what we expect. Open Console after page
+          // load — you should see lines like:
+          //   [Approvals] first row { requestType: 'permission',
+          //     type: 'Permission (2h)', duration: '2 Hours',
+          //     _kind: 'permission' }
+          // Remove after a week of clean data.
+          if (stamped[0]) {
+            const f = stamped[0];
+            // eslint-disable-next-line no-console
+            console.log('[Approvals] first row',
+              { _id: f._id, requestType: f.requestType, type: f.type,
+                duration: f.duration, status: f.status, _kind: f._kind });
+          }
           setRequests(stamped);
           try { localStorage.setItem(LS_KEY, JSON.stringify(stamped)); } catch {}
         }

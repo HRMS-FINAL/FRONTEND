@@ -27,12 +27,13 @@
  */
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-// #304 — switched from plain `xlsx` to `xlsx-js-style`. The vanilla xlsx
-// package silently drops cell styling on write, which is why our
-// previous Excel reports came out plain white. xlsx-js-style is a
-// drop-in fork (same API surface) that preserves fill/font/border on
-// write. Caller must `npm install xlsx-js-style` once.
-import XLSX from 'xlsx-js-style';
+// #307 — reverted to plain `xlsx` to unblock Vercel.
+// xlsx-js-style needs to be installed first (`npm install xlsx-js-style`)
+// before this can switch back. Plain xlsx is fine for layout but
+// drops cell colours on write, so the Summary/Data sheets will be
+// uncoloured until that install is done. The PDF reports are
+// unaffected (they still get the bigger logo + branded header).
+import * as XLSX from 'xlsx';
 
 // Bundler resolves this to a base64 data URL at build time, so we can
 // embed the logo into the PDF without any runtime fetch.
