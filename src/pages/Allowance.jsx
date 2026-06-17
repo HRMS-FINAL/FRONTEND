@@ -2,21 +2,68 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, Fuel, Car, CheckCircle, XCircle, Clock } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+// #303 — branded report template.
+import { buildBrandedPdf, buildBrandedExcel } from '../utils/reportTemplate';
 import * as XLSX from 'xlsx';
 import { useNotification } from '../context/NotificationContext';
 import { API } from '../config/api';
 
-const LS_KEY = 'tesco_hrms_allowance_cache';
+// #302 — Bumped cache key so any browser that hydrated from a v0 cache
+// (where the same row could end up in BOTH `petrol` and `travel` due to
+// the strict-equality backend filter) gets a fresh, properly-split set
+// on first load.
+const LS_KEY = 'tesco_hrms_allowance_cache_v2';
+
+/**
+ * Defensive client-side classifier mirroring the backend (#302). Used
+ * to RE-SPLIT the rows the backend returns, so even if the backend
+ * version is stale and lumps everything into one bucket, the UI still
+ * shows the right rows under the right card.
+ *
+ * Priority:
+ *   1. The row's `_kind` (stamped by the new backend).
+ *   2. The row's `type` string, lowercased + trimmed.
+ *   3. Structural fingerprint — petrol-from-GPS has `distance` set
+ *      by the auto-biller; travel has `purpose` (other than the
+ *      auto-biller default) or `fromLat`/`toLat` coordinates.
+ */
+function classifyAllowance(r) {
+  if (r?._kind === 'petrol' || r?._kind === 'travel') return r._kind;
+  const t = String(r?.type || '').toLowerCase().trim();
+  if (t === 'petrol' || t.includes('petrol')) return 'petrol';
+  if (t === 'travel' || t.includes('travel')) return 'travel';
+  if (r?.fromLat || r?.toLat || r?.fromLng || r?.toLng) return 'travel';
+  if (r?.purpose && r.purpose !== 'Daily Commute')      return 'travel';
+  if (typeof r?.distance === 'number' && r.distance > 0) return 'petrol';
+  return 'travel';
+}
+
+/** Merge backend petrol+travel arrays and re-split by classifyAllowance.
+ *  De-duplicates by `_id` so a row that the backend mistakenly returned
+ *  in both arrays only renders once. */
+function reSplit(rawPetrol, rawTravel) {
+  const seen = new Set();
+  const all = [];
+  for (const r of [...(rawPetrol || []), ...(rawTravel || [])]) {
+    const key = r?._id || r?.id || JSON.stringify(r);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    all.push({ ...r, _kind: classifyAllowance(r) });
+  }
+  return {
+    petrol: all.filter((r) => r._kind === 'petrol'),
+    travel: all.filter((r) => r._kind === 'travel'),
+  };
+}
 
 function readCache() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { petrol: [], travel: [] };
     const parsed = JSON.parse(raw);
-    return {
-      petrol: Array.isArray(parsed?.petrol) ? parsed.petrol : [],
-      travel: Array.isArray(parsed?.travel) ? parsed.travel : [],
-    };
+    // Re-classify cached rows on read so a future classifier upgrade
+    // takes effect immediately instead of waiting for the next poll.
+    return reSplit(parsed?.petrol, parsed?.travel);
   } catch { return { petrol: [], travel: [] }; }
 }
 
@@ -42,13 +89,20 @@ export default function Allowance({ onBack }) {
         const res = await fetch(`${API}/allowances?limit=300`);
         const data = await res.json();
         if (cancelled || !data) return;
-        if (Array.isArray(data.petrol)) setPetrolRequests(data.petrol);
-        if (Array.isArray(data.travel)) setTravelRequests(data.travel);
+        // #302 — Re-split defensively. The backend was previously case-
+        // sensitive on `type` which let rows leak into the wrong bucket
+        // (or vanish from both). reSplit() lowercases + falls back to
+        // structural fingerprints AND de-duplicates by _id, so each row
+        // appears exactly ONCE under exactly ONE card.
+        const fixed = reSplit(data.petrol, data.travel);
+        // eslint-disable-next-line no-console
+        console.log('[Allowance] petrol=', fixed.petrol.length, ' travel=', fixed.travel.length,
+                    ' (raw petrol=', (data.petrol || []).length,
+                    ' raw travel=', (data.travel || []).length, ')');
+        setPetrolRequests(fixed.petrol);
+        setTravelRequests(fixed.travel);
         try {
-          localStorage.setItem(LS_KEY, JSON.stringify({
-            petrol: Array.isArray(data.petrol) ? data.petrol : [],
-            travel: Array.isArray(data.travel) ? data.travel : [],
-          }));
+          localStorage.setItem(LS_KEY, JSON.stringify(fixed));
         } catch {}
       } catch {}
       finally { if (!cancelled) setLoading(false); }
@@ -325,52 +379,36 @@ export default function Allowance({ onBack }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const downloadPdf = () => {
+  const downloadPdf = async () => {
     try {
       const filteredRows = allRows.filter(r => !employeeFilter || (r.empName || r.id || r._id) === employeeFilter);
-      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const pageW = doc.internal.pageSize.getWidth();
-      const M = 40;
-      doc.setFillColor(76, 170, 23);
-      doc.rect(0, 0, pageW, 64, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(255, 255, 255);
-      doc.text(`TESCO STRUCTURES â ${allowanceType === 'petrol' ? 'Petrol' : 'Travel'} Allowance Report`, M, 38);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text('HR Â· Allowance audit', M, 54);
-
-      let y = 100;
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Total: ₹${totalAmt.toLocaleString('en-IN')}   ` +
-               `Approved: ₹${approvedAmt.toLocaleString('en-IN')}   ` +
-               `Rejected: ₹${rejectedAmt.toLocaleString('en-IN')}   ` +
-               `Pending: ₹${pendingAmt.toLocaleString('en-IN')}`, M, y);
-      if (employeeFilter) {
-        y += 16;
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Filtered: ${employeeFilter}`, M, y);
-      }
-
-      autoTable(doc, {
-        startY: y + 24,
-        head: [['Req ID', 'Employee', 'Route', 'Distance', 'Claim', 'Approved', 'Rejected', 'Status']],
+      const kindLabel = allowanceType === 'petrol' ? 'Petrol' : 'Travel';
+      // #303 — branded template.
+      const doc = await buildBrandedPdf({
+        title:    `${kindLabel} Allowance Report`,
+        subtitle: 'HR allowance audit  ·  amounts approved, rejected, pending',
+        meta: {
+          employeeName: employeeFilter || 'All employees',
+        },
+        head: ['Req ID', 'Employee', 'Route', 'Distance', 'Claim (Rs)', 'Approved (Rs)', 'Rejected (Rs)', 'Status'],
         body: filteredRows.map(r => [
           r.id || '',
           r.empName || '',
-          (r.from || '') + ' → ' + (r.to || ''),
+          (r.from || '') + ' -> ' + (r.to || ''),
           (Number(r.distance) || 0) + ' km',
-          '₹' + Number(r.amount || 0).toLocaleString('en-IN'),
-          '₹' + Number(r.approvedAmount || 0).toLocaleString('en-IN'),
-          '₹' + Number(r.rejectedAmount || 0).toLocaleString('en-IN'),
+          Number(r.amount || 0).toLocaleString('en-IN'),
+          Number(r.approvedAmount || 0).toLocaleString('en-IN'),
+          Number(r.rejectedAmount || 0).toLocaleString('en-IN'),
           r.status || 'Pending',
         ]),
-        theme: 'striped',
-        styles: { fontSize: 9, cellPadding: 5 },
-        headStyles: { fillColor: '#4CAA17', textColor: '#fff', fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        totals: [[
+          { content: 'Totals', colSpan: 4, styles: { halign: 'right' } },
+          { content: Number(totalAmt).toLocaleString('en-IN'),    styles: { halign: 'right' } },
+          { content: Number(approvedAmt).toLocaleString('en-IN'), styles: { halign: 'right' } },
+          { content: Number(rejectedAmt).toLocaleString('en-IN'), styles: { halign: 'right' } },
+          { content: `${filteredRows.length} rows`, styles: { halign: 'center' } },
+        ]],
+        orientation: 'landscape',
       });
       const who = employeeFilter ? '-' + employeeFilter.replace(/[^a-zA-Z0-9]+/g, '_') : '';
       doc.save(`${allowanceType}-allowance${who}-report.pdf`);
@@ -383,47 +421,39 @@ export default function Allowance({ onBack }) {
   const downloadExcel = () => {
     try {
       const filteredRows = allRows.filter(r => !employeeFilter || (r.empName || r.id || r._id) === employeeFilter);
-      const summary = [
-        [`Tesco Structures â ${allowanceType === 'petrol' ? 'Petrol' : 'Travel'} Allowance Report`],
-        [],
-        ['Filter',          employeeFilter || 'All employees'],
-        ['Generated',       new Date().toLocaleDateString('en-GB')],
-        [],
-        ['Total Amount',    Number(totalAmt)],
-        ['Approved Amount', Number(approvedAmt)],
-        ['Rejected Amount', Number(rejectedAmt)],
-        ['Pending Amount',  Number(pendingAmt)],
-      ];
-      const rowsAoA = [
-        ['Request ID', 'Employee', 'Date', 'From', 'To', 'Distance (km)',
-         'Claim (₹)', 'Approved (₹)', 'Rejected (₹)',
-         'Status', 'Manager Status', 'Note'],
-        ...filteredRows.map(r => [
-          r.id || '',
-          r.empName || '',
-          r.date || '',
-          r.from || '',
-          r.to || '',
-          Number(r.distance) || 0,
-          Number(r.amount) || 0,
-          Number(r.approvedAmount) || 0,
-          Number(r.rejectedAmount) || 0,
-          r.status || 'Pending',
-          r.managerStatus || '',
-          r.amountComment || '',
-        ]),
-      ];
-      const wb = XLSX.utils.book_new();
-      const wsS = XLSX.utils.aoa_to_sheet(summary);
-      const wsR = XLSX.utils.aoa_to_sheet(rowsAoA);
-      wsS['!cols'] = [{ wch: 22 }, { wch: 22 }];
-      wsR['!cols'] = [
-        { wch: 10 }, { wch: 22 }, { wch: 12 }, { wch: 18 }, { wch: 18 },
-        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-        { wch: 12 }, { wch: 14 }, { wch: 30 },
-      ];
-      XLSX.utils.book_append_sheet(wb, wsS, 'Summary');
-      XLSX.utils.book_append_sheet(wb, wsR, 'Requests');
+      const kindLabel = allowanceType === 'petrol' ? 'Petrol' : 'Travel';
+      // #303 — branded Excel template.
+      const head = ['Request ID', 'Employee', 'Date', 'From', 'To', 'Distance (km)',
+                    'Claim (Rs)', 'Approved (Rs)', 'Rejected (Rs)',
+                    'Status', 'Manager Status', 'Note'];
+      const body = filteredRows.map(r => [
+        r.id || '',
+        r.empName || '',
+        r.date || '',
+        r.from || '',
+        r.to || '',
+        Number(r.distance) || 0,
+        Number(r.amount) || 0,
+        Number(r.approvedAmount) || 0,
+        Number(r.rejectedAmount) || 0,
+        r.status || 'Pending',
+        r.managerStatus || '',
+        r.amountComment || '',
+      ]);
+      const wb = buildBrandedExcel({
+        title:    `${kindLabel} Allowance Report`,
+        subtitle: 'HR allowance audit',
+        meta: {
+          employeeName: employeeFilter || 'All employees',
+        },
+        head, body,
+        totals: [
+          ['', '', '', '', '', '', 'Total Amount',    Number(totalAmt)],
+          ['', '', '', '', '', '', 'Approved Amount', Number(approvedAmt)],
+          ['', '', '', '', '', '', 'Rejected Amount', Number(rejectedAmt)],
+          ['', '', '', '', '', '', 'Pending Amount',  Number(pendingAmt)],
+        ],
+      });
       const who = employeeFilter ? '-' + employeeFilter.replace(/[^a-zA-Z0-9]+/g, '_') : '';
       XLSX.writeFile(wb, `${allowanceType}-allowance${who}-report.xlsx`);
     } catch (err) {

@@ -14,7 +14,11 @@ import { API } from '../config/api';
 // stamps _kind correctly. The 30s polling refresh would eventually
 // fix it on its own, but the cache hydration that happens BEFORE the
 // first fetch lands would still serve stale, _kind-less rows.
-const LS_KEY = 'tesco_hrms_leave_requests_cache_v3';
+// v4 (#301) — duration-string is now the primary classifier signal.
+// Rows stamped with the v3 classifier may have leaked permission→leave
+// (or vice-versa) for ambiguous types; bumping the key forces a fresh
+// classify pass on every browser that loads this build.
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v4';
 
 /**
  * Classify a single row as 'leave' or 'permission'. Runs ONCE at fetch
@@ -40,22 +44,58 @@ const LS_KEY = 'tesco_hrms_leave_requests_cache_v3';
  * Permission tab is much smaller and a leak there is louder).
  */
 function classifyRow(r) {
-  const t = String(r?.type || '').toLowerCase().trim();
-  if (t.startsWith('permission')) return 'permission';
-  if (t.includes('leave'))        return 'leave';
+  // ─── Signal 1 (STRONGEST): the visible `duration` string ───────────
+  // Per HR's own framing: leaves are MEASURED IN DAYS, permissions are
+  // MEASURED IN HOURS. The Approvals table's Duration column shows this
+  // unit directly to the user, so it's the most reliable single field
+  // — no possibility of the row "looking" like a leave but classifying
+  // as a permission (or vice-versa). Examples seen in production:
+  //   "2 Days"  / "1 Day"  / "0.5 Day"   → leave
+  //   "2 Hours" / "1h"     / "0.5 Hours" → permission
+  // Plus the mobile reshape sometimes writes "Nh" with no space.
+  const dur = String(r?.duration || '').toLowerCase().trim();
+  if (dur) {
+    if (/\b(?:hour|hrs?|h)\b/.test(dur) || /\d+\s*h\b/.test(dur) || dur.includes('hour')) {
+      return 'permission';
+    }
+    if (/\b(?:day|days|d)\b/.test(dur) || dur.includes('day')) {
+      return 'leave';
+    }
+  }
 
+  // ─── Signal 2: the visible `type` STRING ───────────────────────────
+  // Permission rows are typed as "Permission (Nh)" by the mobile reshape;
+  // leave rows are typed as the leave category ("Casual Leave", "Sick
+  // Leave", "Earned Leave", etc.). Both formats are explicit enough that
+  // a substring check is safe.
+  const t = String(r?.type || '').toLowerCase().trim();
+  if (t.startsWith('permission') || t.includes('permission')) return 'permission';
+  if (t.includes('leave'))                                    return 'leave';
+
+  // ─── Signal 3: structural fingerprint ──────────────────────────────
+  // Permission rows always have a time window (durationHours / startTime
+  // / endTime / permissionDate). Leave rows always have a date range
+  // (startDate / endDate). If neither overlaps we fall through.
   if (r?.durationHours || r?.startTime || r?.endTime || r?.permissionDate) return 'permission';
   if (r?.startDate || r?.endDate) return 'leave';
 
+  // ─── Signal 4 (LEGACY, checked LAST): `requestType` ────────────────
+  // We've seen this inverted on legacy mobile-backend writes; only use
+  // it after every more-reliable field has been exhausted.
   const rt = String(r?.requestType || '').toLowerCase().trim();
   if (rt === 'permission') return 'permission';
   if (rt === 'leave')      return 'leave';
   return 'leave';
 }
 
-/** Map a raw API row to a row stamped with _kind. */
+/** Map a raw API row to a row stamped with _kind. The spread puts
+ *  `_kind` LAST so any pre-existing _kind on the row (from a stale
+ *  cache) is overwritten by the fresh classification. */
 function stampKind(rows) {
-  return (Array.isArray(rows) ? rows : []).map((r) => ({ ...r, _kind: classifyRow(r) }));
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const { _kind: _drop, ...rest } = r || {};
+    return { ...rest, _kind: classifyRow(rest) };
+  });
 }
 
 /** Read last-fetched requests from localStorage so the page populates
@@ -208,24 +248,42 @@ export default function LeavePermissionRequest({ onBack }) {
   // first few seconds after the v2 → v3 cache key bump.
   const kindOf = (r) => r?._kind || classifyRow(r);
 
-  const leaveReqCount      = requests.filter(r => r.status === 'Pending' && kindOf(r) === 'leave').length;
-  const permissionReqCount = requests.filter(r => r.status === 'Pending' && kindOf(r) === 'permission').length;
+  // ─── Status: case-insensitive helper ───────────────────────────────
+  // Mobile backend has historically written status as either 'Pending'
+  // (Title case) or 'pending' (lower) depending on which controller
+  // produced the row. Comparing with a strict === 'Pending' caused the
+  // card count and the displayed list to disagree — count would say 0
+  // while the list under it showed N rows. We now normalise once and
+  // both call sites use the SAME helper, so a card and its list can
+  // never go out of sync regardless of what the API sends.
+  const isPending = (r) => String(r?.status || '').toLowerCase() === 'pending';
+
+  const leaveReqCount      = requests.filter(r => isPending(r) && kindOf(r) === 'leave').length;
+  const permissionReqCount = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
-    // Diagnostic — confirms in DevTools that filtering is live. Each
-    // log line should show different `shown` counts when you click
-    // between the Leave and Permission cards.
+    const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
+
+    // Diagnostic — confirms in DevTools that the SAME numbers feed the
+    // card count and the table below it. If `card` and `list` ever
+    // differ for the same kind, the bug is here (or in the data). Each
+    // line includes both, so disagreement is instantly visible.
     try {
-      const distribution = requests.reduce((acc, r) => {
+      const distribution  = requests.reduce((acc, r) => {
         const k = kindOf(r);
         acc[k] = (acc[k] || 0) + 1;
         return acc;
       }, {});
+      const pendingLeave  = requests.filter(r => isPending(r) && kindOf(r) === 'leave').length;
+      const pendingPerm   = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
       // eslint-disable-next-line no-console
-      console.log('[Approvals] tab=', activeTab, ' total=', requests.length, ' kinds=', distribution);
+      console.log(
+        '[Approvals] tab=', activeTab,
+        ' total=', requests.length,
+        ' kinds=', distribution,
+        ' card_pending={leave:', pendingLeave, ', permission:', pendingPerm, '}',
+      );
     } catch (_) { /* swallow — diagnostic only */ }
-
-    const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
 
     return requests.filter(item => {
       // 1. Tab gate — strict equality on the row's _kind property. No
@@ -233,11 +291,9 @@ export default function LeavePermissionRequest({ onBack }) {
       if (kindOf(item) !== wantedKind) return false;
 
       // 2. Status gate — the section heading explicitly says "Pending …".
-      //    Showing rows with status Approved/Rejected under that heading
-      //    was the second half of the user-reported bug. We now hide
-      //    anything that isn't pending. (Approved/rejected history is
-      //    surfaced on the separate Leave & Permission page.)
-      if (String(item?.status || '').toLowerCase() !== 'pending') return false;
+      //    Uses the shared isPending() helper so the card count and the
+      //    list below it are guaranteed to agree on what "pending" means.
+      if (!isPending(item)) return false;
 
       // 2. Search query — case-insensitive across every field HR might
       // type into the box (name, employee id in either field, role,

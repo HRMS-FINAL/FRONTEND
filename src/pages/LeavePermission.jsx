@@ -10,6 +10,8 @@ import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+// #303 — Shared branded template (logo, header, footer, polished table).
+import { buildBrandedPdf, buildBrandedExcel } from '../utils/reportTemplate';
 
 // Approved leaves & permissions from the mobile app arrive via HRMS backend
 // proxy at /api/leave-requests?status=approved. The UI below is unchanged —
@@ -308,36 +310,25 @@ export default function LeavePermission({ onBack }) {
                   showNotification('No records to export for the current filter.', 'info');
                   return;
                 }
-                try {
-                  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-                  const pageW = doc.internal.pageSize.getWidth();
-                  doc.setFillColor(76, 170, 23);
-                  doc.rect(0, 0, pageW, 56, 'F');
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(16);
-                  doc.setTextColor(255, 255, 255);
-                  doc.text('TESCO — Leave & Permission Report', 40, 36);
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(10);
-                  doc.setTextColor(15, 23, 42);
-                  doc.text(
-                    `${MONTH_NAMES[viewMonth]} ${viewYear} · ${activeTab === 'leave' ? 'Leave' : 'Permission'} · ${rows.length} records`,
-                    40, 80
-                  );
-                  autoTable(doc, {
-                    startY: 96,
-                    head: [Object.keys(rows[0])],
-                    body: rows.map((r) => Object.values(r)),
-                    styles: { fontSize: 9, cellPadding: 6 },
-                    headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
-                    alternateRowStyles: { fillColor: [248, 250, 252] },
-                  });
-                  doc.save(`leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.pdf`);
-                  showNotification(`Downloaded ${rows.length} records (PDF).`, 'success');
-                } catch (err) {
-                  console.error('[LeavePermission] PDF error:', err);
-                  showNotification('Could not generate PDF.', 'error');
-                }
+                (async () => {
+                  try {
+                    const subtype = activeTab === 'leave' ? 'Leave' : 'Permission';
+                    const periodMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
+                    const doc = await buildBrandedPdf({
+                      title: `${subtype} Records`,
+                      subtitle: `${MONTH_NAMES[viewMonth]} ${viewYear}  ·  ${rows.length} record${rows.length === 1 ? '' : 's'}`,
+                      meta:  { date: periodMonth },
+                      head:  Object.keys(rows[0]),
+                      body:  rows.map((r) => Object.values(r)),
+                      orientation: 'landscape',
+                    });
+                    doc.save(`leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.pdf`);
+                    showNotification(`Downloaded ${rows.length} records (PDF).`, 'success');
+                  } catch (err) {
+                    console.error('[LeavePermission] PDF error:', err);
+                    showNotification('Could not generate PDF.', 'error');
+                  }
+                })();
               }}
             >
               <FileText size={16} /> Download PDF
@@ -361,9 +352,16 @@ export default function LeavePermission({ onBack }) {
                   return;
                 }
                 try {
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, 'Leave-Permission');
+                  const subtype = activeTab === 'leave' ? 'Leave' : 'Permission';
+                  const periodMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
+                  const head = Object.keys(rows[0]);
+                  const body = rows.map((r) => Object.values(r));
+                  const wb = buildBrandedExcel({
+                    title:    `${subtype} Records`,
+                    subtitle: `${MONTH_NAMES[viewMonth]} ${viewYear}`,
+                    meta:     { date: periodMonth },
+                    head, body,
+                  });
                   XLSX.writeFile(wb, `leave-permission-${MONTH_NAMES[viewMonth]}-${viewYear}.xlsx`);
                   showNotification(`Downloaded ${rows.length} records (Excel).`, 'success');
                 } catch (err) {

@@ -7,6 +7,9 @@ import {
 import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+// #303 — Shared branded report template (logo, header, footer, polished
+// table styles). Every PDF/Excel in HRMS now flows through this.
+import { buildBrandedPdf, buildBrandedExcel, pdfDateLabel } from '../utils/reportTemplate';
 import * as XLSX from 'xlsx';
 import { allEmployees } from '../data/mockData';
 
@@ -162,25 +165,24 @@ export default function Attendance({ onBack, employees = [] }) {
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
         const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s;
-        const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Attendance Report — ${selectedLog.name}`, 40, 50);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        doc.text(`${monthLabel} • ${selectedLog.employeeId || ''}`, 40, 70);
-        autoTable(doc, {
-          startY: 90,
-          head: [['Date', 'Status', 'Check In', 'Check Out', 'Work Hours']],
-          body: mine.map(l => [l.date || '', norm(l.status), l.checkIn || '--', l.checkOut || '--', l.workHours || '0h']),
-          styles:     { fontSize: 10, cellPadding: 6 },
-          headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
-          theme:      'grid',
-        });
-        const safe = (selectedLog.name || 'employee').replace(/[^\w]+/g, '_');
-        doc.save(`Attendance_${safe}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
-        showNotification('Attendance report downloaded.', 'success');
+        // #303 — branded template.
+        (async () => {
+          const doc = await buildBrandedPdf({
+            title:    'Attendance Report',
+            subtitle: `Monthly attendance log for ${selectedLog.name}`,
+            meta: {
+              employeeName: selectedLog.name,
+              employeeId:   selectedLog.employeeId,
+              department:   selectedLog.department || selectedLog.dept,
+              date:         `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`,
+            },
+            head: ['Date', 'Status', 'Check In', 'Check Out', 'Work Hours'],
+            body: mine.map(l => [l.date || '', norm(l.status), l.checkIn || '--', l.checkOut || '--', l.workHours || '0h']),
+          });
+          const safe = (selectedLog.name || 'employee').replace(/[^\w]+/g, '_');
+          doc.save(`Attendance_${safe}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
+          showNotification('Attendance report downloaded.', 'success');
+        })();
       })
       .catch(err => showNotification('Could not build report: ' + (err?.message || 'unknown'), 'error'));
   };
@@ -261,6 +263,11 @@ export default function Attendance({ onBack, employees = [] }) {
               className="ne-btn-secondary"
               onClick={() => {
                 try {
+                  // Build marker — when you see this line in DevTools, the
+                  // #294 fix is live. If you only see "months is not
+                  // defined" without this preceding log, you're still on
+                  // the old Vercel bundle and need to redeploy.
+                  console.log('[Attendance PDF BUILD#294] click — building report');
                   // Fall back to dailyLogs if displayLogs (filtered)
                   // is empty so the button never silently no-ops.
                   const rows = (Array.isArray(displayLogs) && displayLogs.length)
@@ -279,30 +286,26 @@ export default function Attendance({ onBack, employees = [] }) {
                   // defined" on every download click.
                   const monthShort = (MONTH_NAMES[viewMonth] || '').slice(0, 3);
                   const dateLabel = `${selectedDay}-${monthShort}-${viewYear}`;
-                  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-                  doc.setFontSize(16);
-                  doc.setFont('helvetica', 'bold');
-                  doc.text('Attendance Log', 40, 50);
-                  doc.setFontSize(11);
-                  doc.setFont('helvetica', 'normal');
-                  doc.setTextColor(100, 116, 139);
-                  doc.text(`Date: ${dateLabel}`, 40, 68);
-                  autoTable(doc, {
-                    startY: 86,
-                    head: [['Emp ID', 'Name', 'Role', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status']],
-                    body: rows.map(r => [
-                      r.employeeId || '', r.name || '',
-                      r.role || r.designation || '',
-                      r.department || r.dept || '',
-                      r.checkIn || '--', r.checkOut || '--',
-                      r.workHours || '0h', r.status || '',
-                    ]),
-                    styles:     { fontSize: 9, cellPadding: 5 },
-                    headStyles: { fillColor: [76, 170, 23], textColor: 255, fontStyle: 'bold' },
-                    theme:      'grid',
-                  });
-                  doc.save(`attendance_${dateLabel}.pdf`);
-                  showNotification('Attendance PDF downloaded.', 'success');
+                  const dateIso = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+                  // #303 — branded report template.
+                  (async () => {
+                    const doc = await buildBrandedPdf({
+                      title: 'Daily Attendance Log',
+                      subtitle: 'Per-employee check-in / check-out for the selected date',
+                      meta: { date: dateIso },
+                      head: ['Emp ID', 'Name', 'Role', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status'],
+                      body: rows.map(r => [
+                        r.employeeId || '', r.name || '',
+                        r.role || r.designation || '',
+                        r.department || r.dept || '',
+                        r.checkIn || '--', r.checkOut || '--',
+                        r.workHours || '0h', r.status || '',
+                      ]),
+                      orientation: 'landscape',
+                    });
+                    doc.save(`attendance_${dateLabel}.pdf`);
+                    showNotification('Attendance PDF downloaded.', 'success');
+                  })();
                 } catch (e) {
                   console.error('[Attendance PDF] error:', e);
                   showNotification('Could not build PDF: ' + (e?.message || 'unknown'), 'error');
@@ -315,6 +318,8 @@ export default function Attendance({ onBack, employees = [] }) {
               className="ne-btn-secondary"
               onClick={() => {
                 try {
+                  // Build marker — proves #294 bundle is live.
+                  console.log('[Attendance Excel BUILD#294] click — building report');
                   const rows = (Array.isArray(displayLogs) && displayLogs.length)
                     ? displayLogs
                     : (Array.isArray(dailyLogs) ? dailyLogs : []);
@@ -328,19 +333,22 @@ export default function Attendance({ onBack, employees = [] }) {
                   // viewMonth, viewYear.
                   const monthShort = (MONTH_NAMES[viewMonth] || '').slice(0, 3);
                   const dateLabel = `${selectedDay}-${monthShort}-${viewYear}`;
-                  const sheet = rows.map(r => ({
-                    'Emp ID':     r.employeeId || '',
-                    'Name':       r.name || '',
-                    'Role':       r.role || r.designation || '',
-                    'Department': r.department || r.dept || '',
-                    'Check In':   r.checkIn || '',
-                    'Check Out':  r.checkOut || '',
-                    'Work Hours': r.workHours || '0h',
-                    'Status':     r.status || '',
-                  }));
-                  const wb = XLSX.utils.book_new();
-                  const ws = XLSX.utils.json_to_sheet(sheet);
-                  XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+                  const dateIso = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+                  // #303 — branded Excel template.
+                  const head = ['Emp ID', 'Name', 'Role', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status'];
+                  const body = rows.map(r => [
+                    r.employeeId || '', r.name || '',
+                    r.role || r.designation || '',
+                    r.department || r.dept || '',
+                    r.checkIn || '', r.checkOut || '',
+                    r.workHours || '0h', r.status || '',
+                  ]);
+                  const wb = buildBrandedExcel({
+                    title:    'Daily Attendance Log',
+                    subtitle: 'Per-employee check-in / check-out for the selected date',
+                    meta:     { date: dateIso },
+                    head, body,
+                  });
                   XLSX.writeFile(wb, `attendance_${dateLabel}.xlsx`);
                   showNotification('Attendance Excel downloaded.', 'success');
                 } catch (e) {
