@@ -12,7 +12,7 @@ import { API } from '../config/api';
 // (where the same row could end up in BOTH `petrol` and `travel` due to
 // the strict-equality backend filter) gets a fresh, properly-split set
 // on first load.
-const LS_KEY = 'tesco_hrms_allowance_cache_v2';
+const LS_KEY = 'tesco_hrms_allowance_cache_v3';
 
 /**
  * Defensive client-side classifier mirroring the backend (#302). Used
@@ -28,10 +28,17 @@ const LS_KEY = 'tesco_hrms_allowance_cache_v2';
  *      auto-biller default) or `fromLat`/`toLat` coordinates.
  */
 function classifyAllowance(r) {
+  // #309 — PRIMARY: the backend's stamped _kind. This is set by the
+  // HRMS backend route (routes/allowanceRoutes.js) using the SAME
+  // tolerant logic, so if the backend says petrol the row IS petrol.
   if (r?._kind === 'petrol' || r?._kind === 'travel') return r._kind;
+  // FALLBACK 1: the row's `type` string, lowercased.
   const t = String(r?.type || '').toLowerCase().trim();
   if (t === 'petrol' || t.includes('petrol')) return 'petrol';
   if (t === 'travel' || t.includes('travel')) return 'travel';
+  // FALLBACK 2: structural fingerprints — travel rows have route
+  // coordinates or an employee-supplied purpose; petrol-GPS rows
+  // have a numeric distance from live-tracking.
   if (r?.fromLat || r?.toLat || r?.fromLng || r?.toLng) return 'travel';
   if (r?.purpose && r.purpose !== 'Daily Commute')      return 'travel';
   if (typeof r?.distance === 'number' && r.distance > 0) return 'petrol';
@@ -99,6 +106,23 @@ export default function Allowance({ onBack }) {
         console.log('[Allowance] petrol=', fixed.petrol.length, ' travel=', fixed.travel.length,
                     ' (raw petrol=', (data.petrol || []).length,
                     ' raw travel=', (data.travel || []).length, ')');
+        // #309 — first-row diagnostic. Logs the type/_kind of the very
+        // first row of each bucket so we can verify in DevTools that the
+        // backend is sending what we expect. If you see e.g.
+        //   first petrol { type: 'travel', _kind: 'petrol' }
+        // the backend reshape is wrong and the data needs server-side fix.
+        if (fixed.petrol[0]) {
+          const f = fixed.petrol[0];
+          console.log('[Allowance] first petrol',
+            { _id: f._id, type: f.type, purpose: f.purpose,
+              distance: f.distance, _kind: f._kind });
+        }
+        if (fixed.travel[0]) {
+          const f = fixed.travel[0];
+          console.log('[Allowance] first travel',
+            { _id: f._id, type: f.type, purpose: f.purpose,
+              distance: f.distance, _kind: f._kind });
+        }
         setPetrolRequests(fixed.petrol);
         setTravelRequests(fixed.travel);
         try {
