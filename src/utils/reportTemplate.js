@@ -27,7 +27,12 @@
  */
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+// #304 — switched from plain `xlsx` to `xlsx-js-style`. The vanilla xlsx
+// package silently drops cell styling on write, which is why our
+// previous Excel reports came out plain white. xlsx-js-style is a
+// drop-in fork (same API surface) that preserves fill/font/border on
+// write. Caller must `npm install xlsx-js-style` once.
+import XLSX from 'xlsx-js-style';
 
 // Bundler resolves this to a base64 data URL at build time, so we can
 // embed the logo into the PDF without any runtime fetch.
@@ -121,39 +126,44 @@ function drawHeader(doc, opts) {
   const pageW = doc.internal.pageSize.getWidth();
   const M = 40;
 
-  // Brand band — solid green strip across the top.
+  // Brand band — solid green strip across the top. #304: bumped from
+  // 64 pt → 88 pt so the logo has room to breathe at the new larger
+  // size, and the wordmark has more vertical balance against it.
+  const bandH = 88;
   doc.setFillColor(...hex(BRAND.green));
-  doc.rect(0, 0, pageW, 64, 'F');
+  doc.rect(0, 0, pageW, bandH, 'F');
 
-  // Logo on the left of the band. Drawn at fixed height 36 pt and the
-  // width is auto from jsPDF's image aspect-ratio handling. If the
-  // logo failed to load we still keep the band — just no image.
+  // Logo on the left of the band — bigger and wider. #304: width 90 pt
+  // × height 68 pt (was 36×36), still letting jsPDF stretch to fill so
+  // both wide and square logo files render at a visible, brand-quality
+  // size. If the logo asset failed to load we keep the band so the
+  // report still looks branded.
   if (logo) {
-    try { doc.addImage(logo, 'PNG', M, 14, 36, 36); } catch {/* logo render failed — band remains */}
+    try { doc.addImage(logo, 'PNG', M, 10, 90, 68); } catch {/* logo render failed — band remains */}
   }
 
-  // Right-aligned brand wordmark.
+  // Right-aligned brand wordmark — slightly larger to match the new band.
   doc.setTextColor(...hex(BRAND.headerText));
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  doc.setFontSize(15);
   const wordmark = 'TESCO STRUCTURES';
-  doc.text(wordmark, pageW - M - doc.getTextWidth(wordmark), 32);
+  doc.text(wordmark, pageW - M - doc.getTextWidth(wordmark), 42);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   const tag = 'HR Management System';
-  doc.text(tag, pageW - M - doc.getTextWidth(tag), 48);
+  doc.text(tag, pageW - M - doc.getTextWidth(tag), 60);
 
-  // Title block beneath the band.
+  // Title block beneath the band (pushed down to match the taller band).
   doc.setTextColor(...hex(BRAND.text));
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text(title || 'Report', M, 100);
+  doc.setFontSize(17);
+  doc.text(title || 'Report', M, bandH + 32);
 
   if (subtitle) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10.5);
     doc.setTextColor(...hex(BRAND.textMute));
-    doc.text(subtitle, M, 118);
+    doc.text(subtitle, M, bandH + 52);
   }
 
   // Meta strip — period, generated timestamp, generated-by user. We
@@ -177,12 +187,16 @@ function drawHeader(doc, opts) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...hex(BRAND.textMute));
-  doc.text(parts.join('   ·   '), M, subtitle ? 138 : 122);
+  // #304 — meta strip y-position recomputed for the taller (88 pt) band:
+  //   subtitle present → band(88) + title-gap(32) + subtitle-gap(20) + meta-gap(20) = 160
+  //   no subtitle      → band(88) + title-gap(32) + meta-gap(24) = 144
+  const metaY = subtitle ? 160 : 144;
+  doc.text(parts.join('   ·   '), M, metaY);
 
   // Thin underline divider beneath the meta strip.
   doc.setDrawColor(...hex(BRAND.border));
   doc.setLineWidth(0.6);
-  doc.line(M, (subtitle ? 148 : 132), pageW - M, (subtitle ? 148 : 132));
+  doc.line(M, metaY + 10, pageW - M, metaY + 10);
 }
 
 /**
@@ -299,40 +313,150 @@ export async function buildBrandedPdf(opts) {
  * Sheet 1 "Summary" — title, subtitle, meta key/value rows.
  * Sheet 2 "Data"    — head row in bold, body rows, optional totals.
  */
+/**
+ * #304 — Build a colorful, professional Excel workbook.
+ *
+ * Styling rules (using xlsx-js-style's cell style API):
+ *   • Title row: green fill, white 16pt bold text, merged across head row.
+ *   • Subtitle row: light grey fill, dark text.
+ *   • Meta key/value rows: bold green keys (column A), normal values.
+ *   • Header row of the Data sheet: green fill, white bold, centered,
+ *     thin white borders so column separations are clean.
+ *   • Body rows: alternating white / very-light-grey backgrounds,
+ *     dark text, thin grey borders.
+ *   • Totals rows: light-green fill, bold text, dark border on top.
+ *
+ * All values still appear when the file is opened in Google Sheets,
+ * LibreOffice, or older Excel that ignores some style fields — the
+ * data + structure round-trip safely.
+ */
 export function buildBrandedExcel(opts) {
   const { title, subtitle, meta = {}, head, body, totals } = opts;
 
-  const summaryAoa = [
-    ['Tesco Structures'],
-    ['HR Management System'],
-    [],
-    [title || 'Report'],
-  ];
-  if (subtitle) summaryAoa.push([subtitle]);
-  summaryAoa.push([]);
-  if (meta.employeeName) summaryAoa.push(['Employee',         meta.employeeName]);
-  if (meta.employeeId)   summaryAoa.push(['Employee ID',      meta.employeeId]);
-  if (meta.department)   summaryAoa.push(['Department',       meta.department]);
-  if (meta.periodFrom)   summaryAoa.push(['Period From',      pdfDateLabel(meta.periodFrom)]);
-  if (meta.periodTo)     summaryAoa.push(['Period To',        pdfDateLabel(meta.periodTo)]);
-  if (meta.date)         summaryAoa.push(['Date',             pdfDateLabel(meta.date)]);
-  summaryAoa.push(       ['Generated On',                     `${pdfDateLabel(new Date())} ${pdfTimeLabel(new Date())}`]);
-  if (meta.generatedBy)  summaryAoa.push(['Generated By',     meta.generatedBy]);
-  summaryAoa.push(       ['Total Rows',                       Array.isArray(body) ? body.length : 0]);
+  // ─── Style cookbook ───────────────────────────────────────────────
+  const titleStyle = {
+    font:      { name: 'Calibri', sz: 16, bold: true, color: { rgb: 'FFFFFF' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: '4CAA17' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+  };
+  const brandStyle = {
+    font:      { name: 'Calibri', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: '3A8714' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+  };
+  const subtitleStyle = {
+    font:      { name: 'Calibri', sz: 11, italic: true, color: { rgb: '475569' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: 'F1F5F9' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+  };
+  const metaKeyStyle = {
+    font:      { name: 'Calibri', sz: 11, bold: true, color: { rgb: '0F172A' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: 'DCFCE7' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border:    sideBorder('E2E8F0'),
+  };
+  const metaValStyle = {
+    font:      { name: 'Calibri', sz: 11, color: { rgb: '0F172A' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: 'F8FAFC' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border:    sideBorder('E2E8F0'),
+  };
+  const headStyle = {
+    font:      { name: 'Calibri', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: '4CAA17' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border:    sideBorder('FFFFFF'),
+  };
+  const dataStyle = (alt) => ({
+    font:      { name: 'Calibri', sz: 10, color: { rgb: '0F172A' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: alt ? 'F8FAFC' : 'FFFFFF' } },
+    alignment: { horizontal: 'left',   vertical: 'center', wrapText: true },
+    border:    sideBorder('E2E8F0'),
+  });
+  const totalsStyle = {
+    font:      { name: 'Calibri', sz: 11, bold: true, color: { rgb: '0F172A' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: 'BBF7D0' } },
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border:    {
+      top:    { style: 'medium', color: { rgb: '4CAA17' } },
+      bottom: { style: 'thin',   color: { rgb: '4CAA17' } },
+      left:   { style: 'thin',   color: { rgb: '4CAA17' } },
+      right:  { style: 'thin',   color: { rgb: '4CAA17' } },
+    },
+  };
 
-  const dataAoa = [head, ...body];
-  if (Array.isArray(totals)) {
-    for (const t of totals) dataAoa.push(t);
+  function sideBorder(rgb) {
+    return {
+      top:    { style: 'thin', color: { rgb } },
+      bottom: { style: 'thin', color: { rgb } },
+      left:   { style: 'thin', color: { rgb } },
+      right:  { style: 'thin', color: { rgb } },
+    };
   }
 
+  // ─── Sheet 1: Summary ─────────────────────────────────────────────
+  const summaryRows = [];
+  summaryRows.push([{ v: 'TESCO STRUCTURES',     s: titleStyle }]);
+  summaryRows.push([{ v: 'HR Management System', s: brandStyle }]);
+  summaryRows.push([{ v: '',                     s: subtitleStyle }]);
+  summaryRows.push([{ v: title || 'Report',      s: { ...titleStyle, fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } } } }]);
+  if (subtitle) summaryRows.push([{ v: subtitle, s: subtitleStyle }]);
+  summaryRows.push([{ v: '' }]);
+
+  const pushMeta = (k, v) => summaryRows.push([
+    { v: k, s: metaKeyStyle },
+    { v: v, s: metaValStyle },
+  ]);
+  if (meta.employeeName) pushMeta('Employee',      meta.employeeName);
+  if (meta.employeeId)   pushMeta('Employee ID',   meta.employeeId);
+  if (meta.department)   pushMeta('Department',    meta.department);
+  if (meta.periodFrom)   pushMeta('Period From',   pdfDateLabel(meta.periodFrom));
+  if (meta.periodTo)     pushMeta('Period To',     pdfDateLabel(meta.periodTo));
+  if (meta.date)         pushMeta('Date',          pdfDateLabel(meta.date));
+  pushMeta('Generated On', `${pdfDateLabel(new Date())} ${pdfTimeLabel(new Date())}`);
+  if (meta.generatedBy)  pushMeta('Generated By',  meta.generatedBy);
+  pushMeta('Total Rows', Array.isArray(body) ? body.length : 0);
+
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+  wsSummary['!cols'] = [{ wch: 24 }, { wch: 44 }];
+  // Set row heights for the title rows so the green band looks substantial.
+  wsSummary['!rows'] = [
+    { hpt: 28 }, { hpt: 22 }, { hpt: 8 }, { hpt: 24 },
+  ];
+  // Merge the title row across the two columns.
+  wsSummary['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
+  ];
+
+  // ─── Sheet 2: Data ────────────────────────────────────────────────
+  const headRow = head.map((h) => ({ v: h, s: headStyle }));
+  const bodyRows = body.map((row, i) => row.map((cell) => ({
+    v: cell == null ? '' : cell,
+    s: dataStyle(i % 2 === 1),
+  })));
+  const totalsRows = Array.isArray(totals)
+    ? totals.map((row) => row.map((cell) => ({
+        v: cell == null ? '' : cell,
+        s: totalsStyle,
+      })))
+    : [];
+
+  const wsData = XLSX.utils.aoa_to_sheet([headRow, ...bodyRows, ...totalsRows]);
+  // Column widths sized for readability — pad numeric columns less,
+  // text columns more. Default 16 if we can't guess.
+  wsData['!cols'] = head.map((h) => {
+    const label = String(h).toLowerCase();
+    if (/employee|name|department|role|designation|purpose|reason|note|message/.test(label)) return { wch: 24 };
+    if (/date|status|type|duration|gps|allowance/.test(label)) return { wch: 15 };
+    if (/id|km|hours|amount|distance|claim|approved|rejected|petrol|travel/.test(label)) return { wch: 14 };
+    return { wch: 16 };
+  });
+  // Header row tall enough to host wrapped text comfortably.
+  wsData['!rows'] = [{ hpt: 28 }];
+
   const wb = XLSX.utils.book_new();
-  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
-  const wsData    = XLSX.utils.aoa_to_sheet(dataAoa);
-
-  // Column widths sized for readability.
-  wsSummary['!cols'] = [{ wch: 22 }, { wch: 40 }];
-  wsData['!cols']    = head.map(() => ({ wch: 18 }));
-
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
   XLSX.utils.book_append_sheet(wb, wsData,    'Data');
   return wb;
