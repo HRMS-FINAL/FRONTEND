@@ -271,7 +271,14 @@ export default function Attendance({ onBack, employees = [] }) {
                     showNotification('No attendance records to export.', 'info');
                     return;
                   }
-                  const dateLabel = `${selectedDay}-${months[selectedMonth] || ''}-${selectedYear}`;
+                  // Build a friendly filename + report date like "17-Jun-2026".
+                  // NOTE: this file uses `viewMonth` / `viewYear` for the
+                  // month-year picker and `MONTH_NAMES` for the labels —
+                  // a previous edit referenced `months[selectedMonth]` which
+                  // doesn't exist in this file and threw "months is not
+                  // defined" on every download click.
+                  const monthShort = (MONTH_NAMES[viewMonth] || '').slice(0, 3);
+                  const dateLabel = `${selectedDay}-${monthShort}-${viewYear}`;
                   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
                   doc.setFontSize(16);
                   doc.setFont('helvetica', 'bold');
@@ -316,7 +323,11 @@ export default function Attendance({ onBack, employees = [] }) {
                     showNotification('No attendance records to export.', 'info');
                     return;
                   }
-                  const dateLabel = `${selectedDay}-${months[selectedMonth] || ''}-${selectedYear}`;
+                  // See PDF button — `months`/`selectedMonth`/`selectedYear`
+                  // are not declared in this file. Real names: MONTH_NAMES,
+                  // viewMonth, viewYear.
+                  const monthShort = (MONTH_NAMES[viewMonth] || '').slice(0, 3);
+                  const dateLabel = `${selectedDay}-${monthShort}-${viewYear}`;
                   const sheet = rows.map(r => ({
                     'Emp ID':     r.employeeId || '',
                     'Name':       r.name || '',

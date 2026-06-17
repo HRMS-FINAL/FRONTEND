@@ -8,21 +8,66 @@ import { useNotification } from '../context/NotificationContext';
 // using MOBILE_ADMIN_SECRET). The UI below is unchanged — only the data
 // source switched from the hardcoded mock array to real fetches.
 import { API } from '../config/api';
-// Bumped Jun 2026 — older caches predated the requestType field so the
-// type classifier had nothing to read and rows leaked into the wrong
-// tab. Changing the key invalidates every stale browser cache in one
-// shot, forcing a fresh fetch.
-const LS_KEY = 'tesco_hrms_leave_requests_cache_v2';
+// Bumped Jun 2026 (#292) — v2 caches stored rows WITHOUT the _kind
+// property that the new filter relies on. Bumping to v3 invalidates
+// every stale browser cache so the next load reads fresh items and
+// stamps _kind correctly. The 30s polling refresh would eventually
+// fix it on its own, but the cache hydration that happens BEFORE the
+// first fetch lands would still serve stale, _kind-less rows.
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v3';
+
+/**
+ * Classify a single row as 'leave' or 'permission'. Runs ONCE at fetch
+ * time (not on every render), and the result is stamped onto the row
+ * as `_kind`. The filter/count/render code reads only `_kind` — so a
+ * miscount and a misplaced row are now impossible: either every row is
+ * tagged the same way for both, or no rows show at all.
+ *
+ * Priority order:
+ *   1. The visible `type` STRING is the source of truth. The HRMS
+ *      backend's reshape generates "Permission (Nh)" for permissions
+ *      and "Casual Leave"/"Sick Leave"/"Earned Leave" for leaves. If
+ *      the user sees "Casual Leave" in the Type column, the row MUST
+ *      be classified as leave. Same in reverse for "Permission ...".
+ *   2. Structural fingerprint — a row with durationHours / startTime /
+ *      endTime / permissionDate but NO date range is a permission. A
+ *      row with startDate / endDate is a leave. (Catches edge cases
+ *      where the reshape forgot to stamp `type`.)
+ *   3. Last resort `requestType` — checked LAST because we have seen
+ *      it inverted on legacy mobile-backend writes.
+ *
+ * Anything we still can't decide defaults to 'leave' (safer because the
+ * Permission tab is much smaller and a leak there is louder).
+ */
+function classifyRow(r) {
+  const t = String(r?.type || '').toLowerCase().trim();
+  if (t.startsWith('permission')) return 'permission';
+  if (t.includes('leave'))        return 'leave';
+
+  if (r?.durationHours || r?.startTime || r?.endTime || r?.permissionDate) return 'permission';
+  if (r?.startDate || r?.endDate) return 'leave';
+
+  const rt = String(r?.requestType || '').toLowerCase().trim();
+  if (rt === 'permission') return 'permission';
+  if (rt === 'leave')      return 'leave';
+  return 'leave';
+}
+
+/** Map a raw API row to a row stamped with _kind. */
+function stampKind(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => ({ ...r, _kind: classifyRow(r) }));
+}
 
 /** Read last-fetched requests from localStorage so the page populates
  *  instantly on refresh instead of waiting for the ~30s mobile-backend
- *  cold-start to complete. */
+ *  cold-start to complete. Cached rows pass through stampKind so the
+ *  filter/count code can rely on `_kind` even before the next poll. */
 function readCache() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return stampKind(parsed);
   } catch { return []; }
 }
 
@@ -48,8 +93,15 @@ export default function LeavePermissionRequest({ onBack }) {
         const res  = await fetch(`${API}/leave-requests?limit=200`);
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.items)) {
-          setRequests(data.items);
-          try { localStorage.setItem(LS_KEY, JSON.stringify(data.items)); } catch {}
+          // Stamp _kind on every row at fetch time so the filter is a
+          // pure property read instead of a runtime function call. This
+          // eliminates an entire class of bug where count and filter
+          // disagree because the classifier was tweaked but only one
+          // call site got updated. Also: cache the STAMPED rows so the
+          // next page-load hydrates with _kind already present.
+          const stamped = stampKind(data.items);
+          setRequests(stamped);
+          try { localStorage.setItem(LS_KEY, JSON.stringify(stamped)); } catch {}
         }
       } catch { /* leave previous data on screen */ }
       finally { if (!cancelled) setLoading(false); }
@@ -145,50 +197,27 @@ export default function LeavePermissionRequest({ onBack }) {
   };
 
   // ── Row classifier ───────────────────────────────────────────────────
-  // The mobile backend serialises permission rows with requestType
-  // 'permission' and renders type as "Permission (Nh)". Leave rows have
-  // requestType undefined / 'leave' and type set to the leave category
-  // ("Sick Leave", "Casual Leave", "Earned Leave", etc.). A defensive
-  // classifier that checks BOTH fields plus the date-shape clues
-  // (durationHours / startTime + endTime ⇒ permission) prevents an
-  // unusual leave-type string from leaking into the Permission tab.
-  function classify(r) {
-    // Rewritten Jun 2026 (#288 — final): the source-of-truth is the
-    // `type` STRING on each row, not `requestType` (which has been seen
-    // inverted on some legacy records). The reshape stamps permission
-    // rows with type = "Permission (Nh)" and leave rows with the leave
-    // category name ("Casual Leave", "Sick Leave", etc.). We bias
-    // hard on the visible label so the table NEVER disagrees with
-    // what the type column shows the user.
-    const t = String(r?.type || '').toLowerCase().trim();
-    if (t.startsWith('permission')) return 'permission';
-    if (t.includes('leave'))        return 'leave';
+  // ─── Classification: now lives on the row itself ───────────────────
+  // Every row carries _kind ('leave' | 'permission') stamped at fetch
+  // time by stampKind() above. The count badges and the table filter
+  // both read this single property, so there's no way for them to
+  // disagree.
+  //
+  // Defensive fallback: if a row from a very old cache (pre-_kind) sneaks
+  // in, we re-classify it on the fly. This belt-and-braces guards the
+  // first few seconds after the v2 → v3 cache key bump.
+  const kindOf = (r) => r?._kind || classifyRow(r);
 
-    // Structural signal — permission rows always have a duration/time
-    // window; leaves always have a date range. If both are present
-    // (shouldn't happen) we treat the time window as more specific.
-    if (r?.durationHours || r?.startTime || r?.endTime || r?.permissionDate) return 'permission';
-    if (r?.startDate || r?.endDate) return 'leave';
-
-    // Last-resort: requestType. This is checked LAST because we've
-    // seen it inverted on legacy records, while the type STRING is
-    // generated by the reshape from authoritative fields.
-    const rt = String(r?.requestType || '').toLowerCase().trim();
-    if (rt === 'permission') return 'permission';
-    if (rt === 'leave')      return 'leave';
-    return 'leave';
-  }
-
-  const leaveReqCount      = requests.filter(r => r.status === 'Pending' && classify(r) === 'leave').length;
-  const permissionReqCount = requests.filter(r => r.status === 'Pending' && classify(r) === 'permission').length;
+  const leaveReqCount      = requests.filter(r => r.status === 'Pending' && kindOf(r) === 'leave').length;
+  const permissionReqCount = requests.filter(r => r.status === 'Pending' && kindOf(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
-    // Diagnostic — lets us confirm in DevTools that the memo IS
-    // recomputing on every tab click and that the source set is being
-    // classified correctly. Remove after a few days in prod.
+    // Diagnostic — confirms in DevTools that filtering is live. Each
+    // log line should show different `shown` counts when you click
+    // between the Leave and Permission cards.
     try {
       const distribution = requests.reduce((acc, r) => {
-        const k = classify(r);
+        const k = kindOf(r);
         acc[k] = (acc[k] || 0) + 1;
         return acc;
       }, {});
@@ -196,14 +225,19 @@ export default function LeavePermissionRequest({ onBack }) {
       console.log('[Approvals] tab=', activeTab, ' total=', requests.length, ' kinds=', distribution);
     } catch (_) { /* swallow — diagnostic only */ }
 
+    const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
+
     return requests.filter(item => {
-      // 1. Tab gate — leave rows only in Leave tab, permission rows only
-      //    in Permission tab. Uses the shared classifier so both the
-      //    count badges above and the table below agree perfectly on
-      //    what each row is. Anything that doesn't fit a tab is hidden.
-      const kind = classify(item);
-      if (activeTab === 'leave-requests'      && kind !== 'leave')      return false;
-      if (activeTab === 'permission-requests' && kind !== 'permission') return false;
+      // 1. Tab gate — strict equality on the row's _kind property. No
+      //    classifier-during-render means no race between count + filter.
+      if (kindOf(item) !== wantedKind) return false;
+
+      // 2. Status gate — the section heading explicitly says "Pending …".
+      //    Showing rows with status Approved/Rejected under that heading
+      //    was the second half of the user-reported bug. We now hide
+      //    anything that isn't pending. (Approved/rejected history is
+      //    surfaced on the separate Leave & Permission page.)
+      if (String(item?.status || '').toLowerCase() !== 'pending') return false;
 
       // 2. Search query — case-insensitive across every field HR might
       // type into the box (name, employee id in either field, role,
