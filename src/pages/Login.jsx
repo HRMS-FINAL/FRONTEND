@@ -54,8 +54,10 @@ export default function Login() {
 
   // Default to the Sign In screen — matches the Vercel deploy.
   const [mode, setMode] = useState('signin'); // signin | signup | forgot | otp | reset | success
-  const [email, setEmail]       = useState('admin@tesco.com');
-  const [password, setPassword] = useState('password123');
+  // #334 — Start blank so the Sign In button is grey/disabled
+  // until the user actually enters their credentials.
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName]         = useState('');
   const [showPass, setShowPass] = useState(false);
 
@@ -291,14 +293,33 @@ export default function Login() {
 
         {error && <div className="login-error">{error}</div>}
 
-        <button
-          type="submit"
-          className={`ne-btn-primary ${loading ? 'loading' : ''}`}
-          style={{ width: '100%', justifyContent: 'center', height: 48, fontSize: 16, marginTop: '8px' }}
-          disabled={loading}
-        >
-          {loading ? 'Signing in…' : 'Sign In'}
-        </button>
+        {/* #334 — Disable Sign In until BOTH email and password
+            have at least one character. Disabled visual: grey
+            background, no shadow, not-allowed cursor. Flips to
+            primary the moment both fields are filled. */}
+        {(() => {
+          const formInvalid = !email.trim() || !password.trim();
+          const isDisabled  = loading || formInvalid;
+          return (
+            <button
+              type="submit"
+              className={`ne-btn-primary ${loading ? 'loading' : ''}`}
+              style={{
+                width: '100%', justifyContent: 'center', height: 48,
+                fontSize: 16, marginTop: '8px',
+                ...(isDisabled ? {
+                  background: '#94A3B8',
+                  boxShadow:  'none',
+                  cursor:     'not-allowed',
+                  opacity:    0.85,
+                } : null),
+              }}
+              disabled={isDisabled}
+            >
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          );
+        })()}
       </form>
 
       <div className="login-footer">
