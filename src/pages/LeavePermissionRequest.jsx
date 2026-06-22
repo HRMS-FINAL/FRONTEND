@@ -20,7 +20,13 @@ import { API } from '../config/api';
 // Rows stamped with the v3 classifier may have leaked permission→leave
 // (or vice-versa) for ambiguous types; bumping the key forces a fresh
 // classify pass on every browser that loads this build.
-const LS_KEY = 'tesco_hrms_leave_requests_cache_v5';
+// v6 (#324) — strict-equality classifier replaces the previous
+// `.includes('permission')` fuzzy match which would classify any
+// string containing the word "permission" (even "no-permission"
+// or "permission-leave-blend") as a permission. Bumping the key
+// invalidates every stale cache that was stamped with the loose
+// matcher so the next page-load reclassifies from raw fields.
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v6';
 
 /**
  * Classify a single row as 'leave' or 'permission'. Runs ONCE at fetch
@@ -46,38 +52,57 @@ const LS_KEY = 'tesco_hrms_leave_requests_cache_v5';
  * Permission tab is much smaller and a leak there is louder).
  */
 function classifyRow(r) {
-  // #308 — PRIMARY signal: `requestType`. This is set by the HRMS
-  // backend reshape (routes/leaveRequestRoutes.js line 92) using
-  // EXACTLY the same comparison the backend uses to decide whether a
-  // row is a permission. Trusting it directly here makes the frontend
-  // filter impossible to disagree with the backend's notion of a row's
-  // kind. Anything else is a fallback for unusual data.
+  // #324 — STRICT-EQUALITY classifier.
+  //
+  // The previous version used `.includes('permission')` / `.includes('leave')`
+  // which would tag any string CONTAINING those words. That is the
+  // most likely source of the cross-tab data leakage HR reported: a
+  // leave row whose `type` happened to contain the substring
+  // "permission" anywhere (e.g. legacy data where the field briefly
+  // held a sentence like "needs permission for casual leave") would
+  // be stamped as a permission and surface in the Permission tab.
+  //
+  // We now use exact-equality checks on normalised values. Whitespace
+  // and case are still stripped, but no substring matching.
+  //
+  // PRIMARY signal: `requestType` — the same field the HRMS backend
+  // reshape uses in `isPermission = d.requestType === 'permission'`.
+  // Trusting it directly here makes the frontend filter impossible
+  // to disagree with the backend's notion of a row's kind.
   const rt = String(r?.requestType || '').toLowerCase().trim();
-  if (rt === 'permission' || rt.includes('permission')) return 'permission';
-  if (rt === 'leave'      || rt.includes('leave'))      return 'leave';
+  if (rt === 'permission') return 'permission';
+  if (rt === 'leave')      return 'leave';
 
-  // FALLBACK 1: visible `type` string. Permission rows are reshaped as
-  // 'Permission (Nh)'; leave rows as 'Sick Leave' / 'Casual Leave' /
-  // 'Earned Leave' / etc.
+  // FALLBACK 1: visible `type` string. Permission rows are reshaped
+  // as 'Permission (Nh)' (always starts with "permission"); leave
+  // rows as 'Sick Leave' / 'Casual Leave' / 'Earned Leave' / etc.
+  // We test against tight patterns instead of substring includes.
   const t = String(r?.type || '').toLowerCase().trim();
-  if (t.startsWith('permission') || t.includes('permission')) return 'permission';
-  if (t.includes('leave'))                                    return 'leave';
+  if (/^permission\b/.test(t))             return 'permission';
+  if (/\bleave$/.test(t) || /\bleave\b/.test(t)) return 'leave';
 
-  // FALLBACK 2: duration unit (the user's framing — "leaves measured
-  // in days, permissions measured in hours"). Catches rows where both
-  // requestType AND type were dropped by an upstream serialiser.
+  // FALLBACK 2: duration unit. The backend reshape produces:
+  //   permission -> "N Hour" or "N Hours"
+  //   leave      -> "N Day" / "N Days" / "Half Day"
   const dur = String(r?.duration || '').toLowerCase().trim();
   if (dur) {
-    if (/\b(?:hour|hrs?|h)\b/.test(dur) || /\d+\s*h\b/.test(dur)) return 'permission';
-    if (/\b(?:day|days|d)\b/.test(dur)) return 'leave';
+    // Permission durations always start with a number followed by
+    // "hour"/"hours" (or "hr"/"hrs"). Match the prefix shape.
+    if (/^\d+\s*(?:hours?|hrs?)\b/.test(dur)) return 'permission';
+    // Leave durations end with "day"/"days" or equal "half day".
+    if (/^half\s+day$/.test(dur))             return 'leave';
+    if (/^\d+\s*days?$/.test(dur))            return 'leave';
   }
 
-  // FALLBACK 3: structural — permission rows always have a time window;
-  // leave rows always have a date range.
-  if (r?.durationHours || r?.startTime || r?.endTime || r?.permissionDate) return 'permission';
-  if (r?.startDate || r?.endDate) return 'leave';
+  // FALLBACK 3: structural — leave rows always have a date range;
+  // permission rows always have a single date + time window.
+  // We check the leave signal FIRST because the leave list is
+  // larger and a leak there is the loudest visible bug.
+  if (r?.startDate || r?.endDate)                          return 'leave';
+  if (r?.durationHours || r?.startTime || r?.endTime ||
+      r?.permissionDate)                                   return 'permission';
 
-  // Last resort default.
+  // Last resort default — assume leave (the larger list).
   return 'leave';
 }
 
@@ -107,6 +132,20 @@ function readCache() {
 export default function LeavePermissionRequest({ onBack }) {
   const { showNotification } = useNotification();
   const [activeTab, setActiveTab] = useState('leave-requests'); // 'leave-requests' or 'permission-requests'
+  // #324 — Tab-swap clear flag. When the user clicks Leave Requests or
+  // Permission Requests, we briefly null the rendered rows so the new
+  // tab cannot show ANY data from the previous tab even for a single
+  // paint. After ~80 ms (one animation frame plus a safety margin) we
+  // un-flag and the useMemo recomputes the correctly-filtered rows.
+  const [tabSwapping, setTabSwapping] = useState(false);
+  const switchTab = React.useCallback((nextTab) => {
+    if (nextTab === activeTab) return;
+    setTabSwapping(true);
+    setActiveTab(nextTab);
+    // One frame is enough for React to commit the cleared view; we use
+    // a setTimeout(80) belt-and-braces in case the device is slow.
+    setTimeout(() => setTabSwapping(false), 80);
+  }, [activeTab]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('');
   const [actionModal, setActionModal] = useState(null);
@@ -270,6 +309,12 @@ export default function LeavePermissionRequest({ onBack }) {
   const permissionReqCount = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
+    // #324 — Hard gate during tab swap. Even though the useMemo
+    // recomputes synchronously, we explicitly return an empty array
+    // for ~80 ms after a tab click so the user can NEVER see the
+    // previous tab's rows under the new tab's heading.
+    if (tabSwapping) return [];
+
     const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
 
     // Diagnostic — confirms in DevTools that the SAME numbers feed the
@@ -328,7 +373,7 @@ export default function LeavePermissionRequest({ onBack }) {
 
       return true;
     });
-  }, [requests, activeTab, searchQuery]);
+  }, [requests, activeTab, searchQuery, tabSwapping]);
 
   const filterTabs = [];   // secondary leave/permission selector removed per HR request
 
@@ -369,7 +414,7 @@ export default function LeavePermissionRequest({ onBack }) {
         {/* Leave Requests Card */}
         <div 
           className={`stat-card attendance-stat-card ${activeTab === 'leave-requests' ? 'active-filter' : ''}`}
-          onClick={() => { setActiveTab('leave-requests'); setFilterType(''); }}
+          onClick={() => { switchTab('leave-requests'); setFilterType(''); }}
           style={{ cursor: 'pointer' }}
         >
           <div className="stat-card-top">
@@ -389,7 +434,7 @@ export default function LeavePermissionRequest({ onBack }) {
         {/* Permission Requests Card */}
         <div 
           className={`stat-card attendance-stat-card ${activeTab === 'permission-requests' ? 'active-filter' : ''}`}
-          onClick={() => { setActiveTab('permission-requests'); setFilterType(''); }}
+          onClick={() => { switchTab('permission-requests'); setFilterType(''); }}
           style={{ cursor: 'pointer' }}
         >
           <div className="stat-card-top">

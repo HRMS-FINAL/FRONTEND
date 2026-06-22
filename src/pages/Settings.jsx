@@ -8,7 +8,7 @@ import { API } from '../config/api';
 
 export default function Settings({ onBack }) {
   const { showNotification } = useNotification();
-  const [activeSection, setActiveSection] = useState('account');
+  const [activeSection, setActiveSection] = useState('notifications'); // #333 — was 'account'; section removed
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
 
@@ -133,8 +133,10 @@ export default function Settings({ onBack }) {
     }
   };
 
+  // #333 — 'Account Info' tab (company info form + Your Profile name/
+  // email read-only block) removed per HR — they didn't want personal
+  // admin name/email surfaced on the Settings page.
   const sections = [
-    { id: 'account',       label: 'Account Info',         icon: <User size={18} /> },
     { id: 'notifications', label: 'Notifications',        icon: <Bell size={18} /> },
     { id: 'security',      label: 'Security & Privacy',   icon: <Shield size={18} /> },
   ];
@@ -183,57 +185,6 @@ export default function Settings({ onBack }) {
 
         <main className="settings-content">
           <div className="card" style={{ padding: '30px' }}>
-
-            {activeSection === 'account' && (
-              <div className="settings-pane">
-                <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '24px' }}>Company Information</h2>
-                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  <div className="ne-field">
-                    <label className="ne-label">Company Name</label>
-                    <input className="ne-input" value={company.name}    onChange={e => setCompany(c => ({ ...c, name: e.target.value }))} />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Company Email</label>
-                    <input className="ne-input" value={company.email}   onChange={e => setCompany(c => ({ ...c, email: e.target.value }))} />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Phone</label>
-                    <input className="ne-input" value={company.phone}   onChange={e => setCompany(c => ({ ...c, phone: e.target.value }))} />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Website</label>
-                    <input className="ne-input" value={company.website} onChange={e => setCompany(c => ({ ...c, website: e.target.value }))} />
-                  </div>
-                  <div className="ne-field" style={{ gridColumn: '1 / -1' }}>
-                    <label className="ne-label">Address</label>
-                    <input className="ne-input" value={company.address} onChange={e => setCompany(c => ({ ...c, address: e.target.value }))} />
-                  </div>
-                </div>
-
-                <h3 style={{ fontSize: '14px', fontWeight: 700, marginTop: '28px', marginBottom: '14px', color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your Profile</h3>
-                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  <div className="ne-field">
-                    <label className="ne-label">Full Name</label>
-                    <input
-                      className="ne-input"
-                      value={account.name}
-                      readOnly
-                      style={{ backgroundColor: '#f8fafc', color: '#475569', cursor: 'not-allowed' }}
-                    />
-                  </div>
-                  <div className="ne-field">
-                    <label className="ne-label">Email Address</label>
-                    <input
-                      className="ne-input"
-                      value={account.email}
-                      readOnly
-                      style={{ backgroundColor: '#f8fafc', color: '#475569', cursor: 'not-allowed' }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeSection === 'notifications' && (
               <div className="settings-pane">
                 <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '24px' }}>Notification Preferences</h2>
