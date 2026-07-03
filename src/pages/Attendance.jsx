@@ -263,25 +263,21 @@ export default function Attendance({ onBack, employees = [] }) {
   // Late is also surfaced separately so HR can see how many of them crossed
   // the 10:01 AM cut-off.
   const stats = React.useMemo(() => {
-    // Case-insensitive status match — mobile backend sometimes returns
-    // lowercase 'permission' / 'half day' which weren't matching capitals.
     const norm = (s) => String(s || '').trim().toLowerCase();
     const onlyPresent = dailyLogs.filter(l => norm(l.status) === 'present').length;
     const late        = dailyLogs.filter(l => norm(l.status) === 'late').length;
     const permission  = dailyLogs.filter(l => norm(l.status) === 'permission').length;
     const halfday     = dailyLogs.filter(l => norm(l.status) === 'half day' || norm(l.status) === 'halfday').length;
-    // #363 — Compute totals from the LOCAL active-employee roster so
-    // this page agrees with the Dashboard top card:
-    //   Dashboard top card:  activeEmployees − present  = 35 − 27 = 8
-    //   Attendance Logs:     same formula, same source
-    // "Present" here includes late/permission/half-day because those
-    // employees DID show up. The dashboard uses the same definition.
+    // #364 — Present == same definition as the Dashboard top card:
+    // anyone who showed up. Includes late, permission, half-day. So the
+    // "Present 27" number on the top card matches the "Present 27"
+    // number here. Absent = active roster − showedUp.
     const activeCount = (activeEmployees || []).filter(e =>
       String(e.status || 'Active') === 'Active'
     ).length;
     const showedUp = onlyPresent + late + permission + halfday;
     const leave    = Math.max(0, activeCount - showedUp);
-    return { present: onlyPresent + late, late, leave, permission };
+    return { present: showedUp, late, leave, permission };
   }, [dailyLogs, activeEmployees]);
 
   // Dynamic Attendance Summary cards based on selected day and filters

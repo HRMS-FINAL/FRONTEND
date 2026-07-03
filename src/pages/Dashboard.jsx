@@ -331,17 +331,25 @@ export default function Dashboard({
               // day when one is picked — see the fetch effect above). If
               // the API hasn't responded yet, fall back to the parent's
               // pre-computed calStats so the tiles never flash empty.
-              // #363 — Absent = same math the top "Absent Today" card uses:
-              //   activeEmployees roster (35) − live present total (27) = 8
-              // We can't trust attToday.totalEmployees / attToday.absent
-              // because that endpoint counts employees a different way
-              // (isActive != false) and drifts from stats.counts.activeEmployees.
-              const absentLive = Math.max(0, (totalEmp || 0) - (liveTallies.present || 0));
+              // #364 — All four tiles now use the SAME source-of-truth
+              // numbers the top stat cards show. attToday from the backend
+              // uses a stricter "present" definition (present + late only)
+              // and drifts from the top card, so we prefer liveTallies for
+              // the live-today case. When user picks a past date, fall
+              // back to attToday.
+              const isLive = !selectedDay;
+              const presentLive = isLive
+                ? (liveTallies.present || 0)
+                : (attToday?.present ?? 0);
+              const lateLive = isLive
+                ? (liveTallies.late || 0)
+                : (attToday?.late ?? 0);
+              const absentLive = Math.max(0, (totalEmp || 0) - presentLive);
               const live = attToday
                 ? [
-                    { lbl: 'Present',  num: attToday.present    ?? 0, color: '#16a34a', bg: '#F0FDF4' },
-                    { lbl: 'Late',     num: attToday.late       ?? 0, color: '#d97706', bg: '#FFFBEB' },
-                    { lbl: 'Absent',   num: absentLive,               color: '#dc2626', bg: '#FEF2F2' },
+                    { lbl: 'Present',  num: presentLive, color: '#16a34a', bg: '#F0FDF4' },
+                    { lbl: 'Late',     num: lateLive,    color: '#d97706', bg: '#FFFBEB' },
+                    { lbl: 'Absent',   num: absentLive,  color: '#dc2626', bg: '#FEF2F2' },
                     { lbl: 'Perm',     num: attToday.permission ?? 0, color: '#6b7280', bg: '#F8FAFC' },
                   ]
                 : calStats;
