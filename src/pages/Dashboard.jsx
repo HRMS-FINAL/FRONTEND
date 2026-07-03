@@ -331,15 +331,15 @@ export default function Dashboard({
               // day when one is picked — see the fetch effect above). If
               // the API hasn't responded yet, fall back to the parent's
               // pre-computed calStats so the tiles never flash empty.
-              // #360 — Rename 'Leave' tile → 'Absent' so it matches the
-              // "Absent Today" top card. Value is derived the same way as
-              // that card (totalEmployees − present, floored at 0) so the
-              // two numbers always agree instead of drifting.
+              // #361 — Absent tile now reads attToday.absent directly (the
+              // backend already computes `totalEmployees − checkedIn − leave`
+              // — same result the top "Absent Today" card shows). All three
+              // places (top card, this widget, Attendance Logs) now agree.
               const live = attToday
                 ? [
                     { lbl: 'Present',  num: attToday.present    ?? 0, color: '#16a34a', bg: '#F0FDF4' },
                     { lbl: 'Late',     num: attToday.late       ?? 0, color: '#d97706', bg: '#FFFBEB' },
-                    { lbl: 'Absent',   num: Math.max(0, (attToday.totalEmployees || 0) - (attToday.present || 0)), color: '#dc2626', bg: '#FEF2F2' },
+                    { lbl: 'Absent',   num: attToday.absent     ?? 0, color: '#dc2626', bg: '#FEF2F2' },
                     { lbl: 'Perm',     num: attToday.permission ?? 0, color: '#6b7280', bg: '#F8FAFC' },
                   ]
                 : calStats;

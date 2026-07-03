@@ -4,6 +4,9 @@
   "framework": "vite",
   "installCommand": "npm install --include=dev --legacy-peer-deps",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+    {
+      "source": "/((?!assets/|api/|.*\\..*).*)",
+      "destination": "/"
+    }
   ]
 }

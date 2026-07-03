@@ -99,6 +99,24 @@ function MainApp() {
     try { return typeof window !== 'undefined' ? window.innerWidth > 768 : true; }
     catch { return true; }
   });
+  // #362 — Auto-close the drawer when the viewport crosses into phone
+  // width (DevTools resize, real device rotation). Also auto-open again
+  // if the window grows past the desktop breakpoint. Prevents the
+  // "sidebar stuck open covering the page" bug when HR shrinks the
+  // window mid-session.
+  useEffect(() => {
+    let lastWide = typeof window !== 'undefined' ? window.innerWidth > 768 : true;
+    const onResize = () => {
+      const w = window.innerWidth;
+      const wide = w > 768;
+      if (wide !== lastWide) {
+        setSidebarOpen(wide);
+        lastWide = wide;
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [hrOpen, setHrOpen]           = useState(false);
   const [doneReminders, setDoneReminders] = useState([3]);
 
@@ -278,12 +296,8 @@ function MainApp() {
         <Topbar
           sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
           activeView={activeView}   setActiveView={setActiveView}
-          eligibleCount={eligibleEmployees.length}
+          reminders={reminders} doneReminders={doneReminders} toggleReminder={toggleReminder}
         />
-        {/* View-only banner — shown for any user whose email is not on
-            the HRMS admin allowlist. Tells them up-front why their Save
-            buttons aren't working, instead of letting them discover it
-            via a generic 403 toast on click. */}
         <ReadOnlyBanner />
         {renderView()}
       </main>

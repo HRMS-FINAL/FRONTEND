@@ -104,21 +104,31 @@ export default function Attendance({ onBack, employees = [] }) {
     // #358 — Approved leave + permission requests overlapping the selected
     // date. Powers the Absent/Permission drill-downs so people who are on
     // approved time-off show up even though there's no Attendance record.
+    // #361 — Approved leave + permission requests. The HRMS backend reshape
+    // returns:
+    //   requestType: 'leave' | 'permission' (raw)
+    //   startDate / endDate  (for leave rows)
+    //   permissionDate       (for permission rows)
+    // Fixed field parsing so the Permission drill-down actually lists people.
     fetch(`${API}/leave-requests?status=approved&limit=500`)
       .then(r => r.json())
       .then(data => {
         const items = Array.isArray(data?.items) ? data.items : [];
-        const inRange = (row) => {
-          try {
-            const start = row.startDate || row.date || row.leaveDate;
-            const end   = row.endDate   || row.date || row.leaveDate || start;
-            const s = start ? new Date(start).toISOString().slice(0,10) : null;
-            const e = end   ? new Date(end  ).toISOString().slice(0,10) : s;
-            return s && e && dateStr >= s && dateStr <= e;
-          } catch { return false; }
+        const iso = (v) => {
+          try { return v ? new Date(v).toISOString().slice(0,10) : null; }
+          catch { return null; }
         };
-        const leave = items.filter(it => (String(it.type || it.requestType || '').toLowerCase() === 'leave') && inRange(it));
-        const permission = items.filter(it => (String(it.type || it.requestType || '').toLowerCase() === 'permission') && inRange(it));
+        const permission = items.filter(it => {
+          if (String(it.requestType || '').toLowerCase() !== 'permission') return false;
+          const d = iso(it.permissionDate) || iso(it.date) || iso(it.startDate);
+          return d === dateStr;
+        });
+        const leave = items.filter(it => {
+          if (String(it.requestType || '').toLowerCase() !== 'leave') return false;
+          const s = iso(it.startDate);
+          const e = iso(it.endDate) || s;
+          return s && e && dateStr >= s && dateStr <= e;
+        });
         setApprovedForDate({ leave, permission });
       })
       .catch(() => setApprovedForDate({ leave: [], permission: [] }));
@@ -790,7 +800,7 @@ export default function Attendance({ onBack, employees = [] }) {
               {[
                 { id: 'present', label: 'Present', count: stats.present, bg: '#F1F9EE', color: '#4CAA17', border: '#C2E7B0' },
                 { id: 'late', label: 'Late', count: stats.late, bg: '#FEF3C7', color: '#D97706', border: '#FEF3C7' },
-                { id: 'leave', label: 'Leave', count: stats.leave, bg: '#FFF5F5', color: '#FC8181', border: '#FED7D7' },
+                { id: 'leave', label: 'Absent', count: stats.leave, bg: '#FFF5F5', color: '#FC8181', border: '#FED7D7' },
                 { id: 'permission', label: 'Perm', count: stats.permission, bg: '#F5F3FF', color: '#9F7AEA', border: '#DDD6FE' }
               ].map(filter => (
                 <button

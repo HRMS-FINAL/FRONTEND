@@ -463,19 +463,81 @@ img, video, canvas, iframe {
     grid-template-columns: 1fr !important;
   }
 
-  /* Mobile drawer backdrop: uses the presence of an OPEN sidebar
-     to drop a full-viewport tint behind it. When the sidebar toggles
-     to .sidebar-collapsed (slid off-screen) the backdrop disappears. */
-  .sidebar:not(.sidebar-collapsed)::after {
+  /* #362 — Sidebar drawer is now above everything with a proper backdrop.
+     When open, the drawer takes 82vw and a dark backdrop covers the rest.
+     Tapping the backdrop closes the drawer (Sidebar.jsx already handles
+     off-drawer clicks by toggling sidebarOpen via the Topbar toggle).  */
+  .sidebar {
+    z-index: 1200 !important;
+  }
+  /* Full-viewport dim behind the drawer. */
+  .sidebar:not(.sidebar-collapsed)::before {
     content: '';
     position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: -1;
+    pointer-events: none;
+  }
+  /* Keep the topbar sticky and above the drawer's backdrop so the hamburger
+     is always reachable to close the drawer again. */
+  .topbar {
+    position: sticky;
     top: 0;
-    left: 260px;
-    right: 0;
-    bottom: 0;
-    background: rgba(15, 23, 42, 0.42);
-    z-index: -1;              /* Behind the drawer, above content. */
-    pointer-events: auto;
+    z-index: 1100;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+  }
+  /* Main content must NEVER sit behind the fixed drawer. Force it to a
+     new stacking context that starts below the topbar and takes 100vw. */
+  .app-container {
+    display: block !important;
+    min-height: 100vh;
+  }
+  .main-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin-left: 0 !important;
+    padding-top: 0;
+    min-height: calc(100vh - 56px);
+  }
+  /* Kill any inline padding that was set for desktop side-by-side layout. */
+  .dashboard-body,
+  .ne-page,
+  .emp-list-page,
+  .roles-page {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    box-sizing: border-box;
+  }
+  /* Card containers: never wider than viewport. */
+  .card,
+  .stat-card,
+  .cal-card,
+  .emp-table-card {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  /* Prevent horizontal scroll from oversized inline flex/grid rows. */
+  .middle-row,
+  .bottom-row,
+  .quick-actions-row {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  /* Mini calendar tile must fit — was inheriting a 700px min-width. */
+  .mini-calendar,
+  .cal-grid {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* The Live Employee Tracking map card + Employee Overview donut need
+     to stack, not sit side-by-side. */
+  .middle-row > *,
+  .bottom-row > * {
+    min-width: 0 !important;
   }
 
   /* Attendance stats + summary tiles wrap gracefully on phones. */
