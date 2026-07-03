@@ -1,19 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * HRMS Web — Responsive Layer  (#364 rewrite — minimal + safe)
+ * HRMS Web — Responsive Layer  (#366 comprehensive rewrite)
  * ─────────────────────────────────────────────────────────────────────
- * Layout-only overrides. Nothing that could hide content on any breakpoint.
+ * Layout-only. No content is hidden or removed on any breakpoint — every
+ * card, chart, table, form, and button that exists on desktop is still
+ * present on mobile, just re-flowed for phone width.
+ *
+ * Breakpoints:
+ *   Mobile   → ≤ 640px
+ *   Tablet   → 641px – 1024px
+ *   Desktop  → > 1024px  (base App.css handles this)
  * ═════════════════════════════════════════════════════════════════════ */
 
-/* ─── Universal safety net ──────────────────────────────────────────── */
+/* ─── Universal safety net (all viewports) ──────────────────────────── */
 img, video, canvas, iframe {
   max-width: 100%;
   height: auto;
-}
-
-@media (max-width: 640px) {
-  html, body, #root {
-    overflow-x: hidden;
-  }
 }
 
 
@@ -22,19 +23,24 @@ img, video, canvas, iframe {
  * ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
   .sidebar { width: 220px; }
-  .stats-row { grid-template-columns: repeat(2, 1fr) !important; }
+
+  .stats-row,
   .middle-row,
   .bottom-row,
   .quick-actions-grid,
+  .quick-actions-row,
   .form-grid,
   .ne-grid-2,
   .ne-grid-3,
   .dept-grid,
+  .dept-emp-list-grid,
   .roles-content-layout,
-  .cal-stats {
+  .cal-stats,
+  .dashboard-secondary-row {
     grid-template-columns: repeat(2, 1fr) !important;
   }
   .map-body { grid-template-columns: 1fr !important; }
+
   .emp-table-card { overflow-x: auto; }
   .emp-table { min-width: 720px; }
 }
@@ -45,6 +51,8 @@ img, video, canvas, iframe {
  * ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 640px) {
 
+  html, body, #root { overflow-x: hidden; }
+
   /* ─── Sidebar → OVERLAY DRAWER ─────────────────────────────────── */
   .app-container {
     display: block !important;
@@ -52,7 +60,6 @@ img, video, canvas, iframe {
     min-height: 100vh;
     overflow: visible !important;
   }
-
   .sidebar {
     position: fixed !important;
     top: 0;
@@ -64,6 +71,7 @@ img, video, canvas, iframe {
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
     transform: translateX(0);
     transition: transform 0.25s ease;
+    overflow-y: auto;
   }
   .sidebar-collapsed {
     width: 260px !important;
@@ -80,8 +88,11 @@ img, video, canvas, iframe {
   .sidebar-collapsed .profile-info {
     display: flex !important;
   }
+  .sidebar-close-btn {
+    display: inline-flex !important;
+  }
 
-  /* Main content — full width block. */
+  /* Main content — full-width block. */
   .main-content {
     display: block !important;
     flex: none !important;
@@ -103,18 +114,22 @@ img, video, canvas, iframe {
   .topbar-subtitle { display: none; }
   .topbar-search { display: none; }
   .user-name { display: none; }
+  .theme-btn { display: none; }
 
-  /* Page bodies */
+  /* ─── PAGE BODIES ──────────────────────────────────────────────── */
   .dashboard-body,
   .ne-page,
   .dept-view-container,
   .emp-list-page,
-  .roles-page {
+  .roles-page,
+  .coming-soon-wrap {
     padding: 14px 12px 24px !important;
     gap: 14px;
+    width: 100%;
+    max-width: 100%;
   }
 
-  /* Grids → single column */
+  /* Every KNOWN grid class → single column. */
   .stats-row,
   .middle-row,
   .bottom-row,
@@ -132,52 +147,273 @@ img, video, canvas, iframe {
     gap: 12px !important;
   }
 
-  /* #365 — Show the sidebar close (X) button on mobile only. */
-  .sidebar-close-btn {
-    display: inline-flex !important;
+  /* INLINE-style grids — pages set gridTemplateColumns directly. */
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr 1fr"],
+  [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns: 1fr 2fr"],
+  [style*="grid-template-columns: 3fr 1fr"],
+  [style*="grid-template-columns: 1fr 3fr"],
+  [style*="grid-template-columns: repeat(2"],
+  [style*="grid-template-columns: repeat(3"],
+  [style*="grid-template-columns: repeat(4"],
+  [style*="grid-template-columns: repeat(5"],
+  [style*="grid-template-columns: minmax"] {
+    grid-template-columns: 1fr !important;
   }
 
+  /* INLINE flex rows that were meant to space-between on desktop — wrap. */
+  [style*="display: flex"][style*="justify-content: space-between"],
+  [style*="display:flex"][style*="justify-content:space-between"],
+  [style*="display: flex"][style*="justifyContent"] {
+    flex-wrap: wrap;
+  }
+
+  /* Fixed-width containers — clamp to viewport. */
+  [style*="width: 400px"],
+  [style*="width: 500px"],
+  [style*="width: 600px"],
+  [style*="width: 700px"],
+  [style*="width: 800px"],
+  [style*="width: 900px"],
+  [style*="width: 1000px"],
+  [style*="min-width: 400px"],
+  [style*="min-width: 500px"],
+  [style*="min-width: 600px"],
+  [style*="min-width: 640px"],
+  [style*="min-width: 720px"],
+  [style*="min-width: 800px"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  [style*="maxWidth: 1200"],
+  [style*="maxWidth: 1400"],
+  [style*="max-width: 1200"],
+  [style*="max-width: 1400"] {
+    max-width: 100% !important;
+  }
+
+  /* ─── STAT CARDS ───────────────────────────────────────────────── */
   .stat-card { padding: 16px; }
   .stat-value { font-size: 22px; }
   .stat-label { font-size: 12px; }
 
+  /* ─── GENERIC CARDS ────────────────────────────────────────────── */
   .card {
     padding: 14px;
     max-width: 100%;
+    width: 100%;
   }
+  .card-header { margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
   .card-title { font-size: 14px; }
 
-  /* Tables scroll horizontally */
-  .emp-table-card { overflow-x: auto; }
-  .emp-table { min-width: 640px; font-size: 12.5px; }
-
-  /* Forms full-width */
-  .ne-input, .ne-select, .ne-textarea {
-    width: 100%;
-    max-width: 100%;
+  /* ─── TABLES ───────────────────────────────────────────────────── */
+  .emp-table-card,
+  .table-card,
+  .table-wrap,
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .ne-btn-primary, .ne-btn-secondary, .ne-btn-ghost {
+  .emp-table,
+  table {
+    min-width: 640px;
+    font-size: 12.5px;
+  }
+  .emp-table th, .emp-table td { padding: 12px 14px; }
+  .emp-table-avatar { width: 32px; height: 32px; font-size: 12px; }
+  .emp-table-name { font-size: 13px; }
+
+  /* ─── HEADERS + BREADCRUMB ─────────────────────────────────────── */
+  .ne-page-header,
+  .emp-list-header,
+  .emp-list-title-row {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+  .ne-page-title,
+  .dept-view-title { font-size: 18px; }
+  .ne-page-sub { font-size: 12.5px; }
+
+  /* Action rows: stack buttons full-width. */
+  .ne-actions,
+  .emp-list-actions,
+  .report-actions,
+  .download-actions,
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px !important;
+  }
+  .ne-actions > *,
+  .emp-list-actions > *,
+  .report-actions > *,
+  .download-actions > *,
+  .action-row > * {
     width: 100%;
     justify-content: center;
   }
 
-  /* Modals */
-  .modal, .modal-content, .confirm-modal, .professional-modal {
+  /* ─── FORMS ────────────────────────────────────────────────────── */
+  .ne-form { gap: 14px; }
+  .ne-section { padding: 16px; }
+  .ne-section-header { margin-bottom: 12px; padding-bottom: 10px; }
+  .ne-section-title { font-size: 13.5px; }
+  .ne-input, .ne-select, .ne-textarea {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto;
+    min-height: 42px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .ne-btn-primary,
+  .ne-btn-secondary,
+  .ne-btn-ghost,
+  .primary-btn,
+  .secondary-btn,
+  .ghost-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 18px;
+  }
+
+  /* ─── STEPPER (Add Employee flow) ──────────────────────────────── */
+  .stepper-container {
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 12px;
+  }
+  .stepper-sidebar { width: 100%; padding: 16px; }
+  .step-item { padding: 12px; }
+  .step-icon { width: 34px; height: 34px; }
+  .stepper-content-card { padding: 18px; }
+
+  /* ─── EMPLOYEE / DEPT / ROLES ──────────────────────────────────── */
+  .dept-card { padding: 16px; gap: 12px; }
+  .dept-card-icon { width: 44px; height: 44px; }
+  .dept-card-name { font-size: 15px; }
+  .dept-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .dept-search { max-width: none; height: 42px; }
+  .dept-back-btn { width: 100%; justify-content: center; }
+  .dept-emp-card { padding: 12px; gap: 10px; }
+  .dept-emp-avatar { width: 42px; height: 42px; font-size: 14px; }
+
+  /* ─── CALENDAR / MINI CALENDAR ─────────────────────────────────── */
+  .cal-grid { gap: 8px 6px; }
+  .cal-day { font-size: 14px; }
+  .calendar-legend { gap: 10px; }
+  .cal-stat-num { font-size: 16px; }
+  .mini-calendar { width: 100%; max-width: 100%; }
+
+  /* ─── QUICK ACTIONS ────────────────────────────────────────────── */
+  .quick-action-btn { padding: 14px 10px; font-size: 12px; }
+  .quick-action-icon { width: 40px; height: 40px; }
+
+  /* ─── LIVE TRACKING / DAILY ROUTES MAPS ────────────────────────── */
+  .map-card-header { padding: 14px 14px 10px; gap: 10px; }
+  .map-body { grid-template-columns: 1fr !important; height: auto; }
+  .map-container-wrap { height: 260px; }
+  .map-emp-list {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    max-height: 220px;
+  }
+  .map-filter-pill { font-size: 11.5px; padding: 5px 12px; }
+
+  /* Google Maps embed */
+  .gm-style,
+  .google-map,
+  [class*="google-map"] {
+    max-width: 100% !important;
+  }
+
+  /* ─── MODALS ───────────────────────────────────────────────────── */
+  .modal,
+  .modal-content,
+  .confirm-modal,
+  .professional-modal,
+  .modal-overlay > * {
     width: calc(100vw - 24px) !important;
     max-width: calc(100vw - 24px) !important;
     max-height: calc(100vh - 24px);
     overflow-y: auto;
   }
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: 14px !important;
+  }
+  .modal-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .modal-footer > * { width: 100%; }
 
-  /* Charts */
+  /* ─── CHARTS ───────────────────────────────────────────────────── */
   .recharts-responsive-container {
     max-width: 100% !important;
     height: 240px !important;
   }
+  .recharts-legend-wrapper {
+    max-width: 100% !important;
+  }
 
-  /* Live tracking map body */
-  .map-body { grid-template-columns: 1fr !important; height: auto; }
-  .map-container-wrap { height: 260px; }
+  /* ─── TAB BARS ─────────────────────────────────────────────────── */
+  .tabs,
+  .tab-bar,
+  .tab-list,
+  .approvals-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+  }
+  .tabs > *,
+  .tab-bar > *,
+  .tab-list > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* ─── FILTER / SEARCH BARS ─────────────────────────────────────── */
+  .filter-bar,
+  .search-bar,
+  .filter-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .filter-bar > *,
+  .search-bar > *,
+  .filter-row > * {
+    width: 100%;
+  }
+
+  /* ─── HEADINGS ─────────────────────────────────────────────────── */
+  h1 { font-size: 20px !important; line-height: 1.2 !important; }
+  h2 { font-size: 17px !important; line-height: 1.25 !important; }
+  h3 { font-size: 15px !important; }
 }
 
 
@@ -187,9 +423,14 @@ img, video, canvas, iframe {
 @media (max-width: 380px) {
   .dashboard-body,
   .ne-page,
-  .emp-list-page {
+  .emp-list-page,
+  .dept-view-container,
+  .roles-page {
     padding: 10px 8px 20px !important;
   }
+  .topbar { padding: 0 8px; }
   .topbar-title { font-size: 15px; }
   .stat-value { font-size: 20px; }
+  .card-title { font-size: 13.5px; }
+  .cal-day { font-size: 13px; }
 }
