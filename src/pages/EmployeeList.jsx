@@ -286,12 +286,14 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
     return [...new Set(all.filter(Boolean))].sort();
   }, [employees, apiDesigs]);
 
-  // Status category counts
+  // Status category counts (#354 — Resigned bucket now includes Terminated + Inactive
+  // so HR sees everyone who is no longer on the active roster in one place)
   const statusCategories = useMemo(() => {
-    const counts = { All: employees.length, Active: 0, Resigned: 0, 'On Leave': 0 };
+    const counts = { All: employees.length, Active: 0, Resigned: 0 };
     employees.forEach(emp => {
       const s = emp.status || 'Active';
-      if (counts[s] !== undefined) counts[s]++;
+      if (s === 'Active') counts.Active++;
+      else if (s === 'Resigned' || s === 'Terminated' || s === 'Inactive') counts.Resigned++;
     });
     return counts;
   }, [employees]);
@@ -306,7 +308,12 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
 
     const matchesDept = !filterDept || emp.dept === filterDept;
     const matchesRole = !filterRole || emp.role === filterRole;
-    const matchesStatus = filterStatus === 'All' || (emp.status || 'Active') === filterStatus;
+    // #354 — Resigned filter is a superset: covers Resigned + Terminated + Inactive
+    const empStatus = emp.status || 'Active';
+    const matchesStatus =
+      filterStatus === 'All' ||
+      (filterStatus === 'Active' && empStatus === 'Active') ||
+      (filterStatus === 'Resigned' && (empStatus === 'Resigned' || empStatus === 'Terminated' || empStatus === 'Inactive'));
 
     return matchesSearch && matchesDept && matchesRole && matchesStatus;
   });
@@ -893,7 +900,6 @@ export default function EmployeeList({ onBack, employees, setEmployees, setSelec
                     >
                       <option value="Active">Active</option>
                       <option value="Inactive">Inactive</option>
-                      <option value="On Leave">On Leave</option>
                       <option value="Terminated">Terminated</option>
                     </select>
                   </div>

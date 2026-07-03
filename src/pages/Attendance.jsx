@@ -30,6 +30,37 @@ export default function Attendance({ onBack, employees = [] }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedLog, setSelectedLog] = useState(null);
   const [apiLogs, setApiLogs] = useState([]);
+  // #356 — Roster-based counts pulled from /api/dashboard/attendance-today.
+  // Fixes the "Absent 0" mismatch on the Attendance Logs page: the /logs
+  // endpoint only returns rows for employees who have an Attendance record,
+  // so nobody who never checked in was being counted. attendance-today
+  // knows the full active headcount and derives absent + permission from
+  // the same source of truth as the Dashboard tiles.
+  const [rosterCounts, setRosterCounts] = useState(null);
+
+  // #352e/f — Read the pre-filter that Dashboard.jsx stashed in
+  // sessionStorage when the user clicked a Present/Absent/Late/
+  // Half Day stat card. Apply once on mount, then clear the key so
+  // navigating away and back doesn't re-apply an old filter.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('hrms_attendance_prefilter');
+      if (raw) {
+        const map = {
+          Present:   'present',
+          Absent:    'absent',
+          Late:      'late',
+          'Half Day':'halfday',
+          Permission:'permission',
+        };
+        const next = map[raw] || 'all';
+        if (next && next !== 'all') setFilterStatus(next);
+      }
+    } catch { /* sessionStorage disabled — silent no-op */ }
+    finally {
+      try { sessionStorage.removeItem('hrms_attendance_prefilter'); } catch {}
+    }
+  }, []);
 
   const activeEmployees = employees.length > 0 ? employees : allEmployees;
 
@@ -61,6 +92,11 @@ export default function Attendance({ onBack, employees = [] }) {
       .then(r => r.json())
       .then(data => { if (data.success) setApiLogs(data.data || []); })
       .catch(() => setApiLogs([]));
+    // #356 — parallel fetch: roster-aware counts (present/late/leave/permission/absent)
+    fetch(`${API}/dashboard/attendance-today?date=${dateStr}`)
+      .then(r => r.json())
+      .then(data => setRosterCounts(data?.success ? data.data : null))
+      .catch(() => setRosterCounts(null));
   }, [selectedDay, viewMonth, viewYear]);
 
   // Generate logs for selected day from the live mobile API.
@@ -77,9 +113,9 @@ export default function Attendance({ onBack, employees = [] }) {
       email: log.email || '',
       dept: log.department || '',
       employeeId: log.employeeId || '',
-      // 'On Time' → 'Present' for the badge; 'Absent' → 'On Leave';
+      // 'On Time' → 'Present' for the badge; 'Absent' → 'Absent';
       // 'Half Day' is now distinct from 'Permission' (Jun 2026 — policy fix). 'Permission' = filed permission request; 'Half Day' = early checkout without permission (counts toward LOP).
-      status: log.status === 'On Time' ? 'Present' : log.status === 'Absent' ? 'On Leave' : log.status,
+      status: log.status === 'On Time' ? 'Present' : log.status === 'Absent' ? 'Absent' : log.status,
       checkIn: log.checkIn || '--:--',
       checkOut: log.checkOut || '--:--',
       workHours: log.workHours || '0h',
@@ -93,7 +129,7 @@ export default function Attendance({ onBack, employees = [] }) {
       let checkOut = '06:00 PM';
       let workHours = '8h 55m';
 
-      if (status === 'On Leave') {
+      if (status === 'Absent') {
         checkIn = '--:--';
         checkOut = '--:--';
         workHours = '0h';
@@ -137,14 +173,14 @@ export default function Attendance({ onBack, employees = [] }) {
           (empId    && log.employeeId === empId) ||
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
-        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s;
+        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'Absent' : s;
         // Present count folds Late in (employee did come in); the Late
         // figure is preserved separately so the monthly view can still
         // surface it.
         setMonthlyOverview({
           present:    mine.filter(l => norm(l.status) === 'Present' || norm(l.status) === 'Late').length,
           late:       mine.filter(l => norm(l.status) === 'Late').length,
-          leave:      mine.filter(l => norm(l.status) === 'On Leave').length,
+          leave:      mine.filter(l => norm(l.status) === 'Absent').length,
           permission: mine.filter(l => norm(l.status) === 'Permission').length,
         });
       })
@@ -164,7 +200,7 @@ export default function Attendance({ onBack, employees = [] }) {
           (empId    && log.employeeId === empId) ||
           (empEmail && (log.email || '').toLowerCase() === empEmail)
         );
-        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'On Leave' : s;
+        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'Absent' : s;
         // #303 — branded template.
         (async () => {
           const doc = await buildBrandedPdf({
@@ -194,22 +230,38 @@ export default function Attendance({ onBack, employees = [] }) {
   const stats = React.useMemo(() => {
     const onlyPresent = dailyLogs.filter(l => l.status === 'Present').length;
     const late        = dailyLogs.filter(l => l.status === 'Late').length;
-    const leave       = dailyLogs.filter(l => l.status === 'On Leave').length;
-    const permission  = dailyLogs.filter(l => l.status === 'Permission').length;
-    return { present: onlyPresent + late, late, leave, permission };
-  }, [dailyLogs]);
+    // #356 — Prefer roster-derived counts when available. This is the
+    // same set of numbers the Dashboard uses, so the two pages agree.
+    // leave = active headcount that didn't check in + anyone with an
+    // approved leave; permission = anyone who checked in as Permission
+    // OR filed an approved permission request for the date.
+    // Fallback to log-scan for offline / dev.
+    if (rosterCounts && typeof rosterCounts.absent === 'number') {
+      return {
+        present:    (rosterCounts.present ?? (onlyPresent + late)),
+        late:       (rosterCounts.late    ?? late),
+        // Attendance Logs card labelled "Absent" — this is the day's
+        // total absent bucket (didn't check in + approved leave).
+        leave:      (rosterCounts.absent  ?? 0) + (rosterCounts.leave ?? 0),
+        permission: (rosterCounts.permission ?? 0),
+      };
+    }
+    const leaveInLogs      = dailyLogs.filter(l => l.status === 'Absent').length;
+    const permissionInLogs = dailyLogs.filter(l => l.status === 'Permission').length;
+    return { present: onlyPresent + late, late, leave: leaveInLogs, permission: permissionInLogs };
+  }, [dailyLogs, rosterCounts]);
 
   // Dynamic Attendance Summary cards based on selected day and filters
   const attStats = React.useMemo(() => [
     { label: 'Present', value: stats.present, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}`, type: 'up', color: '#4CAA17', Icon: UserCheck },
-    { label: 'On Leave', value: stats.leave, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}`, type: 'down', color: '#FC8181', Icon: CalendarOff },
+    { label: 'Absent', value: stats.leave, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}`, type: 'down', color: '#FC8181', Icon: CalendarOff },
     { label: 'Permission', value: stats.permission, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}`, type: 'up', color: '#9F7AEA', Icon: Clock },
     { label: 'Late', value: stats.late, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}`, type: 'up', color: '#ECC94B', Icon: AlertTriangle },
   ], [stats, selectedDay]);
 
   const getFilterKey = (label) => {
     if (label === 'Present') return 'present';
-    if (label === 'On Leave') return 'leave';
+    if (label === 'Absent') return 'leave';
     if (label === 'Permission') return 'permission';
     if (label === 'Late') return 'late';
     return 'all';
@@ -237,8 +289,11 @@ export default function Attendance({ onBack, employees = [] }) {
     // Present pill now includes late rows so the count + the rows match.
     if (filterStatus === 'present') return log.status === 'Present' || log.status === 'Late';
     if (filterStatus === 'late') return log.status === 'Late';
-    if (filterStatus === 'leave') return log.status === 'On Leave';
+    if (filterStatus === 'leave') return log.status === 'Absent';
     if (filterStatus === 'permission') return log.status === 'Permission';
+    // #352e — new filters routed from Dashboard cards.
+    if (filterStatus === 'absent')  return log.status === 'Absent' || log.status === 'Absent';
+    if (filterStatus === 'halfday') return log.status === 'Half Day';
     return true;
   });
 
@@ -547,7 +602,7 @@ export default function Attendance({ onBack, employees = [] }) {
                 <span className={`dash-emp-status ${
                   selectedLog.status === 'Present' ? 'present' :
                   selectedLog.status === 'Late' ? 'late' :
-                  selectedLog.status === 'On Leave' ? 'on-leave' : 'permission'
+                  selectedLog.status === 'Absent' ? 'on-leave' : 'permission'
                 }`} style={{ fontWeight: 800, fontSize: '10px' }}>
                   {selectedLog.status}
                 </span>
@@ -575,7 +630,7 @@ export default function Attendance({ onBack, employees = [] }) {
                   {[
                     { label: 'Present',    value: monthlyOverview.present,    color: '#4CAA17' },
                     { label: 'Late',       value: monthlyOverview.late,       color: '#ECC94B' },
-                    { label: 'On Leave',   value: monthlyOverview.leave,      color: '#FC8181' },
+                    { label: 'Absent',   value: monthlyOverview.leave,      color: '#FC8181' },
                     { label: 'Permission', value: monthlyOverview.permission, color: '#9F7AEA' },
                   ].map(item => (
                     <div key={item.label}>
@@ -710,35 +765,85 @@ export default function Attendance({ onBack, employees = [] }) {
                     <td><div className="emp-table-email" style={{ fontWeight: 600 }}>{log.checkOut}</div></td>
                     <td><div className="emp-table-email" style={{ fontWeight: 700 }}>{log.workHours}</div></td>
                     <td>
-                      <span style={{
-                        display: 'inline-block', padding: '4px 10px', borderRadius: 12,
-                        fontSize: 11, fontWeight: 700,
-                        // 'Half Day' (early checkout without permission, counts
-                        // toward LOP) gets its own amber pill so HR can tell
-                        // it apart from the purple 'Permission' pill at a glance.
-                        background: log.status === 'Present'    ? '#ECFDF5'
-                                  : log.status === 'Late'       ? '#FFFBEB'
-                                  : log.status === 'On Leave'   ? '#FEF2F2'
-                                  : log.status === 'Permission' ? '#F5F3FF'
-                                  : log.status === 'Half Day'   ? '#FEF3C7'
-                                  : '#F1F5F9',
-                        color:      log.status === 'Present'    ? '#16A34A'
-                                  : log.status === 'Late'       ? '#D97706'
-                                  : log.status === 'On Leave'   ? '#DC2626'
-                                  : log.status === 'Permission' ? '#7C3AED'
-                                  : log.status === 'Half Day'   ? '#B45309'
-                                  : '#64748B',
-                      }}>
-                        {log.status}
-                      </span>
-    </td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          display: 'inline-block', padding: '4px 10px', borderRadius: 12,
+                          fontSize: 11, fontWeight: 700,
+                          // 'Half Day' (early checkout without permission, counts
+                          // toward LOP) gets its own amber pill so HR can tell
+                          // it apart from the purple 'Permission' pill at a glance.
+                          background: log.status === 'Present'    ? '#ECFDF5'
+                                    : log.status === 'Late'       ? '#FFFBEB'
+                                    : log.status === 'Absent'   ? '#FEF2F2'
+                                    : log.status === 'Permission' ? '#F5F3FF'
+                                    : log.status === 'Half Day'   ? '#FEF3C7'
+                                    : '#F1F5F9',
+                          color:      log.status === 'Present'    ? '#16A34A'
+                                    : log.status === 'Late'       ? '#D97706'
+                                    : log.status === 'Absent'   ? '#DC2626'
+                                    : log.status === 'Permission' ? '#7C3AED'
+                                    : log.status === 'Half Day'   ? '#B45309'
+                                    : '#64748B',
+                        }}>
+                          {log.status}
+                        </span>
+                        {(log.status === 'Absent' || log.status === 'Absent') && log.checkIn && log.checkIn !== '--:--' && (
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!window.confirm(`Mark ${log.name} as Present?`)) return;
+                              try {
+                                const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+                                const r = await fetch(`${API}/attendance/mark-status`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    employeeId: log.employeeId,
+                                    date: dateStr,
+                                    status: 'present',
+                                    note: 'HR override — late check-in regularised',
+                                  }),
+                                });
+                                const j = await r.json().catch(() => ({}));
+                                if (!r.ok || !j?.success) throw new Error(j?.message || 'Failed');
+                                showNotification(`Marked ${log.name} as Present`, 'success');
+                                const ds = fmtDate(selectedDay);
+                                fetch(`${API}/attendance/logs?date=${ds}`)
+                                  .then(r => r.json())
+                                  .then(data => { if (data.success) setApiLogs(data.data || []); })
+                                  .catch(() => {});
+                                fetch(`${API}/dashboard/attendance-today?date=${ds}`)
+                                  .then(r => r.json())
+                                  .then(data => setRosterCounts(data?.success ? data.data : null))
+                                  .catch(() => {});
+                              } catch (err) {
+                                showNotification('Could not mark Present: ' + (err.message || 'unknown'), 'error');
+                              }
+                            }}
+                            style={{
+                              background: '#4CAA17',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '4px 10px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Mark Present
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {dailyLogs.length === 0 && (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)', fontSize: 13 }}>
-                No records for {MONTH_NAMES[viewMonth]} {String(selectedDay).padStart(2, '0')}, {viewYear}.
+              <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                No records for the selected day.
               </div>
             )}
           </div>

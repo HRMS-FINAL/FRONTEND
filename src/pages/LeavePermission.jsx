@@ -248,7 +248,7 @@ export default function LeavePermission({ onBack }) {
   }, [records, selectedDay]);
 
   const lpStats = React.useMemo(() => [
-    { label: 'On Leave', value: stats.onLeave, key: 'leave', color: '#FC8181', Icon: CalendarOff, badgeCount: 0, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` },
+    { label: 'Absent', value: stats.onLeave, key: 'leave', color: '#FC8181', Icon: CalendarOff, badgeCount: 0, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` },
     { label: 'On Permission', value: stats.onPermission, key: 'permission', color: '#9F7AEA', Icon: Clock, badgeCount: 0, trend: `${MONTH_NAMES[viewMonth].slice(0,3)} ${selectedDay < 10 ? `0${selectedDay}` : selectedDay}` }
   ], [stats, selectedDay]);
 
@@ -508,7 +508,7 @@ export default function LeavePermission({ onBack }) {
             {/* Summary Badges */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '4px 10px', borderRadius: '6px', background: '#FFF5F5', color: '#FC8181', border: '1px solid #FED7D7' }}>
-                On Leave: {stats.onLeave}
+                Absent: {stats.onLeave}
               </span>
               <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '4px 10px', borderRadius: '6px', background: '#F5F3FF', color: '#9F7AEA', border: '1px solid #DDD6FE' }}>
                 Permission: {stats.onPermission}

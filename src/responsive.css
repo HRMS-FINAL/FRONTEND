@@ -1,0 +1,444 @@
+/* ═══════════════════════════════════════════════════════════════════════
+ * HRMS Web — Responsive Layer
+ * ─────────────────────────────────────────────────────────────────────
+ * A single global override sheet that makes every HRMS page usable on
+ * phones (≤640px) and tablets (641-1024px) without touching any of the
+ * per-page component JSX or business logic. Imported LAST in main.jsx
+ * so the rules here win against the base App.css.
+ *
+ * Breakpoints (industry standard):
+ *   Mobile   → ≤ 640px
+ *   Tablet   → 641px – 1024px
+ *   Desktop  → > 1024px  (base App.css already handles this)
+ *
+ * What this file does — layout only, per user's instruction:
+ *   • Sidebar becomes an overlay drawer on mobile with a backdrop.
+ *   • Topbar shrinks: search collapses, actions tighten.
+ *   • Every multi-column grid (.stats-row, .middle-row, .bottom-row,
+ *     .form-grid, .ne-grid-2/3, .dept-grid, .dept-emp-list-grid,
+ *     .quick-actions-grid, .roles-content-layout, .stepper-container,
+ *     .map-body, .cal-stats) collapses to a single column on phones
+ *     and 2 columns on tablets where it makes sense.
+ *   • All tables scroll horizontally on small screens (never truncated).
+ *   • Cards, forms, modals, tab bars: reduced padding + full-width.
+ *   • Typography: scaled down 1-2px so nothing overflows.
+ *
+ * What this file does NOT do:
+ *   • No JS/JSX changes.
+ *   • No business logic edits.
+ *   • No new components or renamed classes.
+ * ═════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── 1. Universal safety net ───────────────────────────────────────── */
+
+html, body, #root {
+  max-width: 100vw;
+  overflow-x: hidden;  /* Kills any accidental horizontal scroll. */
+}
+
+img, video, canvas, iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Anything explicitly styled with `overflow-x: auto` (tables, chip rows,
+   filter bars) gets a nicer scroll UX on touch devices. */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *                    TABLET  (641px – 1024px)
+ * ═════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+
+  /* Sidebar narrows so it doesn't eat half the screen. */
+  .sidebar {
+    width: 220px;
+  }
+
+  /* Topbar tightens. */
+  .topbar {
+    padding: 0 20px;
+    gap: 16px;
+  }
+  .topbar-search {
+    min-width: 200px;
+    padding: 8px 14px;
+  }
+
+  /* Dashboard body padding shrinks. */
+  .dashboard-body,
+  .ne-page,
+  .dept-view-container,
+  .emp-list-page,
+  .roles-page {
+    padding: 18px 20px 24px;
+  }
+
+  /* Stat cards: 2 across on tablet (was 4). */
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Bottom row: 2 across, third card wraps. */
+  .bottom-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Quick actions: 2 across. */
+  .quick-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Form grids: 2 stays 2, but tighter. */
+  .ne-grid-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Live-tracking body — put the emp list under the map. */
+  .map-body {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .map-container-wrap { height: 320px; }
+  .map-emp-list {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    max-height: 260px;
+  }
+
+  /* Roles layout — sidebar full-width above the panel. */
+  .roles-content-layout {
+    grid-template-columns: 1fr;
+  }
+  .roles-sidebar { max-height: 320px; }
+
+  /* New-employee stepper — sidebar under the form. */
+  .stepper-container {
+    flex-direction: column;
+    padding: 20px;
+  }
+  .stepper-sidebar { width: 100%; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *                        MOBILE  (≤ 640px)
+ * ═════════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* ─── SIDEBAR → OVERLAY DRAWER ─────────────────────────────────────
+   * On phones the sidebar becomes a fixed overlay. The existing
+   * sidebar-toggle-btn in the Topbar already flips the .sidebar's
+   * class between open and .sidebar-collapsed — no JS change needed.
+   * Open state = full drawer over the page, collapsed = hidden. */
+  .app-container {
+    display: block;      /* Flex → block so main-content takes full width. */
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 260px;
+    max-width: 82vw;
+    z-index: 1000;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+  }
+
+  /* When "collapsed" on mobile, hide entirely (slide off-screen)
+     rather than shrink to 78px — the shrunken rail is unusable on
+     touch and covers content anyway. */
+  .sidebar-collapsed {
+    width: 260px !important;
+    max-width: 82vw;
+    transform: translateX(-105%);
+    box-shadow: none;
+  }
+  .sidebar-collapsed .brand-text,
+  .sidebar-collapsed .nav-text,
+  .sidebar-collapsed .nav-section-label,
+  .sidebar-collapsed .nav-badge,
+  .sidebar-collapsed .nav-chevron,
+  .sidebar-collapsed .nav-submenu,
+  .sidebar-collapsed .profile-info,
+  .sidebar-collapsed .profile-card > svg:last-child {
+    /* Keep them in the DOM so the drawer looks correct when re-opened. */
+    display: flex !important;
+  }
+  .sidebar-collapsed .nav-item { justify-content: flex-start; padding: 11px 16px; }
+  .sidebar-collapsed .sidebar-brand { justify-content: flex-start; padding: 28px 24px 20px; }
+
+  /* Main content is now full width. */
+  .main-content {
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
+  }
+
+
+  /* ─── TOPBAR ─────────────────────────────────────────────────────── */
+  .topbar {
+    padding: 0 12px;
+    gap: 8px;
+    height: 56px;
+  }
+  .topbar-title { font-size: 16px; }
+  .topbar-subtitle { display: none; }        /* Save vertical space. */
+  .topbar-search { display: none; }          /* Hide inline search — users tap the search icon. */
+  .topbar-actions { gap: 6px; }
+  .topbar-btn { width: 34px; height: 34px; }
+  .topbar-user { padding: 4px 8px 4px 4px; }
+  .user-name { display: none; }              /* Avatar-only on mobile. */
+  .user-avatar { width: 28px; height: 28px; }
+  .theme-btn { display: none; }
+
+
+  /* ─── DASHBOARD & PAGE BODIES ────────────────────────────────────── */
+  .dashboard-body,
+  .ne-page,
+  .dept-view-container,
+  .emp-list-page,
+  .roles-page,
+  .coming-soon-wrap {
+    padding: 14px 12px 24px;
+    gap: 14px;
+  }
+
+  /* All grids → single column on phones. */
+  .stats-row,
+  .middle-row,
+  .bottom-row,
+  .form-grid,
+  .ne-grid-2,
+  .ne-grid-3,
+  .quick-actions-grid,
+  .dept-grid,
+  .dept-emp-list-grid,
+  .roles-content-layout,
+  .cal-stats {
+    grid-template-columns: 1fr !important;
+  }
+
+  .stat-card { padding: 16px; }
+  .stat-value { font-size: 22px; }
+  .stat-label { font-size: 12px; }
+
+  .card { padding: 14px; border-radius: var(--radius-md); }
+  .card-header { margin-bottom: 14px; }
+  .card-title { font-size: 14px; }
+
+
+  /* ─── TABLES → HORIZONTAL SCROLL ─────────────────────────────────── */
+  .emp-table-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .emp-table {
+    min-width: 640px;                        /* Force scroll instead of squish. */
+    font-size: 12.5px;
+  }
+  .emp-table th,
+  .emp-table td {
+    padding: 12px 14px;
+  }
+  .emp-table-avatar { width: 32px; height: 32px; font-size: 12px; }
+  .emp-table-name { font-size: 13px; }
+
+
+  /* ─── FORMS ──────────────────────────────────────────────────────── */
+  .ne-form { gap: 14px; }
+  .ne-section { padding: 16px; border-radius: var(--radius-md); }
+  .ne-section-header { margin-bottom: 14px; padding-bottom: 10px; }
+  .ne-section-title { font-size: 13.5px; }
+  .ne-input, .ne-select { height: 44px; font-size: 14px; }
+  .ne-input.has-icon { padding-left: 40px; }
+  .ne-input-icon { left: 14px; }
+
+  .ne-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .ne-page-title { font-size: 18px; }
+  .ne-page-sub { font-size: 12.5px; }
+  .ne-cancel-btn { width: 100%; justify-content: center; }
+
+  .ne-actions {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px;
+    gap: 10px;
+  }
+  .ne-btn-primary,
+  .ne-btn-secondary,
+  .ne-btn-ghost {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 18px;
+  }
+
+  .form-grid { gap: 14px; }
+  .stepper-content-card { padding: 18px; }
+  .form-header { margin-bottom: 18px; }
+  .form-title { font-size: 17px; }
+
+
+  /* ─── STEPPER (Add Employee flow) ────────────────────────────────── */
+  .stepper-container {
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 12px;
+  }
+  .stepper-sidebar { width: 100%; padding: 16px; }
+  .step-item { padding: 12px; }
+  .step-icon { width: 34px; height: 34px; }
+
+
+  /* ─── DEPARTMENT / EMPLOYEE VIEWS ────────────────────────────────── */
+  .dept-view-title { font-size: 20px; }
+  .dept-card { padding: 16px; gap: 12px; }
+  .dept-card-icon { width: 44px; height: 44px; }
+  .dept-card-name { font-size: 15px; }
+
+  .dept-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .dept-search { max-width: none; height: 42px; }
+  .dept-back-btn { width: 100%; justify-content: center; }
+
+  .dept-emp-card { padding: 12px; gap: 10px; }
+  .dept-emp-avatar { width: 42px; height: 42px; font-size: 14px; }
+
+
+  /* ─── EMPLOYEE LIST ──────────────────────────────────────────────── */
+  .emp-list-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+
+  /* ─── CALENDAR TILE ──────────────────────────────────────────────── */
+  .cal-grid { gap: 8px 6px; }
+  .cal-day { font-size: 14px; }
+  .calendar-legend { gap: 10px; }
+  .cal-stat-num { font-size: 16px; }
+
+
+  /* ─── QUICK ACTIONS ──────────────────────────────────────────────── */
+  .quick-action-btn { padding: 14px 10px; font-size: 12px; }
+  .quick-action-icon { width: 40px; height: 40px; }
+
+
+  /* ─── LIVE TRACKING MAP ──────────────────────────────────────────── */
+  .map-card-header {
+    padding: 14px 14px 10px;
+    gap: 10px;
+  }
+  .map-body {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .map-container-wrap { height: 260px; }
+  .map-emp-list {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    max-height: 220px;
+  }
+  .map-filter-pill { font-size: 11.5px; padding: 5px 12px; }
+  .compact-map-wrap { height: 200px; }
+
+
+  /* ─── COMING SOON PLACEHOLDER ────────────────────────────────────── */
+  .coming-soon-icon { width: 72px; height: 72px; }
+  .coming-soon-title { font-size: 18px; }
+  .coming-soon-sub { font-size: 13px; }
+
+
+  /* ─── ROLES / PERMISSIONS ────────────────────────────────────────── */
+  .roles-sidebar { max-height: 260px; }
+  .roles-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+
+  /* ─── LOGIN PAGE ─────────────────────────────────────────────────── *
+   * Login uses inline styles in JSX so we target it via any card-shaped
+   * wrapper we can reach. The login page's Vite generated wrapper
+   * usually just centers a form card — safe to shrink universally. */
+  form {
+    max-width: 100%;
+  }
+
+
+  /* ─── MODAL / DIALOG SAFETY ──────────────────────────────────────── *
+   * ConfirmDialog + report modals use fixed positioning. Cap width so
+   * they don't cover only 30% of the screen with padding overflowing. */
+  [role="dialog"],
+  [aria-modal="true"],
+  .modal,
+  .modal-content,
+  .dialog {
+    width: 92vw !important;
+    max-width: 92vw !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+
+  /* ─── GENERIC INLINE-STYLED CONTAINERS ───────────────────────────── *
+   * Many HRMS pages render `style={{ padding: 24, ... }}` inline. We
+   * can't override the inline pixel value with a class rule, but we
+   * can at least ensure the flex/grid parents wrap on overflow rather
+   * than force horizontal scroll. */
+  div[style*="display: flex"],
+  div[style*="display:flex"] {
+    flex-wrap: wrap;
+  }
+
+
+  /* Buttons commonly used on toolbar rows — full-width stack. */
+  .primary-btn,
+  .secondary-btn,
+  .ghost-btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+ *                        SMALL PHONE  (≤ 380px)
+ * (extra tightening for iPhone SE / small Androids)
+ * ═════════════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .dashboard-body,
+  .ne-page,
+  .dept-view-container,
+  .emp-list-page,
+  .roles-page {
+    padding: 10px 8px 20px;
+  }
+  .topbar { padding: 0 8px; }
+  .topbar-title { font-size: 15px; }
+  .stat-value { font-size: 20px; }
+  .card-title { font-size: 13.5px; }
+  .cal-day { font-size: 13px; }
+}

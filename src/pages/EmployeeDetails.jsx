@@ -121,7 +121,7 @@ export default function EmployeeDetails({ employee, employees, setEmployees, set
           (a.employeeId && employee.employeeId && a.employeeId === employee.employeeId) ||
           (a.email && employee.email && a.email.toLowerCase() === employee.email.toLowerCase())
         );
-        const leavesUsed    = mine.filter(a => a.status === 'On Leave').length;
+        const leavesUsed    = mine.filter(a => a.status === 'Absent').length;
         const permsUsed     = mine.filter(a => a.status === 'Permission' || a.status === 'Half Day').length;
         const permHoursUsed = permsUsed * 2;
         const absent        = mine.filter(a => a.status === 'Absent').length;

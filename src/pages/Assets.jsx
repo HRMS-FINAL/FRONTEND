@@ -903,6 +903,7 @@ export default function Assets({ employees = [] }) {
     { type: 'Mouse',           icon: <Mouse      size={20} /> },
     { type: 'Keyboard',        icon: <Keyboard   size={20} /> },
     { type: 'Mobile with SIM', icon: <Smartphone size={20} /> },
+    { type: 'SIM Card',        icon: <CreditCard size={20} /> },  // #349 add SIM Card filter tile
     { type: 'ID Card',         icon: <CreditCard size={20} /> },
   ];
 

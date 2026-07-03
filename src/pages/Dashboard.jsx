@@ -73,8 +73,10 @@ export default function Dashboard({
   const lastMonthLabel    = new Date(todayYear, todayMonth - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 
   // Stat card values — real from API, fallback to 0 while loading
-  const totalEmp    = stats?.counts?.totalEmployees  ?? 0;
+  // #355 — "Total Employees" card should reflect the ACTIVE roster only
+  // (Inactive/Terminated employees no longer count toward the total).
   const activeStaff = stats?.counts?.activeEmployees ?? 0;
+  const totalEmp    = activeStaff;
   const onLeave     = stats?.counts?.onLeaveToday    ?? 0;
   // Renamed: card now shows pending PERMISSION requests, not all
   // pending approvals (HR asked for the dashboard tile to spotlight
@@ -154,15 +156,27 @@ export default function Dashboard({
   // employee on the roster regardless of whether they showed up. We
   // replaced it with Present Today, and added Late + Half-LOP so HR can
   // spot policy hits at a glance without leaving the dashboard.
+  //
+  // #352e — Each attendance card now carries a `preFilter` key. On
+  // click we stash it in sessionStorage so Attendance.jsx can open with
+  // that status pre-selected. Also added the Half Day card that HR
+  // asked for so the check-out < 5 h tally is visible on the dashboard.
+  const openAttendance = (filter) => {
+    try { sessionStorage.setItem('hrms_attendance_prefilter', filter || ''); } catch {}
+    setActiveView('attendance');
+  };
   const statCards = [
-    { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),                   trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'all registered',     Icon: Users,      target: 'employee-list',    color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Present Today',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: '—', up: true,                                                                                  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',       color: '#16A34A',        bg: '#F0FDF4' },
+    { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),                   trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'active roster',      Icon: Users,      target: 'employee-list', preFilter: 'Active',  color: 'var(--primary)', bg: 'var(--primary-light)' },
+    { label: 'Present Today',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: '—', up: true,                                                                                  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',    preFilter: 'Present', color: '#16A34A',        bg: '#F0FDF4' },
     // Absent today = headcount − present. HR asked Jun 2026 to surface a
     // single absentee number rather than the Half-LOP detail tile (which
     // they read in the Attendance page already). Clamp at 0 so a
     // mid-load race where present > totalEmp can't render "-2".
-    { label: 'Absent Today',    value: loading ? '...' : Math.max(0, (totalEmp || 0) - (liveTallies.present || 0)).toLocaleString(), trend: '—', up: false, sub: 'not checked in',     Icon: CalendarOff,target: 'attendance',       color: '#DC2626',        bg: '#FEF2F2' },
-    { label: 'Late Today',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: '—', up: false,                                                                                 sub: 'after cut-off',      Icon: Clock,      target: 'attendance',       color: '#D97706',        bg: '#FFFBEB' },
+    { label: 'Absent Today',    value: loading ? '...' : Math.max(0, (totalEmp || 0) - (liveTallies.present || 0)).toLocaleString(), trend: '—', up: false, sub: 'not checked in',     Icon: CalendarOff,target: 'attendance',    preFilter: 'Absent',  color: '#DC2626',        bg: '#FEF2F2' },
+    { label: 'Late Today',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: '—', up: false,                                                                                 sub: 'after cut-off',      Icon: Clock,      target: 'attendance',    preFilter: 'Late',    color: '#D97706',        bg: '#FFFBEB' },
+    // #352e Half Day — worked hours < 5. Same "clickable → filtered
+    // Attendance Logs" behaviour as the others.
+    { label: 'Half Day Today',  value: loading ? '...' : (liveTallies.halfLop || 0).toLocaleString(), trend: '—', up: false,                                                                                 sub: 'worked < 5 h',       Icon: Clock,      target: 'attendance',    preFilter: 'Half Day',color: '#7C3AED',        bg: '#F5F3FF' },
   ];
   // `activeStaff`, `onLeave`, `permission` are still computed above so
   // any downstream chart or widget that reads them keeps working — only
@@ -175,7 +189,14 @@ export default function Dashboard({
       {/* ── Stat Cards ── */}
       <div className="stats-row">
         {statCards.map((s, i) => (
-          <div className="stat-card" key={i} onClick={() => setActiveView(s.target)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card" key={i} onClick={() => {
+            // #352e — Attendance cards route through openAttendance so
+            // the target page can pre-apply the status filter. Other
+            // cards (e.g. Total Employees) keep the old plain
+            // setActiveView behaviour.
+            if (s.target === 'attendance') openAttendance(s.preFilter);
+            else setActiveView(s.target);
+          }} style={{ cursor: 'pointer' }}>
             <div className="stat-card-top">
               <div className="stat-icon-wrap" style={{ background: s.bg }}>
                 <s.Icon size={20} color={s.color} />
@@ -484,34 +505,17 @@ export default function Dashboard({
             { label: 'Add Employee',     Icon: UserPlus,      view: 'new-employee',    color: '#4CAA17', bg: '#F0FDF4' },
             { label: 'Run Payroll',      Icon: ClipboardList, view: 'payroll',         color: '#2563EB', bg: '#EFF6FF' },
             { label: 'Complaints',       Icon: MapPin,        view: 'complain-register', color: '#9F7AEA', bg: '#F5F3FF' },
-            { label: 'Approve Leaves',   Icon: Check,         view: 'leave-permission',color: '#D97706', bg: '#FFFBEB' },
-            { label: 'Mark Attendance',  Icon: Clock,         view: 'attendance',      color: '#DC2626', bg: '#FEF2F2' },
-            { label: 'Announcements',    Icon: UserCheck,     view: 'announcements',   color: '#0EA5E9', bg: '#F0F9FF' },
-          ].map((a) => (
-            <button
-              key={a.label}
-              className="quick-action-card"
-              onClick={() => setActiveView(a.view)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '12px 14px', borderRadius: 10,
-                background: a.bg, border: '1px solid var(--border-color)',
-                cursor: 'pointer', textAlign: 'left',
-              }}
-            >
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 36, height: 36, borderRadius: 10, background: '#fff',
-                border: '1px solid var(--border-color)',
-              }}>
-                <a.Icon size={18} color={a.color} />
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{a.label}</span>
+            { label: 'Approvals',       Icon: CheckCircle,   view: 'leave-permission-request', color: '#F97316', bg: '#FFF7ED' },
+          ].map((qa, i) => (
+            <button key={i} className="quick-action-btn" onClick={() => setActiveView(qa.view)} style={{ cursor: 'pointer' }}>
+              <div className="quick-action-icon" style={{ background: qa.bg, color: qa.color }}>
+                <qa.Icon size={20} />
+                </div>
+              {qa.label}
             </button>
           ))}
         </div>
       </div>
-
     </div>
   );
 }

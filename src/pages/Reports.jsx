@@ -49,7 +49,7 @@ export default function Reports({ onBack }) {
   // Map of employeeId → total leave DAYS approved inside the picked
   // date range. Computed from /api/leave-requests so the Employee
   // Master report shows real leave usage instead of the synthetic
-  // "On Leave" status flag on the Employee record.
+  // "Absent" status flag on the Employee record.
   const [leaveByEmpId, setLeaveByEmpId]     = useState({});
   const [loading, setLoading]               = useState(false);
 
@@ -139,7 +139,7 @@ export default function Reports({ onBack }) {
       fetchAttendanceReport();
     } else {
       fetchEmployees();
-      // Pull live leave aggregates so the "On Leave" tile + the
+      // Pull live leave aggregates so the "Absent" tile + the
       // per-employee Leave Days column reflect real usage inside
       // the picked range, not just the static status flag.
       fetchLeavesForReport();
@@ -181,12 +181,12 @@ export default function Reports({ onBack }) {
   ] : reportId === 'employee' ? [
     { label: 'Total Employees', value: employeeDataInRange.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
     { label: 'Active Staff',    value: employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
-    // "On Leave" used to compare against the static `e.status === 'On
+    // "Absent" used to compare against the static `e.status === 'On
     // Leave'` flag on the Employee directory — that was almost always 0.
     // Replaced with a count of distinct employees who took any approved
     // leave inside the picked date range (via leaveByEmpId), so the
     // tile reflects real usage.
-    { label: 'On Leave',        value: Object.values(leaveByEmpId).filter(v => v > 0).length,                                  icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
+    { label: 'Absent',        value: Object.values(leaveByEmpId).filter(v => v > 0).length,                                  icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
     { label: 'Leave Days',      value: Object.values(leaveByEmpId).reduce((s, v) => s + v, 0),                                  icon: <XCircle size={18} />,       color: '#9F7AEA', bg: '#FAF5FF' },
   ] : [];
 
@@ -211,7 +211,7 @@ export default function Reports({ onBack }) {
         employeeDataInRange.forEach(e => {
           const dept = (typeof e.department === 'object' ? e.department?.name : e.department) || 'Unknown';
           if (!deptMap[dept]) deptMap[dept] = { period: dept, active: 0, leave: 0 };
-          // "On Leave" pulled from real leave usage in the range,
+          // "Absent" pulled from real leave usage in the range,
           // not the static status flag.
           const empId = e.employeeId || e._id;
           const onLeave = (leaveByEmpId[empId] || 0) > 0;
@@ -502,7 +502,7 @@ export default function Reports({ onBack }) {
                   <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} />
                   <Legend />
                   <Bar dataKey="active" name="Active"   fill="#4299E1" radius={[4,4,0,0]} barSize={20} />
-                  <Bar dataKey="leave"  name="On Leave" fill="#FC8181" radius={[4,4,0,0]} barSize={20} />
+                  <Bar dataKey="leave"  name="Absent" fill="#FC8181" radius={[4,4,0,0]} barSize={20} />
                 </BarChart>
               )}
             </ResponsiveContainer>
