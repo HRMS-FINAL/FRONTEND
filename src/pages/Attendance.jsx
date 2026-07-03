@@ -263,28 +263,26 @@ export default function Attendance({ onBack, employees = [] }) {
   // Late is also surfaced separately so HR can see how many of them crossed
   // the 10:01 AM cut-off.
   const stats = React.useMemo(() => {
-    const onlyPresent = dailyLogs.filter(l => l.status === 'Present').length;
-    const late        = dailyLogs.filter(l => l.status === 'Late').length;
-    // #356 — Prefer roster-derived counts when available. This is the
-    // same set of numbers the Dashboard uses, so the two pages agree.
-    // leave = active headcount that didn't check in + anyone with an
-    // approved leave; permission = anyone who checked in as Permission
-    // OR filed an approved permission request for the date.
-    // Fallback to log-scan for offline / dev.
-    if (rosterCounts && typeof rosterCounts.absent === 'number') {
-      return {
-        present:    (rosterCounts.present ?? (onlyPresent + late)),
-        late:       (rosterCounts.late    ?? late),
-        // Attendance Logs card labelled "Absent" — this is the day's
-        // total absent bucket (didn't check in + approved leave).
-        leave:      (rosterCounts.absent  ?? 0) + (rosterCounts.leave ?? 0),
-        permission: (rosterCounts.permission ?? 0),
-      };
-    }
-    const leaveInLogs      = dailyLogs.filter(l => l.status === 'Absent').length;
-    const permissionInLogs = dailyLogs.filter(l => l.status === 'Permission').length;
-    return { present: onlyPresent + late, late, leave: leaveInLogs, permission: permissionInLogs };
-  }, [dailyLogs, rosterCounts]);
+    // Case-insensitive status match — mobile backend sometimes returns
+    // lowercase 'permission' / 'half day' which weren't matching capitals.
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    const onlyPresent = dailyLogs.filter(l => norm(l.status) === 'present').length;
+    const late        = dailyLogs.filter(l => norm(l.status) === 'late').length;
+    const permission  = dailyLogs.filter(l => norm(l.status) === 'permission').length;
+    const halfday     = dailyLogs.filter(l => norm(l.status) === 'half day' || norm(l.status) === 'halfday').length;
+    // #363 — Compute totals from the LOCAL active-employee roster so
+    // this page agrees with the Dashboard top card:
+    //   Dashboard top card:  activeEmployees − present  = 35 − 27 = 8
+    //   Attendance Logs:     same formula, same source
+    // "Present" here includes late/permission/half-day because those
+    // employees DID show up. The dashboard uses the same definition.
+    const activeCount = (activeEmployees || []).filter(e =>
+      String(e.status || 'Active') === 'Active'
+    ).length;
+    const showedUp = onlyPresent + late + permission + halfday;
+    const leave    = Math.max(0, activeCount - showedUp);
+    return { present: onlyPresent + late, late, leave, permission };
+  }, [dailyLogs, activeEmployees]);
 
   // Dynamic Attendance Summary cards based on selected day and filters
   const attStats = React.useMemo(() => [
@@ -381,15 +379,16 @@ export default function Attendance({ onBack, employees = [] }) {
 
     if (!matchesSearch) return false;
 
+    // #363 — case-insensitive status match so lowercase 'permission' etc.
+    // from the mobile backend still line up with the filter buttons.
+    const st = String(log.status || '').trim().toLowerCase();
     if (filterStatus === 'all') return true;
-    // Present pill now includes late rows so the count + the rows match.
-    if (filterStatus === 'present') return log.status === 'Present' || log.status === 'Late';
-    if (filterStatus === 'late') return log.status === 'Late';
-    if (filterStatus === 'leave') return log.status === 'Absent';
-    if (filterStatus === 'permission') return log.status === 'Permission';
-    // #352e — new filters routed from Dashboard cards.
-    if (filterStatus === 'absent')  return log.status === 'Absent' || log.status === 'Absent';
-    if (filterStatus === 'halfday') return log.status === 'Half Day';
+    if (filterStatus === 'present') return st === 'present' || st === 'late';
+    if (filterStatus === 'late') return st === 'late';
+    if (filterStatus === 'leave') return st === 'absent';
+    if (filterStatus === 'permission') return st === 'permission';
+    if (filterStatus === 'absent')  return st === 'absent';
+    if (filterStatus === 'halfday') return st === 'half day' || st === 'halfday';
     return true;
   });
 

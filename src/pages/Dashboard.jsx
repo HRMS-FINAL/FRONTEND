@@ -331,15 +331,17 @@ export default function Dashboard({
               // day when one is picked — see the fetch effect above). If
               // the API hasn't responded yet, fall back to the parent's
               // pre-computed calStats so the tiles never flash empty.
-              // #361 — Absent tile now reads attToday.absent directly (the
-              // backend already computes `totalEmployees − checkedIn − leave`
-              // — same result the top "Absent Today" card shows). All three
-              // places (top card, this widget, Attendance Logs) now agree.
+              // #363 — Absent = same math the top "Absent Today" card uses:
+              //   activeEmployees roster (35) − live present total (27) = 8
+              // We can't trust attToday.totalEmployees / attToday.absent
+              // because that endpoint counts employees a different way
+              // (isActive != false) and drifts from stats.counts.activeEmployees.
+              const absentLive = Math.max(0, (totalEmp || 0) - (liveTallies.present || 0));
               const live = attToday
                 ? [
                     { lbl: 'Present',  num: attToday.present    ?? 0, color: '#16a34a', bg: '#F0FDF4' },
                     { lbl: 'Late',     num: attToday.late       ?? 0, color: '#d97706', bg: '#FFFBEB' },
-                    { lbl: 'Absent',   num: attToday.absent     ?? 0, color: '#dc2626', bg: '#FEF2F2' },
+                    { lbl: 'Absent',   num: absentLive,               color: '#dc2626', bg: '#FEF2F2' },
                     { lbl: 'Perm',     num: attToday.permission ?? 0, color: '#6b7280', bg: '#F8FAFC' },
                   ]
                 : calStats;

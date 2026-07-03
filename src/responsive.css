@@ -1,40 +1,21 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * HRMS Web — Responsive Layer
+ * HRMS Web — Responsive Layer  (#334 base + #359, #362, #363 revisions)
  * ─────────────────────────────────────────────────────────────────────
  * A single global override sheet that makes every HRMS page usable on
- * phones (≤640px) and tablets (641-1024px) without touching any of the
- * per-page component JSX or business logic. Imported LAST in main.jsx
- * so the rules here win against the base App.css.
+ * phones (≤640px) and tablets (641-1024px). Imported LAST in main.jsx.
  *
- * Breakpoints (industry standard):
+ * Breakpoints:
  *   Mobile   → ≤ 640px
  *   Tablet   → 641px – 1024px
- *   Desktop  → > 1024px  (base App.css already handles this)
- *
- * What this file does — layout only, per user's instruction:
- *   • Sidebar becomes an overlay drawer on mobile with a backdrop.
- *   • Topbar shrinks: search collapses, actions tighten.
- *   • Every multi-column grid (.stats-row, .middle-row, .bottom-row,
- *     .form-grid, .ne-grid-2/3, .dept-grid, .dept-emp-list-grid,
- *     .quick-actions-grid, .roles-content-layout, .stepper-container,
- *     .map-body, .cal-stats) collapses to a single column on phones
- *     and 2 columns on tablets where it makes sense.
- *   • All tables scroll horizontally on small screens (never truncated).
- *   • Cards, forms, modals, tab bars: reduced padding + full-width.
- *   • Typography: scaled down 1-2px so nothing overflows.
- *
- * What this file does NOT do:
- *   • No JS/JSX changes.
- *   • No business logic edits.
- *   • No new components or renamed classes.
+ *   Desktop  → > 1024px  (base App.css handles this)
  * ═════════════════════════════════════════════════════════════════════ */
 
-
-/* ─── 1. Universal safety net ───────────────────────────────────────── */
+/* ─── Universal safety net ──────────────────────────────────────────── */
+* { box-sizing: border-box; }
 
 html, body, #root {
   max-width: 100vw;
-  overflow-x: hidden;  /* Kills any accidental horizontal scroll. */
+  overflow-x: hidden;
 }
 
 img, video, canvas, iframe {
@@ -42,34 +23,17 @@ img, video, canvas, iframe {
   height: auto;
 }
 
-/* Anything explicitly styled with `overflow-x: auto` (tables, chip rows,
-   filter bars) gets a nicer scroll UX on touch devices. */
-* {
-  -webkit-overflow-scrolling: touch;
-}
+* { -webkit-overflow-scrolling: touch; }
 
 
 /* ═══════════════════════════════════════════════════════════════════════
  *                    TABLET  (641px – 1024px)
  * ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
+  .sidebar { width: 220px; }
+  .sidebar-brand { padding: 20px 16px; }
+  .nav-text { font-size: 13px; }
 
-  /* Sidebar narrows so it doesn't eat half the screen. */
-  .sidebar {
-    width: 220px;
-  }
-
-  /* Topbar tightens. */
-  .topbar {
-    padding: 0 20px;
-    gap: 16px;
-  }
-  .topbar-search {
-    min-width: 200px;
-    padding: 8px 14px;
-  }
-
-  /* Dashboard body padding shrinks. */
   .dashboard-body,
   .ne-page,
   .dept-view-container,
@@ -78,65 +42,62 @@ img, video, canvas, iframe {
     padding: 18px 20px 24px;
   }
 
-  /* Stat cards: 2 across on tablet (was 4). */
   .stats-row {
     grid-template-columns: repeat(2, 1fr);
   }
-
-  /* Bottom row: 2 across, third card wraps. */
-  .bottom-row {
+  .middle-row,
+  .bottom-row,
+  .quick-actions-grid,
+  .form-grid,
+  .ne-grid-2,
+  .ne-grid-3,
+  .dept-grid,
+  .dept-emp-list-grid,
+  .roles-content-layout,
+  .cal-stats {
     grid-template-columns: repeat(2, 1fr);
   }
-
-  /* Quick actions: 2 across. */
-  .quick-actions-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  /* Form grids: 2 stays 2, but tighter. */
-  .ne-grid-3 {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  /* Live-tracking body — put the emp list under the map. */
   .map-body {
     grid-template-columns: 1fr;
-    height: auto;
   }
-  .map-container-wrap { height: 320px; }
-  .map-emp-list {
-    border-left: none;
-    border-top: 1px solid var(--border-color);
-    max-height: 260px;
-  }
-
-  /* Roles layout — sidebar full-width above the panel. */
-  .roles-content-layout {
-    grid-template-columns: 1fr;
-  }
-  .roles-sidebar { max-height: 320px; }
-
-  /* New-employee stepper — sidebar under the form. */
   .stepper-container {
     flex-direction: column;
-    padding: 20px;
+    gap: 16px;
+    padding: 16px;
   }
-  .stepper-sidebar { width: 100%; }
+  .stepper-sidebar { width: 100%; padding: 18px; }
+
+  .emp-table {
+    min-width: 720px;
+    font-size: 13px;
+  }
+  .emp-table-card {
+    overflow-x: auto;
+  }
+
+  .modal, .modal-content, .confirm-modal, .professional-modal {
+    max-width: 90vw;
+  }
+
+  /* Attendance page: calendar + logs side-by-side collapses on tablet. */
+  .attendance-layout,
+  .attendance-3col-layout,
+  .attendance-grid,
+  .att-grid {
+    grid-template-columns: 1fr !important;
+    display: grid !important;
+  }
 }
 
 
 /* ═══════════════════════════════════════════════════════════════════════
- *                        MOBILE  (≤ 640px)
+ *                        PHONE  (≤ 640px)
  * ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 640px) {
 
-  /* ─── SIDEBAR → OVERLAY DRAWER ─────────────────────────────────────
-   * On phones the sidebar becomes a fixed overlay. The existing
-   * sidebar-toggle-btn in the Topbar already flips the .sidebar's
-   * class between open and .sidebar-collapsed — no JS change needed.
-   * Open state = full drawer over the page, collapsed = hidden. */
+  /* ─── Sidebar → OVERLAY DRAWER ─────────────────────────────────── */
   .app-container {
-    display: block;      /* Flex → block so main-content takes full width. */
+    display: block !important;
     height: auto;
     min-height: 100vh;
   }
@@ -148,15 +109,12 @@ img, video, canvas, iframe {
     height: 100vh;
     width: 260px;
     max-width: 82vw;
-    z-index: 1000;
+    z-index: 1200 !important;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
     transform: translateX(0);
     transition: transform 0.25s ease;
   }
 
-  /* When "collapsed" on mobile, hide entirely (slide off-screen)
-     rather than shrink to 78px — the shrunken rail is unusable on
-     touch and covers content anyway. */
   .sidebar-collapsed {
     width: 260px !important;
     max-width: 82vw;
@@ -171,49 +129,64 @@ img, video, canvas, iframe {
   .sidebar-collapsed .nav-submenu,
   .sidebar-collapsed .profile-info,
   .sidebar-collapsed .profile-card > svg:last-child {
-    /* Keep them in the DOM so the drawer looks correct when re-opened. */
     display: flex !important;
   }
   .sidebar-collapsed .nav-item { justify-content: flex-start; padding: 11px 16px; }
   .sidebar-collapsed .sidebar-brand { justify-content: flex-start; padding: 28px 24px 20px; }
 
-  /* Main content is now full width. */
+  /* Backdrop behind an open drawer. */
+  .sidebar:not(.sidebar-collapsed)::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Main content — full viewport width. */
   .main-content {
-    width: 100%;
-    height: auto;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin-left: 0 !important;
     min-height: 100vh;
   }
 
-
-  /* ─── TOPBAR ─────────────────────────────────────────────────────── */
+  /* Topbar sticky above everything so the hamburger is always tappable. */
   .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 1100;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
     padding: 0 12px;
     gap: 8px;
     height: 56px;
   }
   .topbar-title { font-size: 16px; }
-  .topbar-subtitle { display: none; }        /* Save vertical space. */
-  .topbar-search { display: none; }          /* Hide inline search — users tap the search icon. */
+  .topbar-subtitle { display: none; }
+  .topbar-search { display: none; }
   .topbar-actions { gap: 6px; }
   .topbar-btn { width: 34px; height: 34px; }
   .topbar-user { padding: 4px 8px 4px 4px; }
-  .user-name { display: none; }              /* Avatar-only on mobile. */
+  .user-name { display: none; }
   .user-avatar { width: 28px; height: 28px; }
   .theme-btn { display: none; }
 
-
-  /* ─── DASHBOARD & PAGE BODIES ────────────────────────────────────── */
+  /* ─── PAGE BODIES ──────────────────────────────────────────────── */
   .dashboard-body,
   .ne-page,
   .dept-view-container,
   .emp-list-page,
   .roles-page,
   .coming-soon-wrap {
-    padding: 14px 12px 24px;
+    padding: 14px 12px 24px !important;
     gap: 14px;
+    width: 100%;
+    max-width: 100%;
   }
 
-  /* All grids → single column on phones. */
+  /* Every multi-column grid → 1 column. */
   .stats-row,
   .middle-row,
   .bottom-row,
@@ -221,45 +194,61 @@ img, video, canvas, iframe {
   .ne-grid-2,
   .ne-grid-3,
   .quick-actions-grid,
+  .quick-actions-row,
   .dept-grid,
   .dept-emp-list-grid,
   .roles-content-layout,
-  .cal-stats {
+  .cal-stats,
+  .attendance-layout,
+  .attendance-3col-layout,
+  .attendance-grid {
     grid-template-columns: 1fr !important;
+    gap: 12px !important;
   }
 
   .stat-card { padding: 16px; }
   .stat-value { font-size: 22px; }
   .stat-label { font-size: 12px; }
 
-  .card { padding: 14px; border-radius: var(--radius-md); }
+  .card {
+    padding: 14px;
+    border-radius: var(--radius-md);
+    width: 100%;
+    max-width: 100%;
+  }
   .card-header { margin-bottom: 14px; }
   .card-title { font-size: 14px; }
 
+  .mini-calendar,
+  .cal-grid {
+    width: 100%;
+    max-width: 100%;
+  }
 
-  /* ─── TABLES → HORIZONTAL SCROLL ─────────────────────────────────── */
+  .middle-row > *,
+  .bottom-row > * {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  /* ─── TABLES → HORIZONTAL SCROLL ───────────────────────────────── */
   .emp-table-card {
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
   }
   .emp-table {
-    min-width: 640px;                        /* Force scroll instead of squish. */
+    min-width: 640px;
     font-size: 12.5px;
   }
-  .emp-table th,
-  .emp-table td {
-    padding: 12px 14px;
-  }
+  .emp-table th, .emp-table td { padding: 12px 14px; }
   .emp-table-avatar { width: 32px; height: 32px; font-size: 12px; }
   .emp-table-name { font-size: 13px; }
 
-
-  /* ─── FORMS ──────────────────────────────────────────────────────── */
+  /* ─── FORMS ────────────────────────────────────────────────────── */
   .ne-form { gap: 14px; }
-  .ne-section { padding: 16px; border-radius: var(--radius-md); }
+  .ne-section { padding: 16px; }
   .ne-section-header { margin-bottom: 14px; padding-bottom: 10px; }
   .ne-section-title { font-size: 13.5px; }
-  .ne-input, .ne-select { height: 44px; font-size: 14px; }
+  .ne-input, .ne-select { height: 44px; font-size: 14px; width: 100%; }
   .ne-input.has-icon { padding-left: 40px; }
   .ne-input-icon { left: 14px; }
 
@@ -291,8 +280,6 @@ img, video, canvas, iframe {
   .form-header { margin-bottom: 18px; }
   .form-title { font-size: 17px; }
 
-
-  /* ─── STEPPER (Add Employee flow) ────────────────────────────────── */
   .stepper-container {
     flex-direction: column;
     gap: 14px;
@@ -302,8 +289,6 @@ img, video, canvas, iframe {
   .step-item { padding: 12px; }
   .step-icon { width: 34px; height: 34px; }
 
-
-  /* ─── DEPARTMENT / EMPLOYEE VIEWS ────────────────────────────────── */
   .dept-view-title { font-size: 20px; }
   .dept-card { padding: 16px; gap: 12px; }
   .dept-card-icon { width: 44px; height: 44px; }
@@ -320,36 +305,23 @@ img, video, canvas, iframe {
   .dept-emp-card { padding: 12px; gap: 10px; }
   .dept-emp-avatar { width: 42px; height: 42px; font-size: 14px; }
 
-
-  /* ─── EMPLOYEE LIST ──────────────────────────────────────────────── */
   .emp-list-title-row {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
   }
 
-
-  /* ─── CALENDAR TILE ──────────────────────────────────────────────── */
   .cal-grid { gap: 8px 6px; }
   .cal-day { font-size: 14px; }
   .calendar-legend { gap: 10px; }
   .cal-stat-num { font-size: 16px; }
 
-
-  /* ─── QUICK ACTIONS ──────────────────────────────────────────────── */
   .quick-action-btn { padding: 14px 10px; font-size: 12px; }
   .quick-action-icon { width: 40px; height: 40px; }
 
-
-  /* ─── LIVE TRACKING MAP ──────────────────────────────────────────── */
-  .map-card-header {
-    padding: 14px 14px 10px;
-    gap: 10px;
-  }
-  .map-body {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
+  /* Live Tracking map card. */
+  .map-card-header { padding: 14px 14px 10px; gap: 10px; }
+  .map-body { grid-template-columns: 1fr; height: auto; }
   .map-container-wrap { height: 260px; }
   .map-emp-list {
     border-left: none;
@@ -357,60 +329,74 @@ img, video, canvas, iframe {
     max-height: 220px;
   }
   .map-filter-pill { font-size: 11.5px; padding: 5px 12px; }
-  .compact-map-wrap { height: 200px; }
 
+  /* Modals: full-width. */
+  .modal, .modal-content, .confirm-modal, .professional-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
 
-  /* ─── COMING SOON PLACEHOLDER ────────────────────────────────────── */
-  .coming-soon-icon { width: 72px; height: 72px; }
-  .coming-soon-title { font-size: 18px; }
-  .coming-soon-sub { font-size: 13px; }
+  /* Recharts. */
+  .recharts-responsive-container {
+    max-width: 100% !important;
+    height: 240px !important;
+  }
 
-
-  /* ─── ROLES / PERMISSIONS ────────────────────────────────────────── */
-  .roles-sidebar { max-height: 260px; }
-  .roles-title-row {
+  /* Report/download button rows: stack. */
+  .report-actions,
+  .download-actions,
+  .action-row {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 8px;
   }
+  .report-actions > *,
+  .download-actions > *,
+  .action-row > * { width: 100%; }
 
-
-  /* ─── LOGIN PAGE ─────────────────────────────────────────────────── *
-   * Login uses inline styles in JSX so we target it via any card-shaped
-   * wrapper we can reach. The login page's Vite generated wrapper
-   * usually just centers a form card — safe to shrink universally. */
-  form {
-    max-width: 100%;
-  }
-
-
-  /* ─── MODAL / DIALOG SAFETY ──────────────────────────────────────── *
-   * ConfirmDialog + report modals use fixed positioning. Cap width so
-   * they don't cover only 30% of the screen with padding overflowing. */
-  [role="dialog"],
-  [aria-modal="true"],
-  .modal,
-  .modal-content,
-  .dialog {
-    width: 92vw !important;
-    max-width: 92vw !important;
-    max-height: 90vh !important;
-    overflow-y: auto !important;
-  }
-
-
-  /* ─── GENERIC INLINE-STYLED CONTAINERS ───────────────────────────── *
-   * Many HRMS pages render `style={{ padding: 24, ... }}` inline. We
-   * can't override the inline pixel value with a class rule, but we
-   * can at least ensure the flex/grid parents wrap on overflow rather
-   * than force horizontal scroll. */
+  /* Generic inline-style overrides. */
   div[style*="display: flex"],
   div[style*="display:flex"] {
     flex-wrap: wrap;
   }
+  [style*="grid-template-columns: 1fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr 1fr"],
+  [style*="grid-template-columns: repeat(2"],
+  [style*="grid-template-columns: repeat(3"],
+  [style*="grid-template-columns: repeat(4"],
+  [style*="grid-template-columns: repeat(5"] {
+    grid-template-columns: 1fr !important;
+  }
+  [style*="width: 700px"],
+  [style*="width: 800px"],
+  [style*="min-width: 640px"],
+  [style*="min-width: 720px"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  [style*="max-width: 1200"],
+  [style*="max-width: 1400"] { max-width: 100% !important; }
 
+  h1 { font-size: 20px !important; line-height: 1.2 !important; }
+  h2 { font-size: 17px !important; }
+  h3 { font-size: 15px !important; }
 
-  /* Buttons commonly used on toolbar rows — full-width stack. */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="date"],
+  input[type="number"],
+  select,
+  textarea {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
   .primary-btn,
   .secondary-btn,
   .ghost-btn,
@@ -425,165 +411,7 @@ img, video, canvas, iframe {
 
 
 /* ═══════════════════════════════════════════════════════════════════════
- *              #359 — SUPPLEMENTAL MOBILE RULES (post-#356/357/358)
- * These pick up gaps introduced by later work:
- *   • The Dashboard's 5-card stats row now collapses to 2 (tablet) and 1
- *     (phone) via .stats-row already, but the explicit override reasserts
- *     it against any inline grid-template-columns some cards inherit.
- *   • The Attendance page has a calendar + logs side-by-side layout
- *     (#146). On small screens the sibling divs should stack.
- *   • A translucent backdrop appears behind the sidebar drawer so the
- *     page content behind it isn't tap-targetable while the drawer is
- *     open — pure CSS, no JS needed.
- * ═════════════════════════════════════════════════════════════════════ */
-@media (max-width: 1024px) {
-  /* Attendance Logs: calendar/side panel/log table stack cleanly. */
-  .attendance-layout,
-  .attendance-3col-layout,
-  .attendance-grid,
-  .att-grid {
-    grid-template-columns: 1fr !important;
-    display: grid !important;
-  }
-  /* Any generic inline grid that used 3 columns for HR content should
-     collapse on tablet too. */
-  div[style*="grid-template-columns: 1fr 1fr 1fr"],
-  div[style*="grid-template-columns:1fr 1fr 1fr"] {
-    grid-template-columns: 1fr 1fr !important;
-  }
-}
-
-@media (max-width: 640px) {
-  /* Force the Dashboard 5-card row to a single column on phones. */
-  .stats-row { grid-template-columns: 1fr !important; }
-
-  /* Collapse every 2-column inline grid too. */
-  div[style*="grid-template-columns: 1fr 1fr"],
-  div[style*="grid-template-columns:1fr 1fr"] {
-    grid-template-columns: 1fr !important;
-  }
-
-  /* #362 — Sidebar drawer is now above everything with a proper backdrop.
-     When open, the drawer takes 82vw and a dark backdrop covers the rest.
-     Tapping the backdrop closes the drawer (Sidebar.jsx already handles
-     off-drawer clicks by toggling sidebarOpen via the Topbar toggle).  */
-  .sidebar {
-    z-index: 1200 !important;
-  }
-  /* Full-viewport dim behind the drawer. */
-  .sidebar:not(.sidebar-collapsed)::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.55);
-    z-index: -1;
-    pointer-events: none;
-  }
-  /* Keep the topbar sticky and above the drawer's backdrop so the hamburger
-     is always reachable to close the drawer again. */
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 1100;
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border-color);
-  }
-  /* Main content must NEVER sit behind the fixed drawer. Force it to a
-     new stacking context that starts below the topbar and takes 100vw. */
-  .app-container {
-    display: block !important;
-    min-height: 100vh;
-  }
-  .main-content {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    margin-left: 0 !important;
-    padding-top: 0;
-    min-height: calc(100vh - 56px);
-  }
-  /* Kill any inline padding that was set for desktop side-by-side layout. */
-  .dashboard-body,
-  .ne-page,
-  .emp-list-page,
-  .roles-page {
-    width: 100%;
-    max-width: 100%;
-    padding-left: 14px !important;
-    padding-right: 14px !important;
-    box-sizing: border-box;
-  }
-  /* Card containers: never wider than viewport. */
-  .card,
-  .stat-card,
-  .cal-card,
-  .emp-table-card {
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-  /* Prevent horizontal scroll from oversized inline flex/grid rows. */
-  .middle-row,
-  .bottom-row,
-  .quick-actions-row {
-    grid-template-columns: 1fr !important;
-    gap: 12px !important;
-  }
-  /* Mini calendar tile must fit — was inheriting a 700px min-width. */
-  .mini-calendar,
-  .cal-grid {
-    width: 100%;
-    max-width: 100%;
-  }
-  /* The Live Employee Tracking map card + Employee Overview donut need
-     to stack, not sit side-by-side. */
-  .middle-row > *,
-  .bottom-row > * {
-    min-width: 0 !important;
-  }
-
-  /* Attendance stats + summary tiles wrap gracefully on phones. */
-  .attendance-summary,
-  .att-summary,
-  .att-tiles {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 10px !important;
-  }
-
-  /* Report / download button rows: stack. */
-  .report-actions,
-  .download-actions,
-  .action-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .report-actions > *,
-  .download-actions > *,
-  .action-row > * {
-    width: 100%;
-  }
-
-  /* Modals: full-width, safe padding, allow inner scroll. */
-  .modal,
-  .modal-content,
-  .confirm-modal,
-  .professional-modal {
-    width: calc(100vw - 24px) !important;
-    max-width: calc(100vw - 24px) !important;
-    max-height: calc(100vh - 24px);
-    overflow-y: auto;
-  }
-
-  /* Recharts pie / donut sizes: keep them from bursting the card. */
-  .recharts-responsive-container {
-    max-width: 100% !important;
-    height: 240px !important;
-  }
-}
-
-
-/* ═══════════════════════════════════════════════════════════════════════
  *                        SMALL PHONE  (≤ 380px)
- * (extra tightening for iPhone SE / small Androids)
  * ═════════════════════════════════════════════════════════════════════ */
 @media (max-width: 380px) {
   .dashboard-body,
@@ -591,7 +419,7 @@ img, video, canvas, iframe {
   .dept-view-container,
   .emp-list-page,
   .roles-page {
-    padding: 10px 8px 20px;
+    padding: 10px 8px 20px !important;
   }
   .topbar { padding: 0 8px; }
   .topbar-title { font-size: 15px; }
