@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users, UserCheck, CalendarOff,
   ChevronRight, ClipboardList,
-  Check, Clock, MapPin, UserPlus
+  Check, CheckCircle, Clock, MapPin, UserPlus
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CompactTrackingMap } from '../LiveTrackingMap';
