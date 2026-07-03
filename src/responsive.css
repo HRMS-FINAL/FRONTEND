@@ -126,9 +126,15 @@ img, video, canvas, iframe {
   .dept-grid,
   .dept-emp-list-grid,
   .roles-content-layout,
-  .cal-stats {
+  .cal-stats,
+  .dashboard-secondary-row {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
+  }
+
+  /* #365 — Show the sidebar close (X) button on mobile only. */
+  .sidebar-close-btn {
+    display: inline-flex !important;
   }
 
   .stat-card { padding: 16px; }

@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard, Users, ChevronRight, TrendingUp, DollarSign,
-  CalendarCheck, BarChart2, Settings as SettingsIcon, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard
+  CalendarCheck, BarChart2, Settings as SettingsIcon, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard, X
 } from 'lucide-react';
 import logo from '../assets/logo-hrm.png';
 import logo2 from '../assets/logo-hrm.png';
@@ -34,23 +34,48 @@ export default function Sidebar({
 
   return (
     <aside className={`sidebar ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-      <div className="sidebar-brand" style={{ 
-        padding: sidebarOpen ? '24px 20px' : '20px 0', 
-        height: 'auto', 
+      <div className="sidebar-brand" style={{
+        padding: sidebarOpen ? '24px 20px' : '20px 0',
+        height: 'auto',
         minHeight: '80px',
         display: 'flex',
-        justifyContent: sidebarOpen ? 'flex-start' : 'center',
-        alignItems: 'center'
+        justifyContent: sidebarOpen ? 'space-between' : 'center',
+        alignItems: 'center',
+        gap: 8,
       }}>
-        <img 
-          src={sidebarOpen ? logo : logo2} 
-          alt="TESCO Structures" 
-          style={{ 
-            width: sidebarOpen ? '160px' : '32px', 
+        <img
+          src={sidebarOpen ? logo : logo2}
+          alt="TESCO Structures"
+          style={{
+            width: sidebarOpen ? '160px' : '32px',
             height: 'auto',
             transition: 'all 0.3s ease'
-          }} 
+          }}
         />
+        {/* #365 — Close (X) button visible ONLY on mobile (CSS gates it).
+            Gives phone users a clear way to dismiss the drawer without
+            having to reach the topbar hamburger behind it. */}
+        <button
+          type="button"
+          className="sidebar-close-btn"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close menu"
+          style={{
+            display: 'none',
+            width: 36,
+            height: 36,
+            borderRadius: 8,
+            background: 'rgba(15,23,42,0.06)',
+            border: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: '#0F172A',
+            flexShrink: 0,
+          }}
+        >
+          <X size={20} />
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -141,14 +166,6 @@ export default function Sidebar({
       <div style={{ marginTop: 'auto', paddingBottom: '120px' }}>
         <nav className="sidebar-nav" style={{ paddingBottom: 0 }}>
           <span className="nav-section-label">Support</span>
-          <div className={`nav-item ${activeView === 'complain-register' ? 'active' : ''}`} onClick={() => handleNavClick('complain-register')}>
-            <ClipboardList className="nav-icon" size={18} />
-            <span className="nav-text">Complaint Register</span>
-          </div>
-          <div className={`nav-item ${activeView === 'assets' ? 'active' : ''}`} onClick={() => handleNavClick('assets')}>
-            <Monitor className="nav-icon" size={18} />
-            <span className="nav-text">Assets</span>
-          </div>
           <div className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => handleNavClick('settings')}>
             <SettingsIcon className="nav-icon" size={18} />
             <span className="nav-text">Settings</span>
