@@ -425,6 +425,101 @@ img, video, canvas, iframe {
 
 
 /* ═══════════════════════════════════════════════════════════════════════
+ *              #359 — SUPPLEMENTAL MOBILE RULES (post-#356/357/358)
+ * These pick up gaps introduced by later work:
+ *   • The Dashboard's 5-card stats row now collapses to 2 (tablet) and 1
+ *     (phone) via .stats-row already, but the explicit override reasserts
+ *     it against any inline grid-template-columns some cards inherit.
+ *   • The Attendance page has a calendar + logs side-by-side layout
+ *     (#146). On small screens the sibling divs should stack.
+ *   • A translucent backdrop appears behind the sidebar drawer so the
+ *     page content behind it isn't tap-targetable while the drawer is
+ *     open — pure CSS, no JS needed.
+ * ═════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+  /* Attendance Logs: calendar/side panel/log table stack cleanly. */
+  .attendance-layout,
+  .attendance-3col-layout,
+  .attendance-grid,
+  .att-grid {
+    grid-template-columns: 1fr !important;
+    display: grid !important;
+  }
+  /* Any generic inline grid that used 3 columns for HR content should
+     collapse on tablet too. */
+  div[style*="grid-template-columns: 1fr 1fr 1fr"],
+  div[style*="grid-template-columns:1fr 1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Force the Dashboard 5-card row to a single column on phones. */
+  .stats-row { grid-template-columns: 1fr !important; }
+
+  /* Collapse every 2-column inline grid too. */
+  div[style*="grid-template-columns: 1fr 1fr"],
+  div[style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Mobile drawer backdrop: uses the presence of an OPEN sidebar
+     to drop a full-viewport tint behind it. When the sidebar toggles
+     to .sidebar-collapsed (slid off-screen) the backdrop disappears. */
+  .sidebar:not(.sidebar-collapsed)::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 260px;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.42);
+    z-index: -1;              /* Behind the drawer, above content. */
+    pointer-events: auto;
+  }
+
+  /* Attendance stats + summary tiles wrap gracefully on phones. */
+  .attendance-summary,
+  .att-summary,
+  .att-tiles {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* Report / download button rows: stack. */
+  .report-actions,
+  .download-actions,
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .report-actions > *,
+  .download-actions > *,
+  .action-row > * {
+    width: 100%;
+  }
+
+  /* Modals: full-width, safe padding, allow inner scroll. */
+  .modal,
+  .modal-content,
+  .confirm-modal,
+  .professional-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+
+  /* Recharts pie / donut sizes: keep them from bursting the card. */
+  .recharts-responsive-container {
+    max-width: 100% !important;
+    height: 240px !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
  *                        SMALL PHONE  (≤ 380px)
  * (extra tightening for iPhone SE / small Androids)
  * ═════════════════════════════════════════════════════════════════════ */

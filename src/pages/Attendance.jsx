@@ -30,6 +30,10 @@ export default function Attendance({ onBack, employees = [] }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedLog, setSelectedLog] = useState(null);
   const [apiLogs, setApiLogs] = useState([]);
+  // #358 — Approved leave + permission requests for the selected date. Used
+  // to synthesise Absent/Permission rows for employees who didn't produce
+  // an Attendance record (leave-approved absentees, permission-only days).
+  const [approvedForDate, setApprovedForDate] = useState({ leave: [], permission: [] });
   // #356 — Roster-based counts pulled from /api/dashboard/attendance-today.
   // Fixes the "Absent 0" mismatch on the Attendance Logs page: the /logs
   // endpoint only returns rows for employees who have an Attendance record,
@@ -97,6 +101,27 @@ export default function Attendance({ onBack, employees = [] }) {
       .then(r => r.json())
       .then(data => setRosterCounts(data?.success ? data.data : null))
       .catch(() => setRosterCounts(null));
+    // #358 — Approved leave + permission requests overlapping the selected
+    // date. Powers the Absent/Permission drill-downs so people who are on
+    // approved time-off show up even though there's no Attendance record.
+    fetch(`${API}/leave-requests?status=approved&limit=500`)
+      .then(r => r.json())
+      .then(data => {
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const inRange = (row) => {
+          try {
+            const start = row.startDate || row.date || row.leaveDate;
+            const end   = row.endDate   || row.date || row.leaveDate || start;
+            const s = start ? new Date(start).toISOString().slice(0,10) : null;
+            const e = end   ? new Date(end  ).toISOString().slice(0,10) : s;
+            return s && e && dateStr >= s && dateStr <= e;
+          } catch { return false; }
+        };
+        const leave = items.filter(it => (String(it.type || it.requestType || '').toLowerCase() === 'leave') && inRange(it));
+        const permission = items.filter(it => (String(it.type || it.requestType || '').toLowerCase() === 'permission') && inRange(it));
+        setApprovedForDate({ leave, permission });
+      })
+      .catch(() => setApprovedForDate({ leave: [], permission: [] }));
   }, [selectedDay, viewMonth, viewYear]);
 
   // Generate logs for selected day from the live mobile API.
@@ -272,10 +297,71 @@ export default function Attendance({ onBack, employees = [] }) {
     setFilterStatus(prev => prev === key ? 'all' : key);
   };
 
+  // #358 — Build an augmented log list that includes synthetic rows for:
+  //   • Active employees who never checked in that day (status='Absent')
+  //   • Approved leave requests for that day (status='Absent')
+  //   • Approved permission requests for that day (status='Permission')
+  // Real Attendance rows always win over synthetic ones so we don't double-
+  // count. Only rows for people already in Attendance are shown as-is;
+  // everyone else gets a synthetic row so Absent/Permission drill-downs
+  // actually list people.
+  const augmentedLogs = React.useMemo(() => {
+    const byKey = new Map();
+    const norm = (v) => String(v || '').trim().toLowerCase();
+    // Seed the map with real Attendance rows keyed by employeeId (fallback name).
+    dailyLogs.forEach(l => {
+      const k = norm(l.employeeId) || norm(l.name);
+      if (k) byKey.set(k, l);
+    });
+    const makeStub = (person, status) => ({
+      id: `stub-${status}-${person.employeeId || person.name}`,
+      name: person.name || person.employeeName || '—',
+      initials: (person.name || person.employeeName || '??').slice(0,2).toUpperCase(),
+      color: '#94A3B8',
+      role: person.designation || person.role || person.title || '',
+      email: person.email || '',
+      dept: person.department || person.dept || '',
+      employeeId: person.employeeId || '',
+      status,
+      checkIn: '--:--',
+      checkOut: '--:--',
+      workHours: '0h',
+      _synthetic: true,
+    });
+    // Apply approved permission requests first — they override "not checked in".
+    (approvedForDate.permission || []).forEach(r => {
+      const k = norm(r.employeeId) || norm(r.employeeName || r.name);
+      if (!k) return;
+      if (!byKey.has(k)) byKey.set(k, makeStub(r, 'Permission'));
+    });
+    // Then approved leave rows for the day.
+    (approvedForDate.leave || []).forEach(r => {
+      const k = norm(r.employeeId) || norm(r.employeeName || r.name);
+      if (!k) return;
+      if (!byKey.has(k)) byKey.set(k, makeStub(r, 'Absent'));
+    });
+    // Finally add every remaining active employee as an Absent stub.
+    (activeEmployees || []).forEach(e => {
+      const status = e.status || 'Active';
+      if (status !== 'Active') return;
+      const k = norm(e.employeeId) || norm(e.name);
+      if (!k) return;
+      if (!byKey.has(k)) byKey.set(k, makeStub(e, 'Absent'));
+    });
+    return Array.from(byKey.values());
+  }, [dailyLogs, approvedForDate, activeEmployees]);
+
   // Filtering based on search and sub-tab selection.
   // Defensive: any missing field would previously crash the .toLowerCase()
   // call and silently leave the table unfiltered. Default all strings first.
-  const displayLogs = dailyLogs.filter(log => {
+  //
+  // #358 — When the filter is one of {all, present, late}, we source from
+  // the real dailyLogs so we don't pollute the table with fake "Absent"
+  // rows in the default view. For {absent, leave, permission, halfday} we
+  // source from augmentedLogs so drill-downs actually list people.
+  const filterFromAugmented = ['absent','leave','permission','halfday'].includes(filterStatus);
+  const sourceLogs = filterFromAugmented ? augmentedLogs : dailyLogs;
+  const displayLogs = sourceLogs.filter(log => {
     const q = String(searchQuery || '').trim().toLowerCase();
     const name = String(log?.name        || '').toLowerCase();
     const eid  = String(log?.employeeId  || '').toLowerCase();
@@ -769,25 +855,25 @@ export default function Attendance({ onBack, employees = [] }) {
                         <span style={{
                           display: 'inline-block', padding: '4px 10px', borderRadius: 12,
                           fontSize: 11, fontWeight: 700,
-                          // 'Half Day' (early checkout without permission, counts
+                          // 'Half Day (early checkout without permission, counts
                           // toward LOP) gets its own amber pill so HR can tell
                           // it apart from the purple 'Permission' pill at a glance.
                           background: log.status === 'Present'    ? '#ECFDF5'
                                     : log.status === 'Late'       ? '#FFFBEB'
-                                    : log.status === 'Absent'   ? '#FEF2F2'
+                                    : log.status === 'Absent'     ? '#FEF2F2'
                                     : log.status === 'Permission' ? '#F5F3FF'
                                     : log.status === 'Half Day'   ? '#FEF3C7'
                                     : '#F1F5F9',
                           color:      log.status === 'Present'    ? '#16A34A'
                                     : log.status === 'Late'       ? '#D97706'
-                                    : log.status === 'Absent'   ? '#DC2626'
+                                    : log.status === 'Absent'     ? '#DC2626'
                                     : log.status === 'Permission' ? '#7C3AED'
                                     : log.status === 'Half Day'   ? '#B45309'
                                     : '#64748B',
                         }}>
                           {log.status}
                         </span>
-                        {(log.status === 'Absent' || log.status === 'Absent') && log.checkIn && log.checkIn !== '--:--' && (
+                        {log.status === 'Absent' && !log._synthetic && log.checkIn && log.checkIn !== '--:--' && (
                           <button
                             type="button"
                             onClick={async (e) => {
@@ -841,7 +927,7 @@ export default function Attendance({ onBack, employees = [] }) {
                 ))}
               </tbody>
             </table>
-            {dailyLogs.length === 0 && (
+            {displayLogs.length === 0 && (
               <div style={{ padding: 40, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
                 No records for the selected day.
               </div>

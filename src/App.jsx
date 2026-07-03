@@ -93,7 +93,12 @@ function MainApp() {
     try { localStorage.setItem(LS_ACTIVE_VIEW, JSON.stringify(activeView)); } catch {}
   }, [activeView]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Sidebar defaults closed on phone/small-tablet so the drawer doesn't
+  // obscure the page on first load. Desktop keeps it open. (#359 mobile)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try { return typeof window !== 'undefined' ? window.innerWidth > 768 : true; }
+    catch { return true; }
+  });
   const [hrOpen, setHrOpen]           = useState(false);
   const [doneReminders, setDoneReminders] = useState([3]);
 
@@ -295,10 +300,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <NotificationProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <NotificationProvider>
         <AppContent />
-      </AuthProvider>
-    </NotificationProvider>
+      </NotificationProvider>
+    </AuthProvider>
   );
 }
