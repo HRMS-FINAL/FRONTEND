@@ -166,6 +166,17 @@ export default function Sidebar({
       <div style={{ marginTop: 'auto', paddingBottom: '120px' }}>
         <nav className="sidebar-nav" style={{ paddingBottom: 0 }}>
           <span className="nav-section-label">Support</span>
+          {/* #367 — Restored: Complaint Register + Assets. HR uses these
+              daily and they went missing from the sidebar after an
+              earlier refactor trimmed the Support section. */}
+          <div className={`nav-item ${activeView === 'complain-register' ? 'active' : ''}`} onClick={() => handleNavClick('complain-register')}>
+            <ClipboardList className="nav-icon" size={18} />
+            <span className="nav-text">Complaint Register</span>
+          </div>
+          <div className={`nav-item ${activeView === 'assets' ? 'active' : ''}`} onClick={() => handleNavClick('assets')}>
+            <Monitor className="nav-icon" size={18} />
+            <span className="nav-text">Assets</span>
+          </div>
           <div className={`nav-item ${activeView === 'settings' ? 'active' : ''}`} onClick={() => handleNavClick('settings')}>
             <SettingsIcon className="nav-icon" size={18} />
             <span className="nav-text">Settings</span>

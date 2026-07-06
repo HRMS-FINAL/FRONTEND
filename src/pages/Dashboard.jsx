@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users, UserCheck, CalendarOff,
   ChevronRight, ClipboardList,
-  Check, CheckCircle, Clock, MapPin, UserPlus
+  Check, CheckCircle, Clock, MapPin, Monitor, UserPlus
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { CompactTrackingMap } from '../LiveTrackingMap';
@@ -165,18 +165,22 @@ export default function Dashboard({
     try { sessionStorage.setItem('hrms_attendance_prefilter', filter || ''); } catch {}
     setActiveView('attendance');
   };
+  // #368 — Live "MMM DD" date pill for the 4 attendance cards, matching
+  // the Attendance Logs card style ("Jul 06"). Recomputes on render so
+  // the pill rolls forward as the day changes.
+  const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const _now = new Date();
+  const currentDatePill = `${MONTH_SHORT[_now.getMonth()]} ${String(_now.getDate()).padStart(2, '0')}`;
   const statCards = [
     { label: 'Total Employees', value: loading ? '...' : totalEmp.toLocaleString(),                   trend: stats?.cards?.totalEmployees?.trend || '—', up: stats?.cards?.totalEmployees?.up ?? true,  sub: 'active roster',      Icon: Users,      target: 'employee-list', preFilter: 'Active',  color: 'var(--primary)', bg: 'var(--primary-light)' },
-    { label: 'Present Today',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: '—', up: true,                                                                                  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',    preFilter: 'Present', color: '#16A34A',        bg: '#F0FDF4' },
-    // Absent today = headcount − present. HR asked Jun 2026 to surface a
-    // single absentee number rather than the Half-LOP detail tile (which
-    // they read in the Attendance page already). Clamp at 0 so a
-    // mid-load race where present > totalEmp can't render "-2".
-    { label: 'Absent Today',    value: loading ? '...' : Math.max(0, (totalEmp || 0) - (liveTallies.present || 0)).toLocaleString(), trend: '—', up: false, sub: 'not checked in',     Icon: CalendarOff,target: 'attendance',    preFilter: 'Absent',  color: '#DC2626',        bg: '#FEF2F2' },
-    { label: 'Late Today',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: '—', up: false,                                                                                 sub: 'after cut-off',      Icon: Clock,      target: 'attendance',    preFilter: 'Late',    color: '#D97706',        bg: '#FFFBEB' },
-    // #352e Half Day — worked hours < 5. Same "clickable → filtered
-    // Attendance Logs" behaviour as the others.
-    { label: 'Half Day Today',  value: loading ? '...' : (liveTallies.halfLop || 0).toLocaleString(), trend: '—', up: false,                                                                                 sub: 'worked < 5 h',       Icon: Clock,      target: 'attendance',    preFilter: 'Half Day',color: '#7C3AED',        bg: '#F5F3FF' },
+    // #368 — Dropped "Today" from labels; added the live-date pill in
+    // the top-right (same style as Attendance Logs).
+    { label: 'Present',   value: loading ? '...' : (liveTallies.present || 0).toLocaleString(), trend: currentDatePill, up: true,  sub: 'checked in today',   Icon: UserCheck,  target: 'attendance',    preFilter: 'Present', color: '#16A34A',        bg: '#F0FDF4' },
+    // Absent = headcount − present. Clamp at 0 so a mid-load race
+    // where present > totalEmp can't render "-2".
+    { label: 'Absent',    value: loading ? '...' : Math.max(0, (totalEmp || 0) - (liveTallies.present || 0)).toLocaleString(), trend: currentDatePill, up: false, sub: 'not checked in',     Icon: CalendarOff,target: 'attendance',    preFilter: 'Absent',  color: '#DC2626',        bg: '#FEF2F2' },
+    { label: 'Late',      value: loading ? '...' : (liveTallies.late || 0).toLocaleString(),    trend: currentDatePill, up: false, sub: 'after cut-off',      Icon: Clock,      target: 'attendance',    preFilter: 'Late',    color: '#D97706',        bg: '#FFFBEB' },
+    { label: 'Half Day',  value: loading ? '...' : (liveTallies.halfLop || 0).toLocaleString(), trend: currentDatePill, up: false, sub: 'worked < 5 h',       Icon: Clock,      target: 'attendance',    preFilter: 'Half Day',color: '#7C3AED',        bg: '#F5F3FF' },
   ];
   // `activeStaff`, `onLeave`, `permission` are still computed above so
   // any downstream chart or widget that reads them keeps working — only
@@ -211,10 +215,11 @@ export default function Dashboard({
                 if (!t) return null;
                 // Reject dashes / placeholders
                 if (['—', '-', 'N/A', 'n/a'].includes(t)) return null;
-                // Reject anything whose numeric part is zero — strip the
-                // leading +/- and trailing % and parseFloat.
+                // #368 — Reject only when the badge is a *numeric zero*
+                // placeholder (+0, -0, 0%). Text badges like "Jul 06"
+                // (the live-date pill) parse to NaN → we still show them.
                 const num = parseFloat(t.replace(/^[+-]/, '').replace(/%$/, ''));
-                if (!isFinite(num) || num === 0) return null;
+                if (isFinite(num) && num === 0) return null;
                 return (
                   <div className={`stat-trend-badge ${s.up ? 'up' : 'down'}`}>
                     {t}
@@ -519,7 +524,9 @@ export default function Dashboard({
             { label: 'Add Employee',     Icon: UserPlus,      view: 'new-employee',    color: '#4CAA17', bg: '#F0FDF4' },
             { label: 'Run Payroll',      Icon: ClipboardList, view: 'payroll',         color: '#2563EB', bg: '#EFF6FF' },
             { label: 'Complaints',       Icon: MapPin,        view: 'complain-register', color: '#9F7AEA', bg: '#F5F3FF' },
-            { label: 'Approvals',       Icon: CheckCircle,   view: 'leave-permission-request', color: '#F97316', bg: '#FFF7ED' },
+            { label: 'Approvals',        Icon: CheckCircle,   view: 'leave-permission-request', color: '#F97316', bg: '#FFF7ED' },
+            // #369 — Assets tile: routes to the Assets page.
+            { label: 'Assets',           Icon: Monitor,       view: 'assets',          color: '#0EA5E9', bg: '#E0F2FE' },
           ].map((qa, i) => (
             <button key={i} className="quick-action-btn" onClick={() => setActiveView(qa.view)} style={{ cursor: 'pointer' }}>
               <div className="quick-action-icon" style={{ background: qa.bg, color: qa.color }}>
