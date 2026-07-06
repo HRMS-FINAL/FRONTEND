@@ -93,7 +93,7 @@ export default function Dashboard({
   // tolerate "Development" vs "development" data drift.
   const [presentByDept, setPresentByDept] = useState({});   // { 'development': 9, ... }
   // Total tallies for the top stat cards (Jun 2026 HR brief).
-  const [liveTallies, setLiveTallies] = useState({ present: 0, late: 0, halfLop: 0 });
+  const [liveTallies, setLiveTallies] = useState({ present: 0, late: 0, halfLop: 0, permission: 0 });
   useEffect(() => {
     let cancelled = false;
     const fetchPresent = async () => {
@@ -105,8 +105,9 @@ export default function Dashboard({
         if (cancelled || !j?.success || !Array.isArray(j.data)) return;
         const out = {};
         let presentTotal = 0;
-        let lateTotal    = 0;
-        let halfLopTotal = 0;
+        let lateTotal       = 0;
+        let halfLopTotal    = 0;
+        let permissionTotal = 0;
         for (const row of j.data) {
           const dept = String(row.department || row.dept || 'Unassigned').toLowerCase().trim();
           const s    = String(row.status || '').toLowerCase();
@@ -119,6 +120,9 @@ export default function Dashboard({
             presentTotal += 1;
           }
           if (s === 'late') lateTotal += 1;
+          // #369b — count Permission separately so the widget matches the
+          // Attendance Logs Perm pill (only real permission rows).
+          if (s === 'permission') permissionTotal += 1;
           // Half-LOP today: anyone whose status flags a half-day-LOP (the
           // mobile/HRMS pipeline tags these explicitly when policy fires).
           if (s === 'half day' || s === 'half-lop' || s === '1/2 lop' || row.halfLop === true) {
@@ -126,7 +130,7 @@ export default function Dashboard({
           }
         }
         setPresentByDept(out);
-        setLiveTallies({ present: presentTotal, late: lateTotal, halfLop: halfLopTotal });
+        setLiveTallies({ present: presentTotal, late: lateTotal, halfLop: halfLopTotal, permission: permissionTotal });
       } catch { /* leave previous value */ }
     };
     fetchPresent();
@@ -350,12 +354,19 @@ export default function Dashboard({
                 ? (liveTallies.late || 0)
                 : (attToday?.late ?? 0);
               const absentLive = Math.max(0, (totalEmp || 0) - presentLive);
+              // #369b — Perm tile now uses liveTallies.permission (frontend
+              // counts only real 'permission' rows, same as Attendance Logs)
+              // so the widget's Perm agrees with the Perm pill on the
+              // Attendance Logs page regardless of backend deploy state.
+              const permLive = isLive
+                ? (liveTallies.permission || 0)
+                : (attToday?.permission ?? 0);
               const live = attToday
                 ? [
                     { lbl: 'Present',  num: presentLive, color: '#16a34a', bg: '#F0FDF4' },
                     { lbl: 'Late',     num: lateLive,    color: '#d97706', bg: '#FFFBEB' },
                     { lbl: 'Absent',   num: absentLive,  color: '#dc2626', bg: '#FEF2F2' },
-                    { lbl: 'Perm',     num: attToday.permission ?? 0, color: '#6b7280', bg: '#F8FAFC' },
+                    { lbl: 'Perm',     num: permLive,    color: '#6b7280', bg: '#F8FAFC' },
                   ]
                 : calStats;
               return live.map(s => (
