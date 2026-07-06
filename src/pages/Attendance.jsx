@@ -5,6 +5,8 @@ import {
   UserCheck, CalendarOff, AlertTriangle
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+// #369 — Branded confirmation modal replaces window.confirm on Mark Present.
+import { useConfirm } from '../components/ConfirmDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 // #303 — Shared branded report template (logo, header, footer, polished
@@ -22,6 +24,7 @@ const MONTH_NAMES = [
 
 export default function Attendance({ onBack, employees = [] }) {
   const { showNotification } = useNotification();
+  const confirm = useConfirm();
   const today = new Date();
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
@@ -883,7 +886,13 @@ export default function Attendance({ onBack, employees = [] }) {
                             type="button"
                             onClick={async (e) => {
                               e.stopPropagation();
-                              if (!window.confirm(`Mark ${log.name} as Present?`)) return;
+                              const ok = await confirm({
+                                title: 'Mark as Present?',
+                                message: `Change ${log.name}'s attendance status for the selected date to Present. This will overwrite the current Absent record.`,
+                                confirmLabel: 'Mark Present',
+                                cancelLabel: 'Cancel',
+                              });
+                              if (!ok) return;
                               try {
                                 const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
                                 const r = await fetch(`${API}/attendance/mark-status`, {
