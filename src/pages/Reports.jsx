@@ -517,7 +517,30 @@ export default function Reports({ onBack }) {
               {reportId === 'attendance' ? (
                 <BarChart data={chartData} barGap={3}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
-                  <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-light)' }} />
+                  {/*
+                    #383 — Force every department label to render on
+                    the X-axis. By default Recharts uses
+                    `interval="preserveEnd"` which drops labels that
+                    would overlap — with 7+ departments some names
+                    (Human Resource Management, Software Development)
+                    silently disappeared, making the chart look like
+                    those departments had no data. `interval={0}`
+                    renders ALL ticks; `angle={-25}` + `dy=10` slants
+                    them slightly so long department names don't
+                    collide. `height={70}` reserves enough vertical
+                    space for the slanted labels so the legend row
+                    below doesn't get clipped.
+                  */}
+                  <XAxis
+                    dataKey="period"
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    angle={-25}
+                    dy={10}
+                    height={70}
+                    tick={{ fontSize: 11, fill: 'var(--text-light)' }}
+                  />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-light)' }} />
                   <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} />
                   <Legend />
@@ -529,7 +552,30 @@ export default function Reports({ onBack }) {
               ) : (
                 <BarChart data={chartData} barGap={4}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
-                  <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-light)' }} />
+                  {/*
+                    #383 — Force every department label to render on
+                    the X-axis. By default Recharts uses
+                    `interval="preserveEnd"` which drops labels that
+                    would overlap — with 7+ departments some names
+                    (Human Resource Management, Software Development)
+                    silently disappeared, making the chart look like
+                    those departments had no data. `interval={0}`
+                    renders ALL ticks; `angle={-25}` + `dy=10` slants
+                    them slightly so long department names don't
+                    collide. `height={70}` reserves enough vertical
+                    space for the slanted labels so the legend row
+                    below doesn't get clipped.
+                  */}
+                  <XAxis
+                    dataKey="period"
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    angle={-25}
+                    dy={10}
+                    height={70}
+                    tick={{ fontSize: 11, fill: 'var(--text-light)' }}
+                  />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-light)' }} />
                   <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} />
                   <Legend />
