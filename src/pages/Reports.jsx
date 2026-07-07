@@ -176,7 +176,11 @@ export default function Reports({ onBack }) {
     // 'leave' status into 'Absent', so showing both was double-counting in
     // the eyes of HR. Permission is added in its place so the dashboard
     // reflects everything HR actually acts on.
-    { label: 'Permission',     value: attendanceData.summary.totalHalfDay     || 0, icon: <Clock size={18} />,    color: '#9F7AEA', bg: '#FAF5FF' },
+    // #381 — Permission tile now reads the TRUE permission count
+    // (totalPermission). Previously read totalHalfDay which conflated
+    // permission + half-day-LOP — 15 shown here was actually
+    // permissions PLUS half-day LOP entries combined.
+    { label: 'Permission',     value: attendanceData.summary.totalPermission ?? attendanceData.summary.totalHalfDay ?? 0, icon: <Clock size={18} />,    color: '#9F7AEA', bg: '#FAF5FF' },
     { label: 'Absent Days',    value: attendanceData.summary.totalAbsent      || 0, icon: <XCircle size={18} />,  color: '#FC8181', bg: '#FFF5F5' },
   ] : reportId === 'employee' ? [
     { label: 'Total Employees', value: employeeDataInRange.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
@@ -193,17 +197,43 @@ export default function Reports({ onBack }) {
   // ── Chart data from real API ──────────────────────────────────
   const chartData = reportId === 'attendance' && attendanceData
     ? (() => {
-        // Group rows by department for chart
+        // #381b — CHART = DISJOINT DAILY-ATTENDANCE CATEGORIES.
+        //
+        // Bars sum cleanly to the total workday-employee-days across
+        // the filtered range because each day of each employee is
+        // counted in EXACTLY ONE bar:
+        //
+        //   • Present    = on-time attendance   (r.presentOnTime, backend g.present)
+        //   • Late       = late arrival         (r.late)
+        //   • Permission = approved partial-day (r.permission)
+        //   • Absent     = no attendance + no leave for a workday (r.absent)
+        //
+        // Previously the Present bar read r.present which already
+        // INCLUDED lates (HR tile convention #60) — so Late arrivals
+        // showed up in BOTH the Present bar AND the Late bar,
+        // inflating the department's apparent activity. Chart bars
+        // are now truly disjoint categories.
+        //
+        // Slice(0,8) dropped — every department represented.
+        // Sorted alphabetically for stable rendering across polls.
         const deptMap = {};
         (attendanceData.rows || []).forEach(r => {
           const dept = r.department || 'Unknown';
-          if (!deptMap[dept]) deptMap[dept] = { period: dept, present: 0, late: 0, permission: 0, absent: 0 };
-          deptMap[dept].present    += r.present;
-          deptMap[dept].late       += r.late;
-          deptMap[dept].permission += (r.halfDay || 0);
-          deptMap[dept].absent     += r.absent;
+          if (!deptMap[dept]) {
+            deptMap[dept] = { period: dept, present: 0, late: 0, permission: 0, absent: 0 };
+          }
+          // presentOnTime is the disjoint on-time count; fall back to
+          // r.present - r.late for older backends that don't emit it.
+          const onTime = Number(
+            r.presentOnTime ??
+            Math.max(0, Number(r.present || 0) - Number(r.late || 0))
+          );
+          deptMap[dept].present    += onTime;
+          deptMap[dept].late       += Number(r.late       || 0);
+          deptMap[dept].permission += Number(r.permission || 0);
+          deptMap[dept].absent     += Number(r.absent     || 0);
         });
-        return Object.values(deptMap).slice(0, 8);
+        return Object.values(deptMap).sort((a, b) => a.period.localeCompare(b.period));
       })()
     : reportId === 'employee'
     ? (() => {
@@ -266,10 +296,11 @@ export default function Reports({ onBack }) {
       const rows = tableRows.map(r => [
         r.employeeId, r.employeeName, r.department, r.designation,
         r.present, r.late,
-        // Permission + 1/2 LOP (half-day LOP) replace the duplicate Leave
-        // column. Both LOP figures come from the backend policy calc
-        // (1 CL + 2 perms free, lates count toward LOP).
-        r.halfDay || 0,
+        // #381 — Permission column now reads the TRUE permission count,
+        // not halfDay (which is 1/2 LOP). Both LOP figures come from
+        // the backend policy calc (1 CL + 2 perms free, lates count
+        // toward LOP).
+        r.permission ?? r.halfDay ?? 0,
         r.absent,
         r.lop,
         r.halfLop || 0,
@@ -306,7 +337,8 @@ export default function Reports({ onBack }) {
           'Designation': r.designation,
           'Present':     r.present,
           'Late':        r.late,
-          'Permission':  r.halfDay || 0,
+          // #381 — Use the TRUE permission field; halfDay is now 1/2 LOP only.
+          'Permission':  r.permission ?? r.halfDay ?? 0,
           'Absent':      r.absent,
           'LOP':         r.lop,
           '1/2 LOP':     r.halfLop || 0,
@@ -561,16 +593,31 @@ export default function Reports({ onBack }) {
                           <>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>{row.present} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.late > 0 ? '#ECC94B' : 'var(--text-main)' }}>{row.late} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>times</span></div></td>
-                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfDay || 0) > 0 ? '#9F7AEA' : 'var(--text-main)' }}>{row.halfDay || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
+                            {/* #381 — Permission column reads the TRUE permission count.
+                                Previously used row.halfDay which conflated permission
+                                with 1/2 LOP entries. */}
+                            <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.permission ?? row.halfDay ?? 0) > 0 ? '#9F7AEA' : 'var(--text-main)' }}>{row.permission ?? row.halfDay ?? 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.absent > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.absent} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.lop > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.lop} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfLop || 0) > 0 ? '#F97316' : 'var(--text-main)' }}>{row.halfLop || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                           </>
                         )}
-                        <td><div style={{ fontSize: '12px', color: 'var(--text-light)' }}>{row.manager || '—'}</div></td>
+                        <td><div className="emp-table-dept">{row.manager || '—'}</div></td>
                         <td>
-                          <span className={`dash-emp-status ${row.status === 'Active' ? 'present' : 'on-leave'}`}>
-                            {row.status}
+                          <span
+                            className="emp-table-status"
+                            style={{
+                              background:
+                                row.status === 'Active'      ? '#E8F5E9' :
+                                row.status === 'Terminated'  ? '#FEE2E2' :
+                                                                '#F1F5F9',
+                              color:
+                                row.status === 'Active'      ? '#1B5E20' :
+                                row.status === 'Terminated'  ? '#991B1B' :
+                                                                '#334155',
+                            }}
+                          >
+                            {row.status || 'Active'}
                           </span>
                         </td>
                       </tr>
@@ -578,8 +625,8 @@ export default function Reports({ onBack }) {
                   </tbody>
                 </table>
               )}
-              </div>
             </div>
+          </div>
         </main>
       </div>
     </div>

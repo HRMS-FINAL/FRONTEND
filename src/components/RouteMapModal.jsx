@@ -298,7 +298,28 @@ export default function RouteMapModal({ open, onClose, employeeId, employeeName,
           {claim && (
             <Stat label="Claimed"    value={`${Number(claim.distance || 0).toFixed(2)} km`} color="#2563EB" />
           )}
-          <Stat label="Pings"        value={String(polyline.length)}      color="#7C3AED" />
+          {/*
+            #380 — "Pings" now shows the REAL DB row count for the
+            employee/date (moving + anchor), not polyline.length.
+            The polyline is simplified (colinear points on a straight
+            highway collapse to ~10 vertices) — displaying that as
+            "Pings 10" made HR think tracking was broken when in fact
+            the DB had 100+ captures. Falls back to polyline.length
+            only if the backend response doesn't include pingCount yet
+            (older API version).
+          */}
+          <Stat
+            label="Pings"
+            value={String(Number(data?.pingCount ?? polyline.length) || 0)}
+            color="#7C3AED"
+          />
+          {typeof data?.movingPings === 'number' && typeof data?.anchorPings === 'number' && (
+            <Stat
+              label="Moving / Anchor"
+              value={`${data.movingPings} / ${data.anchorPings}`}
+              color="#0EA5E9"
+            />
+          )}
         </div>
 
         {/* Map area */}
