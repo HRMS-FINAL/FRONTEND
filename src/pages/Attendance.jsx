@@ -908,15 +908,36 @@ export default function Attendance({ onBack, employees = [] }) {
                                 const j = await r.json().catch(() => ({}));
                                 if (!r.ok || !j?.success) throw new Error(j?.message || 'Failed');
                                 showNotification(`Marked ${log.name} as Present`, 'success');
+                                // #386 — OPTIMISTIC UPDATE. Flip this row's
+                                // status to 'On Time' (the backend rep of
+                                // "Present") in local state IMMEDIATELY so
+                                // the badge changes without waiting for the
+                                // refresh fetch. The refresh below still
+                                // fires as a truth-check; if the mobile
+                                // write hasn't propagated to Render yet
+                                // (usually 1-3 s), HR sees Present the
+                                // whole time instead of a stale Absent.
+                                setApiLogs(prev => (Array.isArray(prev) ? prev : []).map(row => {
+                                  const sameEmp =
+                                    (row.employeeId && log.employeeId && row.employeeId === log.employeeId) ||
+                                    (row._id && log._id && row._id === log._id) ||
+                                    (row.employeeName && log.name && row.employeeName === log.name);
+                                  if (!sameEmp) return row;
+                                  return { ...row, status: 'On Time' };
+                                }));
                                 const ds = fmtDate(selectedDay);
-                                fetch(`${API}/attendance/logs?date=${ds}`)
-                                  .then(r => r.json())
-                                  .then(data => { if (data.success) setApiLogs(data.data || []); })
-                                  .catch(() => {});
-                                fetch(`${API}/dashboard/attendance-today?date=${ds}`)
-                                  .then(r => r.json())
-                                  .then(data => setRosterCounts(data?.success ? data.data : null))
-                                  .catch(() => {});
+                                // Small delay so mobile write is durable
+                                // before we read back through the proxy.
+                                setTimeout(() => {
+                                  fetch(`${API}/attendance/logs?date=${ds}`)
+                                    .then(r => r.json())
+                                    .then(data => { if (data.success) setApiLogs(data.data || []); })
+                                    .catch(() => {});
+                                  fetch(`${API}/dashboard/attendance-today?date=${ds}`)
+                                    .then(r => r.json())
+                                    .then(data => setRosterCounts(data?.success ? data.data : null))
+                                    .catch(() => {});
+                                }, 1200);
                               } catch (err) {
                                 showNotification('Could not mark Present: ' + (err.message || 'unknown'), 'error');
                               }
