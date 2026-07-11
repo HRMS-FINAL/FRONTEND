@@ -44,6 +44,20 @@ export default function Attendance({ onBack, employees = [] }) {
   // knows the full active headcount and derives absent + permission from
   // the same source of truth as the Dashboard tiles.
   const [rosterCounts, setRosterCounts] = useState(null);
+  // #398 — Track Mark-Present operations that are mid-flight AND rows the
+  // server hasn't yet confirmed as Present. The refresh at 1200 ms after
+  // Mark Present can return the row still as Absent (mobile→Render write
+  // hasn't propagated, or the /logs endpoint's cache is stale). Without
+  // this Set, that refresh overwrites our optimistic update and the row
+  // flips back to Absent with the button reappearing — the exact bug HR
+  // reported. Now the merge logic KEEPS the local Present override for
+  // any row in this Set until the server row itself returns non-Absent.
+  //
+  // Keys are `employeeId` (e.g. "TES080") since that's what /logs returns.
+  // Values are the timestamp when we started marking; used to expire
+  // overrides after 30 s so a genuinely-failed mark eventually stops
+  // masking the truth.
+  const [pendingMarked, setPendingMarked] = useState(new Map());
 
   // #352e/f — Read the pre-filter that Dashboard.jsx stashed in
   // sessionStorage when the user clicked a Present/Absent/Late/
@@ -884,8 +898,12 @@ export default function Attendance({ onBack, employees = [] }) {
                         {log.status === 'Absent' && !log._synthetic && log.checkIn && log.checkIn !== '--:--' && (
                           <button
                             type="button"
+                            disabled={pendingMarked.has(log.employeeId)}
                             onClick={async (e) => {
                               e.stopPropagation();
+                              // #398 — Guard against double-clicks while a
+                              // mark is in flight for this same employee.
+                              if (pendingMarked.has(log.employeeId)) return;
                               const ok = await confirm({
                                 title: 'Mark as Present?',
                                 message: `Change ${log.name}'s attendance status for the selected date to Present. This will overwrite the current Absent record.`,
@@ -893,6 +911,17 @@ export default function Attendance({ onBack, employees = [] }) {
                                 cancelLabel: 'Cancel',
                               });
                               if (!ok) return;
+
+                              // #398 — Enter pending state IMMEDIATELY so the
+                              // button flips to "Presenting…" (disabled) and
+                              // any subsequent refresh knows to preserve the
+                              // local Present override for this employee.
+                              setPendingMarked(prev => {
+                                const next = new Map(prev);
+                                next.set(log.employeeId, Date.now());
+                                return next;
+                              });
+
                               try {
                                 const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
                                 const r = await fetch(`${API}/attendance/mark-status`, {
@@ -912,11 +941,7 @@ export default function Attendance({ onBack, employees = [] }) {
                                 // status to 'On Time' (the backend rep of
                                 // "Present") in local state IMMEDIATELY so
                                 // the badge changes without waiting for the
-                                // refresh fetch. The refresh below still
-                                // fires as a truth-check; if the mobile
-                                // write hasn't propagated to Render yet
-                                // (usually 1-3 s), HR sees Present the
-                                // whole time instead of a stale Absent.
+                                // refresh fetch.
                                 setApiLogs(prev => (Array.isArray(prev) ? prev : []).map(row => {
                                   const sameEmp =
                                     (row.employeeId && log.employeeId && row.employeeId === log.employeeId) ||
@@ -925,35 +950,85 @@ export default function Attendance({ onBack, employees = [] }) {
                                   if (!sameEmp) return row;
                                   return { ...row, status: 'On Time' };
                                 }));
+
                                 const ds = fmtDate(selectedDay);
-                                // Small delay so mobile write is durable
-                                // before we read back through the proxy.
+                                // #398 — Refresh AND merge, don't blindly
+                                // replace. If the server hasn't caught up
+                                // and still returns Absent for the marked
+                                // employee, keep the local Present override.
+                                // Only remove the override once the server
+                                // itself confirms non-Absent (or after
+                                // 30 s max, guarded below in the merge
+                                // helper).
                                 setTimeout(() => {
                                   fetch(`${API}/attendance/logs?date=${ds}`)
                                     .then(r => r.json())
-                                    .then(data => { if (data.success) setApiLogs(data.data || []); })
+                                    .then(data => {
+                                      if (!data.success || !Array.isArray(data.data)) return;
+                                      setApiLogs(prevLocal => {
+                                        const localByEmp = new Map();
+                                        (Array.isArray(prevLocal) ? prevLocal : []).forEach(l => {
+                                          if (l.employeeId) localByEmp.set(l.employeeId, l);
+                                        });
+                                        return data.data.map(serverRow => {
+                                          const empId = serverRow.employeeId;
+                                          const localRow = empId ? localByEmp.get(empId) : null;
+                                          const isPending = empId && pendingMarked.has(empId);
+                                          if (isPending && localRow && serverRow.status === 'Absent') {
+                                            return { ...serverRow, status: localRow.status || 'On Time' };
+                                          }
+                                          if (isPending && serverRow.status !== 'Absent') {
+                                            queueMicrotask(() => {
+                                              setPendingMarked(prev => {
+                                                const next = new Map(prev);
+                                                next.delete(empId);
+                                                return next;
+                                              });
+                                            });
+                                          }
+                                          return serverRow;
+                                        });
+                                      });
+                                    })
                                     .catch(() => {});
                                   fetch(`${API}/dashboard/attendance-today?date=${ds}`)
                                     .then(r => r.json())
                                     .then(data => setRosterCounts(data?.success ? data.data : null))
                                     .catch(() => {});
                                 }, 1200);
+
+                                // #398 — Hard safety expiry: 30 s after the
+                                // click, forcibly drop the pending flag
+                                // even if the server never caught up.
+                                setTimeout(() => {
+                                  setPendingMarked(prev => {
+                                    const next = new Map(prev);
+                                    next.delete(log.employeeId);
+                                    return next;
+                                  });
+                                }, 30000);
                               } catch (err) {
+                                setPendingMarked(prev => {
+                                  const next = new Map(prev);
+                                  next.delete(log.employeeId);
+                                  return next;
+                                });
                                 showNotification('Could not mark Present: ' + (err.message || 'unknown'), 'error');
                               }
                             }}
                             style={{
-                              background: '#4CAA17',
+                              background: pendingMarked.has(log.employeeId) ? '#94A3B8' : '#4CAA17',
                               color: '#fff',
                               border: 'none',
                               borderRadius: 6,
                               padding: '4px 10px',
                               fontSize: 11,
                               fontWeight: 700,
-                              cursor: 'pointer',
+                              cursor: pendingMarked.has(log.employeeId) ? 'not-allowed' : 'pointer',
+                              opacity: pendingMarked.has(log.employeeId) ? 0.7 : 1,
                             }}
                           >
-                            Mark Present
+                            {pendingMarked.has(log.employeeId) ? 'Presenting…' : 'Mark Present'}
                           </button>
                         )}
                       </div>
