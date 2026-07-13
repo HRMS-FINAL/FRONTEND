@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronRight, Calendar, Check, X, Clock,
   Search, Filter, CalendarCheck, FileText,
@@ -58,6 +58,17 @@ export default function Attendance({ onBack, employees = [] }) {
   // overrides after 30 s so a genuinely-failed mark eventually stops
   // masking the truth.
   const [pendingMarked, setPendingMarked] = useState(new Map());
+  // #406 — StaleClosureFix: setTimeout in the Mark Present click handler
+  // captures `pendingMarked` at click-time (BEFORE setPendingMarked has
+  // applied), so the merge helper's `pendingMarked.has(empId)` check
+  // returned false for the just-marked employee — causing the server's
+  // stale "Absent" to overwrite our optimistic "Present" and the button
+  // to reappear within 1-2 s (exactly what HR keeps reporting).
+  //
+  // Solution: mirror pendingMarked into a ref that we update SYNCHRONOUSLY
+  // in the click handler, and read from the ref inside the setTimeout.
+  // The ref bypasses the React render/closure boundary.
+  const pendingMarkedRef = useRef(new Map());
 
   // #352e/f — Read the pre-filter that Dashboard.jsx stashed in
   // sessionStorage when the user clicked a Present/Absent/Late/
@@ -916,11 +927,15 @@ export default function Attendance({ onBack, employees = [] }) {
                               // button flips to "Presenting…" (disabled) and
                               // any subsequent refresh knows to preserve the
                               // local Present override for this employee.
+                              // #406 — Also write the ref synchronously so
+                              // the setTimeout merge helper below sees the
+                              // fresh value (React state closure sees stale).
                               setPendingMarked(prev => {
                                 const next = new Map(prev);
                                 next.set(log.employeeId, Date.now());
                                 return next;
                               });
+                              pendingMarkedRef.current.set(log.employeeId, Date.now());
 
                               try {
                                 const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
@@ -973,11 +988,18 @@ export default function Attendance({ onBack, employees = [] }) {
                                         return data.data.map(serverRow => {
                                           const empId = serverRow.employeeId;
                                           const localRow = empId ? localByEmp.get(empId) : null;
-                                          const isPending = empId && pendingMarked.has(empId);
+                                          // #406 — Read the ref, NOT the state closure.
+                                          // pendingMarked state closure is captured at
+                                          // click-time and misses this click's write,
+                                          // so it always reads empty for the row we
+                                          // just marked. The ref is updated synchronously
+                                          // and is always current.
+                                          const isPending = empId && pendingMarkedRef.current.has(empId);
                                           if (isPending && localRow && serverRow.status === 'Absent') {
                                             return { ...serverRow, status: localRow.status || 'On Time' };
                                           }
                                           if (isPending && serverRow.status !== 'Absent') {
+                                            pendingMarkedRef.current.delete(empId);
                                             queueMicrotask(() => {
                                               setPendingMarked(prev => {
                                                 const next = new Map(prev);
@@ -1000,7 +1022,9 @@ export default function Attendance({ onBack, employees = [] }) {
                                 // #398 — Hard safety expiry: 30 s after the
                                 // click, forcibly drop the pending flag
                                 // even if the server never caught up.
+                                // #406 — Also drop from the ref.
                                 setTimeout(() => {
+                                  pendingMarkedRef.current.delete(log.employeeId);
                                   setPendingMarked(prev => {
                                     const next = new Map(prev);
                                     next.delete(log.employeeId);
