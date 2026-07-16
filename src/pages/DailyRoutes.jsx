@@ -253,11 +253,14 @@ export default function DailyRoutes({ onBack }) {
     );
   });
 
-  // Sum the polyline-computed distance — falls back to the backend value
-  // for rows where no GPS points were returned, so the headline tile
-  // still adds up to "something" rather than 0 when GPS is missing.
-  const totalDistance = items.reduce((s, it) => s + effectiveKm(it), 0);
-  const withAllowance = items.filter((it) => it.hasAllowance).length;
+  // #426 — Both tiles now reflect the CURRENT filter, not the full list.
+  // Previously picking an employee from the dropdown left the top-tile
+  // "Total km (all employees)" and "Filed allowance" numbers unchanged
+  // — confusing HR because the visible table shrunk to 1 row while the
+  // summary still showed the day-wide totals. The tiles now recompute
+  // whenever the search / employee filter changes.
+  const totalDistance = filtered.reduce((s, it) => s + effectiveKm(it), 0);
+  const withAllowance = filtered.filter((it) => it.hasAllowance).length;
 
   // Professional PDF — branded header, summary tiles, striped table.
   // #303 — uses the shared template so the logo + footer match every
@@ -441,10 +444,14 @@ export default function DailyRoutes({ onBack }) {
       <div style={{ padding: 24 }}>
         {/* Stat tiles */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
-          <StatTile label="Employees with data" value={items.length} color="#4299E1" />
+          {/* #426 — All four tiles now use `filtered` so an employee-scoped
+              filter shows counts for the one employee, and a search
+              narrows everything in lock-step. When no filter is active,
+              `filtered` === `items` so the previous behaviour is preserved. */}
+          <StatTile label="Employees with data" value={filtered.length} color="#4299E1" />
           <StatTile label="Filed allowance" value={withAllowance} color="#16A34A" />
-          <StatTile label="No allowance (auto-tracked)" value={items.length - withAllowance} color="#D97706" />
-          <StatTile label="Total km (all employees)" value={`${totalDistance.toFixed(1)} km`} color="#7C3AED" />
+          <StatTile label="No allowance (auto-tracked)" value={Math.max(0, filtered.length - withAllowance)} color="#D97706" />
+          <StatTile label={filtered.length === items.length ? 'Total km (all employees)' : 'Total km (filtered)'} value={`${totalDistance.toFixed(1)} km`} color="#7C3AED" />
         </div>
 
         <div className="card">
