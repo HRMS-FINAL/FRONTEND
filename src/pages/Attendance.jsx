@@ -223,28 +223,32 @@ export default function Attendance({ onBack, employees = [] }) {
     present: 0, late: 0, leave: 0, permission: 0,
   });
 
+  // #455 — Read the counts from the ERM backend instead of recomputing here.
+  //
+  // This panel used to derive its own numbers from /attendance/logs with rules
+  // that did not match the ERM app:
+  //   • Present folded Late in, and ignored the Sunday/holiday credit ERM adds.
+  //   • Absent counted only rows literally marked absent, whereas ERM derives
+  //     it from elapsed workdays (so days with no record at all count).
+  //   • Permission was read off the DAY STATUS — but the leave overlay rewrites
+  //     a past permission day to 'present' when the employee checked in, so a
+  //     normal partial-day permission always showed 0.
+  // Result: HRMS and the ERM attendance cards could never agree. Both now read
+  // ERM's single computeMonthlySummary(), so they match by construction.
   useEffect(() => {
     if (!selectedLog) return;
+    const empId = selectedLog.employeeId || '';
+    if (!empId) return;
     let cancelled = false;
-    fetch(`${API}/attendance/logs?month=${viewMonth + 1}&year=${viewYear}`)
+    fetch(`${API}/attendance/summary?employeeId=${encodeURIComponent(empId)}&month=${viewMonth + 1}&year=${viewYear}`)
       .then(r => r.json())
       .then(data => {
-        if (cancelled || !data?.success || !Array.isArray(data.data)) return;
-        const empId    = selectedLog.employeeId || '';
-        const empEmail = (selectedLog.email || '').toLowerCase();
-        const mine = data.data.filter(log =>
-          (empId    && log.employeeId === empId) ||
-          (empEmail && (log.email || '').toLowerCase() === empEmail)
-        );
-        const norm = (s) => s === 'On Time' ? 'Present' : s === 'Absent' ? 'Absent' : s;
-        // Present count folds Late in (employee did come in); the Late
-        // figure is preserved separately so the monthly view can still
-        // surface it.
+        if (cancelled || !data?.success) return;
         setMonthlyOverview({
-          present:    mine.filter(l => norm(l.status) === 'Present' || norm(l.status) === 'Late').length,
-          late:       mine.filter(l => norm(l.status) === 'Late').length,
-          leave:      mine.filter(l => norm(l.status) === 'Absent').length,
-          permission: mine.filter(l => norm(l.status) === 'Permission').length,
+          present:    Number(data.present)    || 0,
+          late:       Number(data.late)       || 0,
+          leave:      Number(data.absent)     || 0,   // UI labels this tile "Absent"
+          permission: Number(data.permission) || 0,
         });
       })
       .catch(() => {});
