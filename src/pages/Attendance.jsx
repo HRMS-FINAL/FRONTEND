@@ -179,6 +179,10 @@ export default function Attendance({ onBack, employees = [] }) {
       // 'On Time' → 'Present' for the badge; 'Absent' → 'Absent';
       // 'Half Day' is now distinct from 'Permission' (Jun 2026 — policy fix). 'Permission' = filed permission request; 'Half Day' = early checkout without permission (counts toward LOP).
       status: log.status === 'On Time' ? 'Present' : log.status === 'Absent' ? 'Absent' : log.status,
+      // #468 — Keep the approved-permission flag from the backend. A past
+      // permission day collapses to Present in `status`, so the count
+      // relies on this flag, not the badge.
+      hasPermission: log.hasPermission === true,
       checkIn: log.checkIn || '--:--',
       checkOut: log.checkOut || '--:--',
       workHours: log.workHours || '0h',
@@ -298,7 +302,16 @@ export default function Attendance({ onBack, employees = [] }) {
     const norm = (s) => String(s || '').trim().toLowerCase();
     const onlyPresent = dailyLogs.filter(l => norm(l.status) === 'present').length;
     const late        = dailyLogs.filter(l => norm(l.status) === 'late').length;
-    const permission  = dailyLogs.filter(l => norm(l.status) === 'permission').length;
+    // #468 — Count APPROVED permissions via the hasPermission flag (a past
+    // permission day shows as Present in `status`, so status alone read 0).
+    // Falls back to the raw 'permission' status for in-window days. This is
+    // the number shown on the Permission card + "Perm" chip and can overlap
+    // with Present (an approved permission on a day the employee worked).
+    const permission  = dailyLogs.filter(l => l.hasPermission === true || norm(l.status) === 'permission').length;
+    // In-window permission rows still carry status 'permission' (not folded
+    // into present). Count them separately for the showedUp tally so a
+    // permission-on-a-present-day is NOT double counted below.
+    const statusPermission = dailyLogs.filter(l => norm(l.status) === 'permission').length;
     const halfday     = dailyLogs.filter(l => norm(l.status) === 'half day' || norm(l.status) === 'halfday').length;
     // #364 — Present == same definition as the Dashboard top card:
     // anyone who showed up. Includes late, permission, half-day. So the
@@ -307,7 +320,9 @@ export default function Attendance({ onBack, employees = [] }) {
     const activeCount = (activeEmployees || []).filter(e =>
       String(e.status || 'Active') === 'Active'
     ).length;
-    const showedUp = onlyPresent + late + permission + halfday;
+    // Use disjoint status buckets for showedUp (a permission-present day is
+    // already inside onlyPresent; only in-window permission rows add to it).
+    const showedUp = onlyPresent + late + statusPermission + halfday;
     const leave    = Math.max(0, activeCount - showedUp);
     return { present: showedUp, late, leave, permission };
   }, [dailyLogs, activeEmployees]);
