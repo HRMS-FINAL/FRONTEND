@@ -593,12 +593,58 @@ export default function LiveTracking() {
   const [selected, setSelected] = useState(null);
   const [search, setSearch]     = useState('');
   const [mapType, setMapType]   = useState('roadmap'); // roadmap, satellite, terrain
+  // Reverse-geocoded check-in place per employee (coord key → label). Uses
+  // the loaded Google Maps JS Geocoder (no CORS issue). Cached so we never
+  // geocode the same coordinate twice.
+  const [placeCache, setPlaceCache] = useState({});
+  const placeCacheRef = useRef({});
 
   // Live employees come from /api/live-tracking (HRMS proxy → mobile
   // backend's /api/attendance/admin/live-locations). The mobile app pushes
   // a GPS ping every 2 minutes while checked in, so we re-fetch every 30s
   // here — the data is at most ~2 min old by design.
   const [liveEmployees, setLiveEmployees] = useState([]);
+
+  // Reverse-geocode check-in coordinates → a short place label, for the
+  // "Checked in at" line. Office check-ins skip geocoding (labelled "Office").
+  useEffect(() => {
+    if (!isLoaded || !window.google?.maps) return;
+    const geocoder = new window.google.maps.Geocoder();
+    const shorten = (addr) => {
+      if (!addr) return '';
+      // Keep the most specific 2 components (area, city) for readability.
+      const parts = String(addr).split(',').map((s) => s.trim()).filter(Boolean);
+      return parts.slice(0, 2).join(', ');
+    };
+    liveEmployees.forEach((emp) => {
+      if (emp.checkInIsOffice) return;
+      if (emp.checkInLat == null || emp.checkInLng == null) return;
+      const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
+      if (placeCacheRef.current[key] !== undefined) return; // already resolved / in-flight
+      placeCacheRef.current[key] = ''; // mark in-flight
+      geocoder.geocode(
+        { location: { lat: emp.checkInLat, lng: emp.checkInLng } },
+        (results, status) => {
+          let label = '';
+          if (status === 'OK' && results && results[0]) {
+            label = shorten(results[0].formatted_address);
+          }
+          placeCacheRef.current[key] = label || `${emp.checkInLat.toFixed(4)}, ${emp.checkInLng.toFixed(4)}`;
+          setPlaceCache({ ...placeCacheRef.current });
+        },
+      );
+    });
+  }, [liveEmployees, isLoaded]);
+
+  // Resolve the "checked in at" label for one row.
+  const checkInPlaceOf = (emp) => {
+    if (!emp) return '';
+    if (emp.checkInIsOffice) return 'Office';
+    if (emp.checkInLat == null || emp.checkInLng == null) return '—';
+    const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
+    return placeCache[key] || 'Locating…';
+  };
+
   // Office anchor (Jun 2026 — HR confirmed exact pin from Google Maps).
   // Tesco Structures HQ: 37, 15th Street, Gandhi Nagar, Ashok Nagar,
   // Chennai, Tamil Nadu 600083.
@@ -682,6 +728,10 @@ export default function LiveTracking() {
           // sidebar/map matches the header tile and filter tab the
           // employee falls under.
           color:      STATUS_COLOR[bucketOf(e.status)] || STATUS_COLOR.offline,  // (live mode tile colour — left alone; sidebar uses e.bucket)
+          // Where the employee CHECKED IN (independent of current position).
+          checkInLat:      (typeof e.checkInLat === 'number') ? e.checkInLat : null,
+          checkInLng:      (typeof e.checkInLng === 'number') ? e.checkInLng : null,
+          checkInIsOffice: !!e.checkInIsOffice,
         }));
       setLiveEmployees(rows);
       setLastUpdated(new Date());
@@ -1401,6 +1451,10 @@ export default function LiveTracking() {
                           <span className="item-dist"><Route size={10} style={{ marginRight: '2px', verticalAlign: 'middle' }} /> {emp.distance}km</span>
                         </>
                       )}
+                    </div>
+                    <div className="item-checkin" style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <MapPin size={10} style={{ verticalAlign: 'middle' }} />
+                      <span>Checked in: <strong style={{ color: checkInPlaceOf(emp) === 'Office' ? '#16a34a' : '#334155', fontWeight: 600 }}>{checkInPlaceOf(emp)}</strong></span>
                     </div>
                   </div>
                   <div className="item-status">

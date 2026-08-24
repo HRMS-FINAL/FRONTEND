@@ -138,7 +138,7 @@ export default function Attendance({ onBack, employees = [] }) {
     //   startDate / endDate  (for leave rows)
     //   permissionDate       (for permission rows)
     // Fixed field parsing so the Permission drill-down actually lists people.
-    fetch(`${API}/leave-requests?status=approved&limit=500`)
+    fetch(`${API}/leave-requests?status=approved&from=${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01&to=${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(new Date(viewYear, viewMonth + 1, 0).getDate()).padStart(2, '0')}`)
       .then(r => r.json())
       .then(data => {
         const items = Array.isArray(data?.items) ? data.items : [];

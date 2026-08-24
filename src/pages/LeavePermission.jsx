@@ -171,11 +171,18 @@ export default function LeavePermission({ onBack }) {
   // seed so the demo still works offline.
   useEffect(() => {
     let cancelled = false;
+    // Fetch approved leave/permission for the VIEWED month, keyed on the
+    // request's own dates — so a request approved after its date passed
+    // still shows on that date, and none drop off a recent-N cap.
+    const mm   = String(viewMonth + 1).padStart(2, '0');
+    const from = `${viewYear}-${mm}-01`;
+    const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const to   = `${viewYear}-${mm}-${String(lastDay).padStart(2, '0')}`;
     const load = async () => {
       try {
-        const res  = await fetch(`${API}/leave-requests?status=approved&limit=200`);
+        const res  = await fetch(`${API}/leave-requests?status=approved&from=${from}&to=${to}`);
         const data = await res.json();
-        if (!cancelled && data && Array.isArray(data.items) && data.items.length > 0) {
+        if (!cancelled && data && Array.isArray(data.items)) {
           setRecords(data.items);
         }
       } catch { /* keep current records on screen */ }
@@ -183,7 +190,7 @@ export default function LeavePermission({ onBack }) {
     load();
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  }, [viewYear, viewMonth]);
 
   // Rewritten Jun 2026 — the old impl only looked at day numbers in the
   // formatted `date` string, so a May 15 record matched June 15 too
