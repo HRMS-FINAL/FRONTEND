@@ -608,35 +608,42 @@ export default function LiveTracking() {
   // Reverse-geocode check-in coordinates → a short place label, for the
   // "Checked in at" line. Office check-ins skip geocoding (labelled "Office").
   useEffect(() => {
-    // Guard on window.google.maps directly — `isLoaded` from useJsApiLoader
-    // is scoped to the map sub-component, not this one. The 30s live refresh
-    // re-runs this effect, so geocoding still resolves once Maps has loaded.
-    if (!window.google?.maps) return;
-    const geocoder = new window.google.maps.Geocoder();
-    const shorten = (addr) => {
-      if (!addr) return '';
-      // Keep the most specific 2 components (area, city) for readability.
-      const parts = String(addr).split(',').map((s) => s.trim()).filter(Boolean);
-      return parts.slice(0, 2).join(', ');
-    };
-    liveEmployees.forEach((emp) => {
-      if (emp.checkInIsOffice) return;
-      if (emp.checkInLat == null || emp.checkInLng == null) return;
-      const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
-      if (placeCacheRef.current[key] !== undefined) return; // already resolved / in-flight
-      placeCacheRef.current[key] = ''; // mark in-flight
-      geocoder.geocode(
-        { location: { lat: emp.checkInLat, lng: emp.checkInLng } },
-        (results, status) => {
-          let label = '';
-          if (status === 'OK' && results && results[0]) {
-            label = shorten(results[0].formatted_address);
-          }
-          placeCacheRef.current[key] = label || `${emp.checkInLat.toFixed(4)}, ${emp.checkInLng.toFixed(4)}`;
-          setPlaceCache({ ...placeCacheRef.current });
-        },
-      );
-    });
+    // Fully defensive: the Geocoder class may not be ready yet even when
+    // window.google.maps exists (partial load). Only run when it's a real
+    // constructor, and wrap everything so a Maps hiccup can never blank the
+    // page. The 30s live refresh re-runs this once Maps has finished loading.
+    try {
+      const G = window.google && window.google.maps && window.google.maps.Geocoder;
+      if (typeof G !== 'function') return;
+      const geocoder = new G();
+      const shorten = (addr) => {
+        if (!addr) return '';
+        const parts = String(addr).split(',').map((s) => s.trim()).filter(Boolean);
+        return parts.slice(0, 2).join(', ');
+      };
+      liveEmployees.forEach((emp) => {
+        if (emp.checkInIsOffice) return;
+        if (emp.checkInLat == null || emp.checkInLng == null) return;
+        const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
+        if (placeCacheRef.current[key] !== undefined) return; // resolved / in-flight
+        placeCacheRef.current[key] = ''; // mark in-flight
+        try {
+          geocoder.geocode(
+            { location: { lat: emp.checkInLat, lng: emp.checkInLng } },
+            (results, status) => {
+              let label = '';
+              if (status === 'OK' && results && results[0]) {
+                label = shorten(results[0].formatted_address);
+              }
+              placeCacheRef.current[key] = label || `${emp.checkInLat.toFixed(4)}, ${emp.checkInLng.toFixed(4)}`;
+              setPlaceCache({ ...placeCacheRef.current });
+            },
+          );
+        } catch {
+          placeCacheRef.current[key] = `${emp.checkInLat.toFixed(4)}, ${emp.checkInLng.toFixed(4)}`;
+        }
+      });
+    } catch { /* Maps not ready — will retry on next live refresh */ }
   }, [liveEmployees]);
 
   // Resolve the "checked in at" label for one row.
