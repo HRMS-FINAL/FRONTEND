@@ -608,7 +608,10 @@ export default function LiveTracking() {
   // Reverse-geocode check-in coordinates → a short place label, for the
   // "Checked in at" line. Office check-ins skip geocoding (labelled "Office").
   useEffect(() => {
-    if (!isLoaded || !window.google?.maps) return;
+    // Guard on window.google.maps directly — `isLoaded` from useJsApiLoader
+    // is scoped to the map sub-component, not this one. The 30s live refresh
+    // re-runs this effect, so geocoding still resolves once Maps has loaded.
+    if (!window.google?.maps) return;
     const geocoder = new window.google.maps.Geocoder();
     const shorten = (addr) => {
       if (!addr) return '';
@@ -634,7 +637,7 @@ export default function LiveTracking() {
         },
       );
     });
-  }, [liveEmployees, isLoaded]);
+  }, [liveEmployees]);
 
   // Resolve the "checked in at" label for one row.
   const checkInPlaceOf = (emp) => {
