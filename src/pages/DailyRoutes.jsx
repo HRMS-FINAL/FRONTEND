@@ -15,8 +15,11 @@
  *
  * (View Route map removed per request — table-only view.)
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useJsApiLoader } from '@react-google-maps/api';
 import { ChevronRight, Calendar, Search, Navigation, MapPin } from 'lucide-react';
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 // #303 — branded report template.
@@ -112,6 +115,59 @@ export default function DailyRoutes({ onBack }) {
   //
   //   { [employeeId]: { km: number, points: number, loading: boolean } }
   const [gpsByEmp, setGpsByEmp] = useState({});
+
+  // Google Maps loader (shares the app-wide instance by id) — used to
+  // reverse-geocode each check-in coordinate into a readable place.
+  const { isLoaded: mapsLoaded } = useJsApiLoader({
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    id: 'tesco-hrms-google-maps',
+  });
+  const [placeCache, setPlaceCache] = useState({});
+  const placeCacheRef = useRef({});
+
+  // Reverse-geocode each non-office check-in coordinate → a short place
+  // label. Fully defensive: only runs when the Geocoder is a real
+  // constructor, and wrapped so a Maps hiccup can never break the page.
+  useEffect(() => {
+    try {
+      const G = window.google && window.google.maps && window.google.maps.Geocoder;
+      if (typeof G !== 'function') return;
+      const geocoder = new G();
+      const shorten = (addr) => {
+        if (!addr) return '';
+        const parts = String(addr).split(',').map((s) => s.trim()).filter(Boolean);
+        return parts.slice(0, 2).join(', ');
+      };
+      (items || []).forEach((it) => {
+        if (it.checkInIsOffice) return;
+        if (it.checkInLat == null || it.checkInLng == null) return;
+        const lat = Number(it.checkInLat), lng = Number(it.checkInLng);
+        const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+        if (placeCacheRef.current[key] !== undefined) return;
+        placeCacheRef.current[key] = '';
+        try {
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            let label = '';
+            if (status === 'OK' && results && results[0]) label = shorten(results[0].formatted_address);
+            placeCacheRef.current[key] = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            setPlaceCache({ ...placeCacheRef.current });
+          });
+        } catch {
+          placeCacheRef.current[key] = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        }
+      });
+    } catch { /* Maps not ready — retries when data/loader changes */ }
+  }, [items, mapsLoaded]);
+
+  // "Checked-in Location" for a row: Office / resolved place / coords.
+  const checkInLocationOf = (it) => {
+    if (!it) return '—';
+    if (it.checkInIsOffice) return 'Office';
+    if (it.checkInLat == null || it.checkInLng == null) return '—';
+    const lat = Number(it.checkInLat), lng = Number(it.checkInLng);
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    return placeCache[key] || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -267,13 +323,14 @@ export default function DailyRoutes({ onBack }) {
   // other HRMS download.
   const downloadPdf = async () => {
     try {
-      const head = ['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Distance', 'Source', 'Allowance'];
+      const head = ['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Checked-in Location', 'Distance', 'Source', 'Allowance'];
       const body = filtered.map((it) => [
         it.employeeId || '—',
         it.name || it.employeeName || '—',
         it.designation || '—',
         fmtTime(it.checkIn),
         fmtTime(it.checkOut),
+        checkInLocationOf(it),
         effectiveKm(it).toFixed(2) + ' km',
         effectiveSource(it),
         it.hasAllowance ? 'Yes' : 'No',
@@ -284,13 +341,14 @@ export default function DailyRoutes({ onBack }) {
         meta:     { date },
         head, body,
         totals: [[
-          { content: `Total employees: ${items.length}  ·  Filed allowance: ${withAllowance}  ·  Auto-tracked: ${items.length - withAllowance}`, colSpan: 5 },
+          { content: `Total employees: ${items.length}  ·  Filed allowance: ${withAllowance}  ·  Auto-tracked: ${items.length - withAllowance}`, colSpan: 6 },
           { content: totalDistance.toFixed(2) + ' km', styles: { halign: 'right' } },
           { content: '', colSpan: 2 },
         ]],
         columnStyles: {
-          5: { halign: 'right', cellWidth: 60 },
-          7: { halign: 'center', cellWidth: 60 },
+          5: { cellWidth: 68 },                    // Checked-in Location
+          6: { halign: 'right', cellWidth: 52 },   // Distance
+          8: { halign: 'center', cellWidth: 48 },  // Allowance
         },
         orientation: 'landscape',
       });
@@ -316,6 +374,7 @@ export default function DailyRoutes({ onBack }) {
       ];
       const routes = [
         ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out',
+         'Checked-in Location',
          'GPS Distance (km)', 'Distance Source', 'Filed Allowance',
          'Petrol Claimed (km)', 'Travel Claimed (km)'],
         ...rs.map((it) => [
@@ -325,6 +384,7 @@ export default function DailyRoutes({ onBack }) {
           it.department || it.dept || '',
           fmtTime(it.checkIn),
           fmtTime(it.checkOut),
+          checkInLocationOf(it),
           Number(effectiveKm(it).toFixed(2)),
           effectiveSource(it),
           it.hasAllowance ? 'Yes' : 'No',
@@ -468,6 +528,7 @@ export default function DailyRoutes({ onBack }) {
                   <th>Designation</th>
                   <th>Check-In</th>
                   <th>Check-Out</th>
+                  <th>Checked-in Location</th>
                   <th>Distance</th>
                   <th>Allowance</th>
                   <th>Route Map</th>
@@ -475,10 +536,10 @@ export default function DailyRoutes({ onBack }) {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>Loading routes…</td></tr>
+                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>Loading routes…</td></tr>
                 )}
                 {!loading && error && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#DC2626', fontSize: 13 }}>
+                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: 40, color: '#DC2626', fontSize: 13 }}>
                     <div style={{ marginBottom: 12 }}>{error}</div>
                     <button
                       type="button"
@@ -491,7 +552,7 @@ export default function DailyRoutes({ onBack }) {
                   </td></tr>
                 )}
                 {!loading && !error && filtered.length === 0 && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>No attendance records for {date}.</td></tr>
+                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: 40, color: '#64748B', fontSize: 13 }}>No attendance records for {date}.</td></tr>
                 )}
                 {!loading && !error && filtered.map((it) => {
                   // Prefer the map-polyline distance over the backend value -
@@ -521,6 +582,15 @@ export default function DailyRoutes({ onBack }) {
                       </td>
                       <td><div style={{ fontSize: 12, color: 'var(--text-main)' }}>{fmtTime(it.checkIn)}</div></td>
                       <td><div style={{ fontSize: 12, color: 'var(--text-main)' }}>{fmtTime(it.checkOut)}</div></td>
+                      <td>
+                        <div style={{
+                          fontSize: 12,
+                          fontWeight: it.checkInIsOffice ? 700 : 500,
+                          color: it.checkInIsOffice ? '#16A34A' : 'var(--text-main)',
+                        }}>
+                          {checkInLocationOf(it)}
+                        </div>
+                      </td>
                       <td>
                         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>
                           {distance.toFixed(2)} km
