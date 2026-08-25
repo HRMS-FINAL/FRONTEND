@@ -649,10 +649,18 @@ export default function LiveTracking() {
   // Resolve the "checked in at" label for one row.
   const checkInPlaceOf = (emp) => {
     if (!emp) return '';
+    // GPS-verified: coords fell inside the office geofence.
     if (emp.checkInIsOffice) return 'Office';
-    if (emp.checkInLat == null || emp.checkInLng == null) return '—';
-    const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
-    return placeCache[key] || 'Locating…';
+    // GPS coords present → reverse-geocoded place (or coords while resolving).
+    if (emp.checkInLat != null && emp.checkInLng != null) {
+      const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
+      return placeCache[key] || 'Locating…';
+    }
+    // No GPS at check-in (location off / no fix) → fall back to the
+    // employee's DECLARED mode so HR sees the intended place, not a bare —.
+    if (emp.checkInMode === 'office') return 'Office';
+    if (emp.checkInMode === 'remote') return 'Remote';
+    return '—';
   };
 
   // Office anchor (Jun 2026 — HR confirmed exact pin from Google Maps).
@@ -742,6 +750,9 @@ export default function LiveTracking() {
           checkInLat:      (typeof e.checkInLat === 'number') ? e.checkInLat : null,
           checkInLng:      (typeof e.checkInLng === 'number') ? e.checkInLng : null,
           checkInIsOffice: !!e.checkInIsOffice,
+          // Declared check-in mode ('office' | 'remote') — fallback label
+          // when GPS coords weren't captured at check-in (location off).
+          checkInMode:     String(e.checkInMode || '').toLowerCase(),
         }));
       setLiveEmployees(rows);
       setLastUpdated(new Date());
@@ -1464,7 +1475,7 @@ export default function LiveTracking() {
                     </div>
                     <div className="item-checkin" style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <MapPin size={10} style={{ verticalAlign: 'middle' }} />
-                      <span>Checked in: <strong style={{ color: checkInPlaceOf(emp) === 'Office' ? '#16a34a' : '#334155', fontWeight: 600 }}>{checkInPlaceOf(emp)}</strong></span>
+                      <span>Checked in: <strong style={{ color: emp.checkInIsOffice ? '#16a34a' : '#334155', fontWeight: 600 }}>{checkInPlaceOf(emp)}</strong></span>
                     </div>
                   </div>
                   <div className="item-status">
