@@ -649,17 +649,16 @@ export default function LiveTracking() {
   // Resolve the "checked in at" label for one row.
   const checkInPlaceOf = (emp) => {
     if (!emp) return '';
-    // GPS-verified: coords fell inside the office geofence.
+    // Office ONLY when real GPS coords fell inside the office geofence —
+    // either from the check-in tap, or (if that had no GPS) the first ping
+    // of the day. Never inferred from the app's office/remote toggle.
     if (emp.checkInIsOffice) return 'Office';
-    // GPS coords present → reverse-geocoded place (or coords while resolving).
+    // Real coords present → reverse-geocoded place (or coords while resolving).
     if (emp.checkInLat != null && emp.checkInLng != null) {
       const key = `${emp.checkInLat.toFixed(5)},${emp.checkInLng.toFixed(5)}`;
       return placeCache[key] || 'Locating…';
     }
-    // No GPS at check-in (location off / no fix) → fall back to the
-    // employee's DECLARED mode so HR sees the intended place, not a bare —.
-    if (emp.checkInMode === 'office') return 'Office';
-    if (emp.checkInMode === 'remote') return 'Remote';
+    // No GPS captured at check-in AND no ping today → truly unknown.
     return '—';
   };
 
@@ -750,9 +749,9 @@ export default function LiveTracking() {
           checkInLat:      (typeof e.checkInLat === 'number') ? e.checkInLat : null,
           checkInLng:      (typeof e.checkInLng === 'number') ? e.checkInLng : null,
           checkInIsOffice: !!e.checkInIsOffice,
-          // Declared check-in mode ('office' | 'remote') — fallback label
-          // when GPS coords weren't captured at check-in (location off).
-          checkInMode:     String(e.checkInMode || '').toLowerCase(),
+          // True when the check-in place was derived from the first ping of
+          // the day (check-in tap captured no GPS) rather than the tap itself.
+          checkInApprox:   !!e.checkInApprox,
         }));
       setLiveEmployees(rows);
       setLastUpdated(new Date());
