@@ -8,12 +8,13 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
 } from 'recharts';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 import { API } from '../config/api';
-import logoHrm from '../assets/logo-hrm.png';
+// #497 — Attendance Report + Employee Master PDFs now use the SAME shared
+// branded builder as every other HRMS report, so all PDFs share one header,
+// the HRM logo, the green table header, and clean page breaks.
+import { buildBrandedPdf } from '../utils/reportTemplate';
 
 // ── Report definitions ────────────────────────────────────────────
 const REPORT_TYPES = [
@@ -52,30 +53,7 @@ export default function Reports({ onBack }) {
   // Master report shows real leave usage instead of the synthetic
   // "Absent" status flag on the Employee record.
   const [leaveByEmpId, setLeaveByEmpId]     = useState({});
-  // Map of employeeId → PRESENT days inside the picked range, pulled from the
-  // SAME canonical attendance report the Attendance tab uses. Drives the new
-  // "Present Days" column + tile + chart on the Employee Master report so its
-  // numbers match the Attendance report exactly.
-  const [presentByEmpId, setPresentByEmpId] = useState({});
   const [loading, setLoading]               = useState(false);
-
-  // Company logo preloaded as a PNG data-URL so the synchronous jsPDF export
-  // can embed it without an async image load mid-render. Rendered in the
-  // on-screen report header too.
-  const [logoDataUrl, setLogoDataUrl] = useState('');
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width  = img.naturalWidth  || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        setLogoDataUrl(canvas.toDataURL('image/png'));
-      } catch { /* canvas taint or unsupported — PDF simply omits the logo */ }
-    };
-    img.src = logoHrm;
-  }, []);
 
   // Fetch attendance report from API
   const fetchAttendanceReport = async () => {
@@ -158,39 +136,11 @@ export default function Reports({ onBack }) {
     }
   };
 
-  // Pull PRESENT days per employee for the picked range from the canonical
-  // attendance report, so the Employee Master's "Present Days" column/tile/
-  // chart uses the exact same counts as the Attendance report.
-  const fetchPresentForReport = async () => {
-    try {
-      const res  = await fetch(`${API}/reports/attendance?startDate=${startDate}&endDate=${endDate}`);
-      const data = await res.json();
-      if (!data?.success || !Array.isArray(data.data?.rows)) {
-        setPresentByEmpId({});
-        return;
-      }
-      const map = {};
-      for (const r of data.data.rows) {
-        if (r.employeeId) map[r.employeeId] = Number(r.present) || 0;
-      }
-      setPresentByEmpId(map);
-    } catch (err) {
-      console.error('Failed to load present-days for report:', err);
-      setPresentByEmpId({});
-    }
-  };
-
   useEffect(() => {
     if (reportId === 'attendance') {
       fetchAttendanceReport();
     } else {
       fetchEmployees();
-      // Pull live leave aggregates so the "Absent" tile reflects real usage
-      // inside the picked range, not just the static status flag.
-      fetchLeavesForReport();
-      // Pull present-days so the Present Days column/tile/chart match the
-      // Attendance report exactly.
-      fetchPresentForReport();
     }
   }, [reportId, startDate, endDate]);
 
@@ -216,13 +166,28 @@ export default function Reports({ onBack }) {
     });
   }, [employeeData, startDate, endDate, reportId]);
 
+  // #496 — SINGLE source of truth for employee status classification, used by
+  // the table, the tiles AND the chart so every status count in the Employee
+  // Master report agrees. Two buckets only:
+  //   • 'resigned' — the employee has left: status Resigned/Terminated/
+  //     Inactive, or isActive === false. Terminated is folded into Resigned.
+  //   • 'active'   — everyone else.
+  const statusGroupOf = (e) => {
+    const s = String(e?.status || '').toLowerCase().trim();
+    if (e?.isActive === false || s === 'resigned' || s === 'terminated' || s === 'inactive') {
+      return 'resigned';
+    }
+    return 'active';
+  };
+
   // ── Table rows ────────────────────────────────────────────────
   // Declared BEFORE metrics + chartData so both can be derived from the exact
   // same rows the table renders — guaranteeing chart totals reconcile to the
-  // table (#495).
+  // table (#495 / #496). The Employee Master lists the FULL in-range workforce
+  // (active + resigned/terminated) so it's a true status overview.
   const tableRows = reportId === 'attendance'
     ? (attendanceData?.rows || [])
-    : employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').map(e => {
+    : employeeDataInRange.map(e => {
         // Reject raw ObjectId strings — fall through to the denormalised
         // departmentName / designationTitle sidecar fields, then to '—'.
         const isHexId = (s) => typeof s === 'string' && /^[a-f0-9]{24}$/i.test(s);
@@ -244,9 +209,8 @@ export default function Reports({ onBack }) {
           designation:  pickTitle(e.designation, e.designationTitle),
           manager:      e.assignedTo || '—',
           status:       e.status || 'Active',
-          // #495 — PRESENT days inside the picked range, from the canonical
-          // attendance report (same source as the Attendance tab).
-          presentDays:  presentByEmpId[empId] || 0,
+          // #496 — 'active' | 'resigned' (terminated folded into resigned).
+          statusGroup:  statusGroupOf(e),
         };
       });
 
@@ -265,18 +229,12 @@ export default function Reports({ onBack }) {
     { label: 'Permission',     value: attendanceData.summary.totalPermission ?? attendanceData.summary.totalHalfDay ?? 0, icon: <Clock size={18} />,    color: '#9F7AEA', bg: '#FAF5FF' },
     { label: 'Absent Days',    value: attendanceData.summary.totalAbsent      || 0, icon: <XCircle size={18} />,  color: '#FC8181', bg: '#FFF5F5' },
   ] : reportId === 'employee' ? [
-    { label: 'Total Employees', value: employeeDataInRange.length,                                                             icon: <Users size={18} />,        color: '#4299E1', bg: '#EBF4FD' },
-    { label: 'Active Staff',    value: employeeDataInRange.filter(e => e.isActive !== false && e.status !== 'Terminated').length, icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
-    // "Absent" used to compare against the static `e.status === 'On
-    // Leave'` flag on the Employee directory — that was almost always 0.
-    // Replaced with a count of distinct employees who took any approved
-    // leave inside the picked date range (via leaveByEmpId), so the
-    // tile reflects real usage.
-    { label: 'Absent',        value: Object.values(leaveByEmpId).filter(v => v > 0).length,                                  icon: <XCircle size={18} />,       color: '#FC8181', bg: '#FFF5F5' },
-    // #495 — Leave Days tile replaced with Present Days (total present days
-    // across in-range employees), summed from the SAME per-employee present
-    // counts shown in the table's Present Days column.
-    { label: 'Present Days',    value: employeeDataInRange.reduce((s, e) => s + (presentByEmpId[e.employeeId || e._id] || 0), 0), icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
+    // #496 — Status counts use the SAME statusGroup classifier as the table
+    // and chart, so Total = Active + Resigned and every figure reconciles.
+    // Terminated employees are counted under Resigned.
+    { label: 'Total Employees', value: tableRows.length,                                             icon: <Users size={18} />,      color: '#4299E1', bg: '#EBF4FD' },
+    { label: 'Active',          value: tableRows.filter(r => r.statusGroup === 'active').length,     icon: <CheckCircle size={18} />, color: '#4CAA17', bg: '#F1F9EE' },
+    { label: 'Resigned',        value: tableRows.filter(r => r.statusGroup === 'resigned').length,   icon: <XCircle size={18} />,     color: '#FC8181', bg: '#FFF5F5' },
   ] : [];
 
   // ── Chart data from real API ──────────────────────────────────
@@ -321,77 +279,61 @@ export default function Reports({ onBack }) {
       })()
     : reportId === 'employee'
     ? (() => {
-        // #495 — Employee Master chart = PRESENT DAYS per department, summed
-        // from the SAME per-employee present counts shown in the table's
-        // "Present Days" column. No separate calculation, so the bars always
-        // reconcile to the table.
+        // #496 — Employee Master chart = ACTIVE vs RESIGNED head-count per
+        // department, counted from the EXACT same rows the table renders
+        // (statusGroup). Terminated is folded into Resigned. No separate
+        // calculation, so active+resigned per dept sums to that dept's rows
+        // and the bar totals equal the Active / Resigned tiles.
         const deptMap = {};
         (tableRows || []).forEach(r => {
           const dept = r.department || 'Unknown';
-          if (!deptMap[dept]) deptMap[dept] = { period: dept, present: 0 };
-          deptMap[dept].present += Number(r.presentDays || 0);
+          if (!deptMap[dept]) deptMap[dept] = { period: dept, active: 0, resigned: 0 };
+          if (r.statusGroup === 'resigned') deptMap[dept].resigned++;
+          else                              deptMap[dept].active++;
         });
         return Object.values(deptMap).sort((a, b) => a.period.localeCompare(b.period));
       })()
     : [];
 
   // ── Export PDF ────────────────────────────────────────────────
-  const exportToPDF = () => {
+  // #497 — Uses the shared branded builder (logo-hrm header, green table
+  // header, clean page breaks) so it matches every other HRMS PDF. Landscape
+  // for both reports so the wide attendance columns stay aligned.
+  const exportToPDF = async () => {
     setIsExporting(true);
-    // Landscape for BOTH reports — the attendance report has 11 columns and
-    // the employee master's long dept/designation/manager names wrap and
-    // misalign in portrait. Landscape gives every column room.
-    const doc = new jsPDF({ orientation: 'landscape' });
-
-    // #495 — Company logo in the PDF header, kept in proportion. Text is
-    // pushed right of the logo so nothing overlaps.
-    let textX = 14;
-    if (logoDataUrl) {
-      try {
-        const props = doc.getImageProperties(logoDataUrl);
-        const logoH = 14;                                   // mm
-        const logoW = props.width ? (props.width / props.height) * logoH : 40;
-        doc.addImage(logoDataUrl, 'PNG', 14, 10, logoW, logoH);
-        textX = 14 + logoW + 6;
-      } catch { /* if the logo can't be embedded, fall back to text only */ }
+    try {
+      const meta = { periodFrom: startDate, periodTo: endDate };
+      let doc;
+      if (reportId === 'attendance') {
+        doc = await buildBrandedPdf({
+          title: 'Attendance Report',
+          subtitle: activeReport.desc,
+          meta,
+          orientation: 'landscape',
+          head: ['ID', 'Name', 'Dept', 'Designation', 'Present', 'Late', 'Permission', 'Absent', 'LOP', '1/2 LOP', 'Status'],
+          body: tableRows.map(r => [
+            r.employeeId, r.employeeName, r.department, r.designation,
+            r.present, r.late,
+            r.permission ?? r.halfDay ?? 0,
+            r.absent, r.lop, r.halfLop || 0, r.status,
+          ]),
+        });
+      } else {
+        doc = await buildBrandedPdf({
+          title: 'Employee Master',
+          subtitle: activeReport.desc,
+          meta,
+          orientation: 'landscape',
+          head: ['ID', 'Name', 'Dept', 'Designation', 'Manager', 'Status'],
+          body: tableRows.map(r => [r.employeeId, r.employeeName, r.department, r.designation, r.manager, r.status]),
+        });
+      }
+      doc.save(`${activeReport.label.replace(/ /g, '_')}_${startDate}_${endDate}.pdf`);
+    } catch (err) {
+      console.error('[exportToPDF]', err);
+    } finally {
+      setIsExporting(false);
     }
-    doc.setFontSize(18);
-    doc.setTextColor(20);
-    doc.text(`${activeReport.label} — ${startDate} to ${endDate}`, textX, 19);
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Tesco Structures  ·  Generated: ${new Date().toLocaleString()}`, textX, 26);
-
-    if (reportId === 'attendance') {
-      const rows = tableRows.map(r => [
-        r.employeeId, r.employeeName, r.department, r.designation,
-        r.present, r.late,
-        // #381 — Permission column now reads the TRUE permission count,
-        // not halfDay (which is 1/2 LOP). Both LOP figures come from
-        // the backend policy calc (1 CL + 2 perms free, lates count
-        // toward LOP).
-        r.permission ?? r.halfDay ?? 0,
-        r.absent,
-        r.lop,
-        r.halfLop || 0,
-        r.status,
-      ]);
-      autoTable(doc, {
-        startY: 34,
-        head: [['ID', 'Name', 'Dept', 'Designation', 'Present', 'Late', 'Permission', 'Absent', 'LOP', '1/2 LOP', 'Status']],
-        body: rows,
-      });
-    } else {
-      // #495 — Employee Master now carries a Present Days column (was Leave).
-      const rows = tableRows.map(r => [r.employeeId, r.employeeName, r.department, r.designation, r.presentDays || 0, r.manager, r.status]);
-      autoTable(doc, {
-        startY: 34,
-        head: [['ID', 'Name', 'Dept', 'Designation', 'Present Days', 'Manager', 'Status']],
-        body: rows,
-      });
-    }
-    doc.save(`${activeReport.label.replace(/ /g, '_')}_${startDate}_${endDate}.pdf`);
-    setIsExporting(false);
   };
 
   // ── Export Excel ──────────────────────────────────────────────
@@ -420,8 +362,6 @@ export default function Reports({ onBack }) {
           'Name':        r.employeeName,
           'Department':  r.department,
           'Designation': r.designation,
-          // #495 — Present Days replaces the old leave-based column.
-          'Present Days': r.presentDays || 0,
           'Manager':     r.manager,
           'Status':      r.status,
         }));
@@ -559,11 +499,8 @@ export default function Reports({ onBack }) {
           {/* Report title bar */}
           <div className="card" style={{ padding: '18px 24px', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              {/* #495 — Company logo, professionally aligned in the report
-                  header. A divider keeps it visually distinct from the
-                  report-type block. */}
-              <img src={logoHrm} alt="Tesco Structures" style={{ height: '34px', width: 'auto', objectFit: 'contain' }} />
-              <div style={{ width: '1px', height: '34px', background: 'var(--border-color)' }} />
+              {/* #497 — Logo intentionally NOT shown in the HRMS UI; it
+                  appears only on the exported/printed PDF. */}
               <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: activeReport.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: activeReport.color }}>
                 <activeReport.icon size={20} />
               </div>
@@ -666,9 +603,11 @@ export default function Reports({ onBack }) {
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--text-light)' }} />
                   <Tooltip contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }} />
                   <Legend />
-                  {/* #495 — Present Days per department, straight from the
-                      table's Present Days column so chart == table. */}
-                  <Bar dataKey="present" name="Present Days" fill="#4CAA17" radius={[4,4,0,0]} barSize={22} />
+                  {/* #496 — Active vs Resigned head-count per department,
+                      straight from the table rows (Resigned includes
+                      Terminated) so chart == table. */}
+                  <Bar dataKey="active"   name="Active"   fill="#4CAA17" radius={[4,4,0,0]} barSize={18} />
+                  <Bar dataKey="resigned" name="Resigned" fill="#FC8181" radius={[4,4,0,0]} barSize={18} />
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -705,9 +644,6 @@ export default function Reports({ onBack }) {
                           <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>1/2 LOP</th>
                         </>
                       )}
-                      {reportId === 'employee' && (
-                        <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Present Days</th>
-                      )}
                       <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Manager</th>
                       <th style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 5 }}>Status</th>
                     </tr>
@@ -738,9 +674,6 @@ export default function Reports({ onBack }) {
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: row.lop > 0 ? '#FC8181' : 'var(--text-main)' }}>{row.lop} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                             <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.halfLop || 0) > 0 ? '#F97316' : 'var(--text-main)' }}>{row.halfLop || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                           </>
-                        )}
-                        {reportId === 'employee' && (
-                          <td><div style={{ fontSize: '13px', fontWeight: 600, color: (row.presentDays || 0) > 0 ? '#4CAA17' : 'var(--text-main)' }}>{row.presentDays || 0} <span style={{ fontSize: '10px', color: 'var(--text-light)', fontWeight: 500 }}>days</span></div></td>
                         )}
                         <td><div className="emp-table-dept">{row.manager || '—'}</div></td>
                         <td>

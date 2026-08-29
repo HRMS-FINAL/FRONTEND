@@ -37,7 +37,9 @@ import * as XLSX from 'xlsx';
 
 // Bundler resolves this to a base64 data URL at build time, so we can
 // embed the logo into the PDF without any runtime fetch.
-import logoSrc from '../assets/logo.png';
+// #497 — Tesco HRM logo (was the Tesco Structures wordmark) so every PDF
+// header carries the HRMS brand mark, matching the Attendance Report PDF.
+import logoSrc from '../assets/logo-hrm.png';
 
 const BRAND = {
   green:      '#4CAA17',
@@ -108,68 +110,65 @@ function hex(h) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+// Header geometry (pt). The table starts at HEADER_BOTTOM on every page and
+// autoTable's margin.top matches it, so table content can NEVER overlap the
+// header — the bug that made the old green-band meta strip collide with the
+// first table row. Kept in one place so drawHeader + buildBrandedPdf agree.
+const HEADER_TOP    = 26;   // logo / title baseline zone
+const LOGO_H        = 34;   // logo height; width scales to the asset ratio
+const HEADER_BOTTOM = 92;   // green divider sits just above this; table starts here
+
 /**
- * Draw the branded header band at the top of the CURRENT PDF page.
+ * Draw the clean, professional header at the top of the CURRENT PDF page.
+ * Matches the Attendance Report PDF reference standard:
  *
- * Layout (a4 portrait, 595 pt wide):
- *   ┌─────────────────────────────────────────────────────────┐
- *   │ ◯ LOGO                          [TESCO STRUCTURES]      │   ← green band
- *   │                                 HR Management System    │
- *   ├─────────────────────────────────────────────────────────┤
- *   │  REPORT TITLE                                           │   ← title
- *   │  Subtitle line — short context                          │   ← subtitle
- *   │                                                         │
- *   │  Period: 01-Jun-2026 → 17-Jun-2026   ·   Generated: …   │   ← meta strip
- *   └─────────────────────────────────────────────────────────┘
+ *   ┌───────────────────────────────────────────────────────────┐
+ *   │ [LOGO]   REPORT TITLE                                      │
+ *   │          Subtitle line — short context                    │
+ *   │          Tesco Structures · Employee: … · Generated: …     │
+ *   │ ───────────────────────────────────────────────────────── │  ← green rule
+ *   └───────────────────────────────────────────────────────────┘
+ *
+ * No full-width colour band — the logo sits on white, exactly like the
+ * Attendance Report PDF, and the same layout is used on every page so a
+ * multi-page report stays consistent.
  */
 function drawHeader(doc, opts) {
   const { title, subtitle, meta, logo } = opts;
   const pageW = doc.internal.pageSize.getWidth();
   const M = 40;
 
-  // Brand band — solid green strip across the top. #304: bumped from
-  // 64 pt → 88 pt so the logo has room to breathe at the new larger
-  // size, and the wordmark has more vertical balance against it.
-  const bandH = 88;
-  doc.setFillColor(...hex(BRAND.green));
-  doc.rect(0, 0, pageW, bandH, 'F');
-
-  // Logo on the left of the band — bigger and wider. #304: width 90 pt
-  // × height 68 pt (was 36×36), still letting jsPDF stretch to fill so
-  // both wide and square logo files render at a visible, brand-quality
-  // size. If the logo asset failed to load we keep the band so the
-  // report still looks branded.
+  // Logo top-left, kept in the asset's true aspect ratio (no stretching).
+  let logoW = 0;
   if (logo) {
-    try { doc.addImage(logo, 'PNG', M, 10, 90, 68); } catch {/* logo render failed — band remains */}
+    try {
+      const props = doc.getImageProperties(logo);
+      logoW = props?.width ? (props.width / props.height) * LOGO_H : 96;
+      doc.addImage(logo, 'PNG', M, HEADER_TOP, logoW, LOGO_H);
+    } catch { logoW = 0; /* logo failed — fall back to text-only header */ }
   }
 
-  // Right-aligned brand wordmark — slightly larger to match the new band.
-  doc.setTextColor(...hex(BRAND.headerText));
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  const wordmark = 'TESCO STRUCTURES';
-  doc.text(wordmark, pageW - M - doc.getTextWidth(wordmark), 42);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  const tag = 'HR Management System';
-  doc.text(tag, pageW - M - doc.getTextWidth(tag), 60);
+  // Text column begins to the right of the logo (or at the margin if none).
+  const textX = M + (logoW ? logoW + 16 : 0);
 
-  // Title block beneath the band (pushed down to match the taller band).
+  // Title.
   doc.setTextColor(...hex(BRAND.text));
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(17);
-  doc.text(title || 'Report', M, bandH + 32);
+  doc.setFontSize(16);
+  doc.text(title || 'Report', textX, HEADER_TOP + 14);
 
+  // Optional subtitle line.
+  let lineY = HEADER_TOP + 30;
   if (subtitle) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
+    doc.setFontSize(10);
     doc.setTextColor(...hex(BRAND.textMute));
-    doc.text(subtitle, M, bandH + 52);
+    doc.text(String(subtitle), textX, lineY);
+    lineY += 14;
   }
 
-  // Meta strip — period, generated timestamp, generated-by user. We
-  // build a single dot-separated line so it always fits on one row.
-  const parts = [];
+  // Meta line — company + context + generated timestamp, dot-separated.
+  const parts = ['Tesco Structures'];
   if (meta?.periodFrom || meta?.periodTo) {
     const from = meta.periodFrom ? pdfDateLabel(meta.periodFrom) : '';
     const to   = meta.periodTo   ? pdfDateLabel(meta.periodTo)   : '';
@@ -186,18 +185,18 @@ function drawHeader(doc, opts) {
   if (meta?.generatedBy)  parts.push(`By: ${meta.generatedBy}`);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(...hex(BRAND.textMute));
-  // #304 — meta strip y-position recomputed for the taller (88 pt) band:
-  //   subtitle present → band(88) + title-gap(32) + subtitle-gap(20) + meta-gap(20) = 160
-  //   no subtitle      → band(88) + title-gap(32) + meta-gap(24) = 144
-  const metaY = subtitle ? 160 : 144;
-  doc.text(parts.join('   ·   '), M, metaY);
+  // Wrap the meta line to the width available right of the logo so a long
+  // employee name / period never runs off the page or gets clipped.
+  const metaMaxW = (pageW - M) - textX;
+  const metaLines = doc.splitTextToSize(parts.join('   ·   '), metaMaxW);
+  metaLines.forEach((ln, i) => doc.text(ln, textX, lineY + i * 11));
 
-  // Thin underline divider beneath the meta strip.
-  doc.setDrawColor(...hex(BRAND.border));
-  doc.setLineWidth(0.6);
-  doc.line(M, metaY + 10, pageW - M, metaY + 10);
+  // Green rule under the header — the brand accent, replacing the old band.
+  doc.setDrawColor(...hex(BRAND.green));
+  doc.setLineWidth(1.4);
+  doc.line(M, HEADER_BOTTOM - 8, pageW - M, HEADER_BOTTOM - 8);
 }
 
 /**
@@ -265,18 +264,21 @@ export async function buildBrandedPdf(opts) {
   // but only AFTER the table starts — we still need to draw page 1's
   // header explicitly so the title appears even when the table is empty).
   drawHeader(doc, { title, subtitle, meta, logo });
-  const startY = subtitle ? 160 : 144;
 
   autoTable(doc, {
-    startY,
+    startY: HEADER_BOTTOM,
     head:   [head],
     body,
     foot:   totals && totals.length ? totals : undefined,
     theme:  'striped',
+    // linebreak = long cell values WRAP instead of being clipped, so no
+    // column ever cuts data off; valign top keeps wrapped rows tidy.
     styles: {
       font: 'helvetica',
-      fontSize: 10,
-      cellPadding: 7,
+      fontSize: 9.5,
+      cellPadding: 6,
+      overflow: 'linebreak',
+      valign: 'top',
       textColor: hex(BRAND.text),
       lineColor: hex(BRAND.border),
       lineWidth: 0.4,
@@ -286,6 +288,7 @@ export async function buildBrandedPdf(opts) {
       textColor:  hex(BRAND.headerText),
       fontStyle:  'bold',
       halign:     'left',
+      valign:     'middle',
     },
     footStyles: {
       fillColor:  [241, 245, 249],
@@ -294,9 +297,11 @@ export async function buildBrandedPdf(opts) {
     },
     alternateRowStyles: { fillColor: BRAND.rowAlt },
     columnStyles: columnStyles || {},
-    margin: { left: 40, right: 40, top: 160, bottom: 50 },
+    // margin.top === startY so page 2+ tables begin right below the header
+    // that didDrawPage redraws — content can never overlap the header.
+    margin: { left: 40, right: 40, top: HEADER_BOTTOM, bottom: 46 },
     didDrawPage: (data) => {
-      // Skip drawing the header again on page 1 — already drawn above.
+      // Header already drawn for page 1 above; redraw it on every later page.
       if (data.pageNumber > 1) {
         drawHeader(doc, { title, subtitle, meta, logo });
       }
