@@ -285,7 +285,10 @@ export default function Reports({ onBack }) {
   // ── Export PDF ────────────────────────────────────────────────
   const exportToPDF = () => {
     setIsExporting(true);
-    const doc = new jsPDF();
+    // Landscape for BOTH reports — the attendance report has 11 columns and
+    // the employee master's long dept/designation/manager names wrap and
+    // misalign in portrait. Landscape gives every column room.
+    const doc = new jsPDF({ orientation: 'landscape' });
     doc.setFontSize(18);
     doc.text(`${activeReport.label} — ${startDate} to ${endDate}`, 14, 22);
     doc.setFontSize(10);
