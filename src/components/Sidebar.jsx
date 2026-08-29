@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard, Users, ChevronRight, TrendingUp, DollarSign,
-  CalendarCheck, BarChart2, Settings as SettingsIcon, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard, X
+  CalendarCheck, BarChart2, Settings as SettingsIcon, ChevronDown, Megaphone, User, MapPin, ClipboardList, Monitor, CreditCard, X, Route
 } from 'lucide-react';
 import logo from '../assets/logo-hrm.png';
 import logo2 from '../assets/logo-hrm.png';
@@ -152,7 +152,7 @@ export default function Sidebar({
           <div className="nav-live-dot" />
         </div>
         <div className={`nav-item ${activeView === 'daily-routes' ? 'active' : ''}`} onClick={() => handleNavClick('daily-routes')}>
-          <MapPin className="nav-icon" size={18} />
+          <Route className="nav-icon" size={18} />
           <span className="nav-text">Daily Routes</span>
         </div>
         <div className={`nav-item ${activeView === 'announcements' ? 'active' : ''}`} onClick={() => handleNavClick('announcements')}>

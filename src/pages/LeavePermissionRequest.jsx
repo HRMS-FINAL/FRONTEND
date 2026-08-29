@@ -137,15 +137,17 @@ export default function LeavePermissionRequest({ onBack }) {
   // tab cannot show ANY data from the previous tab even for a single
   // paint. After ~80 ms (one animation frame plus a safety margin) we
   // un-flag and the useMemo recomputes the correctly-filtered rows.
-  const [tabSwapping, setTabSwapping] = useState(false);
+  // #491 — Tab switching is a PURE, synchronous state change. The previous
+  // implementation used a `tabSwapping` flag flipped off by a setTimeout(80),
+  // which is a race condition: the table could stay empty, or briefly show the
+  // old tab's rows / an empty list under the new heading, making the card
+  // filter feel inconsistent. React re-renders synchronously on setActiveTab
+  // and the displayRecords useMemo below recomputes in the SAME commit, so the
+  // filtered rows, section title, and active card ALWAYS agree — on every
+  // click, load and refresh — with no timing window and no stale state.
   const switchTab = React.useCallback((nextTab) => {
-    if (nextTab === activeTab) return;
-    setTabSwapping(true);
     setActiveTab(nextTab);
-    // One frame is enough for React to commit the cleared view; we use
-    // a setTimeout(80) belt-and-braces in case the device is slow.
-    setTimeout(() => setTabSwapping(false), 80);
-  }, [activeTab]);
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('');
   const [actionModal, setActionModal] = useState(null);
@@ -309,12 +311,9 @@ export default function LeavePermissionRequest({ onBack }) {
   const permissionReqCount = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
 
   const displayRecords = React.useMemo(() => {
-    // #324 — Hard gate during tab swap. Even though the useMemo
-    // recomputes synchronously, we explicitly return an empty array
-    // for ~80 ms after a tab click so the user can NEVER see the
-    // previous tab's rows under the new tab's heading.
-    if (tabSwapping) return [];
-
+    // #491 — Filter is derived PURELY and synchronously from the selected
+    // card (activeTab). No tab-swap timer, so there is no window in which the
+    // list and the heading can disagree.
     const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
 
     // Diagnostic — confirms in DevTools that the SAME numbers feed the
@@ -373,7 +372,7 @@ export default function LeavePermissionRequest({ onBack }) {
 
       return true;
     });
-  }, [requests, activeTab, searchQuery, tabSwapping]);
+  }, [requests, activeTab, searchQuery]);
 
   const filterTabs = [];   // secondary leave/permission selector removed per HR request
 
