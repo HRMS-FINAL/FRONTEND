@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronRight, DollarSign, CreditCard, TrendingUp, Zap,
   Download, Printer, Send, Search, Filter, X, FileText, Upload
@@ -14,6 +14,23 @@ import { API } from '../config/api';
 export default function Payroll({ onBack, employees = [], updateEmployeeSalary }) {
   const { showNotification } = useNotification();
   const confirm = useConfirm();
+
+  // #498 — Preload the Tesco HRM logo as a PNG data-URL so the synchronous
+  // payslip PDF builder can embed it via doc.addImage without an async load.
+  const logoDataUrlRef = useRef('');
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width  = img.naturalWidth  || img.width;
+        c.height = img.naturalHeight || img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        logoDataUrlRef.current = c.toDataURL('image/png');
+      } catch { /* canvas unsupported — payslip simply omits the logo */ }
+    };
+    img.src = logo;
+  }, []);
   const [showSlip, setShowSlip] = useState(null);
   const [showEditSlip, setShowEditSlip] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -185,14 +202,27 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     let y = 50;
 
     // ── Header ──
+    // #498 — Tesco HRM logo at the top-left. Company text is pushed to the
+    // right of the logo so nothing overlaps.
+    let headTextX = M;
+    const lg = logoDataUrlRef.current;
+    if (lg) {
+      try {
+        const props = doc.getImageProperties(lg);
+        const lh = 34;
+        const lw = props?.width ? (props.width / props.height) * lh : 96;
+        doc.addImage(lg, 'PNG', M, y - 24, lw, lh);
+        headTextX = M + lw + 14;
+      } catch { /* logo failed — keep text at the margin */ }
+    }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(18);
     doc.setTextColor(30, 41, 59);
-    doc.text('TESCO STRUCTURES', M, y);
+    doc.text('TESCO STRUCTURES', headTextX, y);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text('Chennai, Tamilnadu', M, y + 14);
+    doc.text('Chennai, Tamilnadu', headTextX, y + 14);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
