@@ -323,72 +323,38 @@ export default function LeavePermissionRequest({ onBack }) {
   // never go out of sync regardless of what the API sends.
   const isPending = (r) => String(r?.status || '').toLowerCase() === 'pending';
 
-  const leaveReqCount      = requests.filter(r => isPending(r) && kindOf(r) === 'leave').length;
-  const permissionReqCount = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
+  // #493 — ONE source of truth for "is this a permission row?": the backend
+  // `kind` (authoritative), with the visible type string as a HARD safety net —
+  // a "Permission (Nh)" type is unambiguously a permission; anything else is a
+  // leave. So a Casual Leave can NEVER be treated as a permission, even if some
+  // field were ever wrong.
+  const rowIsPermission = (r) =>
+    kindOf(r) === 'permission' || /^permission\b/i.test(String(r?.type || '').trim());
 
-  const displayRecords = React.useMemo(() => {
-    // #491 — Filter is derived PURELY and synchronously from the selected
-    // card (activeTab). No tab-swap timer, so there is no window in which the
-    // list and the heading can disagree.
-    const wantedKind = activeTab === 'permission-requests' ? 'permission' : 'leave';
+  const leaveReqCount      = requests.filter(r => isPending(r) && !rowIsPermission(r)).length;
+  const permissionReqCount = requests.filter(r => isPending(r) &&  rowIsPermission(r)).length;
 
-    // Diagnostic — confirms in DevTools that the SAME numbers feed the
-    // card count and the table below it. If `card` and `list` ever
-    // differ for the same kind, the bug is here (or in the data). Each
-    // line includes both, so disagreement is instantly visible.
-    try {
-      const distribution  = requests.reduce((acc, r) => {
-        const k = kindOf(r);
-        acc[k] = (acc[k] || 0) + 1;
-        return acc;
-      }, {});
-      const pendingLeave  = requests.filter(r => isPending(r) && kindOf(r) === 'leave').length;
-      const pendingPerm   = requests.filter(r => isPending(r) && kindOf(r) === 'permission').length;
-      // eslint-disable-next-line no-console
-      console.log(
-        '[Approvals] tab=', activeTab,
-        ' total=', requests.length,
-        ' kinds=', distribution,
-        ' card_pending={leave:', pendingLeave, ', permission:', pendingPerm, '}',
-      );
-    } catch (_) { /* swallow — diagnostic only */ }
-
-    return requests.filter(item => {
-      // 1. Tab gate — strict equality on the row's _kind property. No
-      //    classifier-during-render means no race between count + filter.
-      if (kindOf(item) !== wantedKind) return false;
-
-      // 2. Status gate — the section heading explicitly says "Pending …".
-      //    Uses the shared isPending() helper so the card count and the
-      //    list below it are guaranteed to agree on what "pending" means.
-      if (!isPending(item)) return false;
-
-      // 2. Search query — case-insensitive across every field HR might
-      // type into the box (name, employee id in either field, role,
-      // department, reason, type label, status). We coerce every
-      // candidate with String() so a single missing field doesn't crash
-      // the whole filter and leave the table silently empty.
-      const q = String(searchQuery || '').trim().toLowerCase();
-      if (q) {
-        const haystack = [
-          item.name, item.employeeName,
-          item.employeeId, item.id, item.empId,
-          item.role, item.dept,
-          item.reason, item.type,
-          item.duration, item.date,
-          item.status, item.managerStatus,
-          item.employee?.userId, item.employee?.email,
-          item.employee?.designation, item.employee?.department,
-        ]
-          .filter(Boolean)
-          .map((s) => String(s).toLowerCase())
-          .join(' || ');
-        if (!haystack.includes(q)) return false;
-      }
-
-      return true;
-    });
-  }, [requests, activeTab, searchQuery]);
+  // #493 — The table filter is computed EVERY render (no memo) from the selected
+  // card, using the SAME boolean the heading uses — so the list, the heading and
+  // the card counts can NEVER disagree, on any click / load / refresh. The
+  // previous tab-swap timer + memo + asymmetric heading condition are all gone.
+  const showPermissionTab = activeTab === 'permission-requests';
+  const displayRecords = requests.filter((item) => {
+    if (rowIsPermission(item) !== showPermissionTab) return false;   // exact tab match
+    if (!isPending(item)) return false;
+    const q = String(searchQuery || '').trim().toLowerCase();
+    if (q) {
+      const haystack = [
+        item.name, item.employeeName, item.employeeId, item.id, item.empId,
+        item.role, item.dept, item.reason, item.type, item.duration, item.date,
+        item.status, item.managerStatus,
+        item.employee?.userId, item.employee?.email,
+        item.employee?.designation, item.employee?.department,
+      ].filter(Boolean).map((s) => String(s).toLowerCase()).join(' || ');
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 
   const filterTabs = [];   // secondary leave/permission selector removed per HR request
 
@@ -471,7 +437,12 @@ export default function LeavePermissionRequest({ onBack }) {
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
-              {activeTab === 'leave-requests' ? 'Pending Leave Requests' : 'Pending Permission Requests'}
+              {/* #493 — Heading keys on the SAME condition as the table filter
+                  (activeTab === 'permission-requests'), so the title and the
+                  rows can never disagree even if activeTab holds an unexpected
+                  value. Previously the heading defaulted to "Permission" while
+                  the filter defaulted to "leave" — the exact mismatch reported. */}
+              {activeTab === 'permission-requests' ? 'Pending Permission Requests' : 'Pending Leave Requests'}
             </h3>
             <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: 'var(--text-light)' }}>
               Action pending items to approve or reject requests.
