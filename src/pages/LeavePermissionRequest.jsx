@@ -303,7 +303,15 @@ export default function LeavePermissionRequest({ onBack }) {
   // Defensive fallback: if a row from a very old cache (pre-_kind) sneaks
   // in, we re-classify it on the fly. This belt-and-braces guards the
   // first few seconds after the v2 → v3 cache key bump.
-  const kindOf = (r) => r?._kind || classifyRow(r);
+  // #492 — Backend `kind` (derived from the same isPermission that builds the
+  // visible type) is ALWAYS authoritative, ahead of any stamped/cached `_kind`
+  // that could be stale from an older classifier. Only when the backend didn't
+  // send a kind do we fall back to the stamped value / live classifier.
+  const kindOf = (r) => {
+    const bk = String(r?.kind || '').toLowerCase().trim();
+    if (bk === 'permission' || bk === 'leave') return bk;
+    return r?._kind || classifyRow(r);
+  };
 
   // ─── Status: case-insensitive helper ───────────────────────────────
   // Mobile backend has historically written status as either 'Pending'
