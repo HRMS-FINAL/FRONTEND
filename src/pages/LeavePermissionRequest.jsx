@@ -26,7 +26,7 @@ import { API } from '../config/api';
 // or "permission-leave-blend") as a permission. Bumping the key
 // invalidates every stale cache that was stamped with the loose
 // matcher so the next page-load reclassifies from raw fields.
-const LS_KEY = 'tesco_hrms_leave_requests_cache_v6';
+const LS_KEY = 'tesco_hrms_leave_requests_cache_v7';
 
 /**
  * Classify a single row as 'leave' or 'permission'. Runs ONCE at fetch
@@ -69,6 +69,14 @@ function classifyRow(r) {
   // reshape uses in `isPermission = d.requestType === 'permission'`.
   // Trusting it directly here makes the frontend filter impossible
   // to disagree with the backend's notion of a row's kind.
+  // #492 — AUTHORITATIVE signal: the backend now stamps `kind` from the SAME
+  // `isPermission` flag that generated the visible `type` string, so trusting
+  // it makes a row's tab and its displayed type impossible to disagree. This
+  // wins over every heuristic below.
+  const backendKind = String(r?.kind || '').toLowerCase().trim();
+  if (backendKind === 'permission') return 'permission';
+  if (backendKind === 'leave')      return 'leave';
+
   const rt = String(r?.requestType || '').toLowerCase().trim();
   if (rt === 'permission') return 'permission';
   if (rt === 'leave')      return 'leave';
