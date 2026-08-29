@@ -276,7 +276,11 @@ export default function Allowance({ onBack }) {
               const mgrApproved = req.managerStatus === 'Approved';
               const mgrRejected = req.managerStatus === 'Rejected';
               return (
-                <tr key={req.id}>
+                // #493 — key on the REAL mongo id (unique per claim), not
+                // req.id (the employee id, which repeats when one employee
+                // has several claims). Prevents duplicate-key reconciliation
+                // that left stale rows on the Petrol/Travel switch.
+                <tr key={req._id || req.id}>
                   <td><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-light)' }}>{req.id}</div></td>
                   <td>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{req.empName}</div>
@@ -547,7 +551,15 @@ export default function Allowance({ onBack }) {
           </div>
         </div>
 
-        <div className="card">
+        {/* #493 — key={allowanceType} forces React to REMOUNT this whole
+            card (header + table) whenever the Petrol/Travel toggle changes.
+            Without it, React reconciles the existing <table>/<tr> nodes in
+            place; because two claims from the SAME employee share the same
+            row key (employee id), it reuses petrol <tr> DOM for travel data
+            and the table shows stale rows even though the heading/cards
+            already switched. Remounting guarantees the table data always
+            matches the selected allowance type. */}
+        <div className="card" key={allowanceType}>
           <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {allowanceType === 'petrol' ? <Fuel size={20} color="#4CAA17" /> : <Car size={20} color="#4299E1" />}
             <div className="card-title">{allowanceType === 'petrol' ? 'Petrol' : 'Travel'} Allowance Requests</div>
