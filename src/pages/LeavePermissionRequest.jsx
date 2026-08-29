@@ -433,7 +433,13 @@ export default function LeavePermissionRequest({ onBack }) {
         </div>
       </div>
 
-      <div className="emp-table-card" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {/* #494 — key={activeTab} forces this heading+table section to REMOUNT
+          on every tab switch. Diagnostics showed the DOM could get stale/torn
+          (heading said "Permission" while the rows/state were "leave"), which
+          means a render wasn't reconciling cleanly. Remounting rebuilds the
+          whole section from the current activeTab, so the heading and rows can
+          never disagree with the selected card. */}
+      <div key={activeTab} className="emp-table-card" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
