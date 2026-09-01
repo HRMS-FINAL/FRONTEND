@@ -24,6 +24,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 // #303 — branded report template.
 import { buildBrandedPdf } from '../utils/reportTemplate';
+import { reverseGeocode, routeString, pdfSafe, GPS_ROUTE_NOT_AVAILABLE } from '../utils/gpsRoute';
 import * as XLSX from 'xlsx';
 import RouteMapModal from '../components/RouteMapModal';
 
@@ -115,6 +116,10 @@ export default function DailyRoutes({ onBack }) {
   //
   //   { [employeeId]: { km: number, points: number, loading: boolean } }
   const [gpsByEmp, setGpsByEmp] = useState({});
+  // Ref mirror of gpsByEmp + a promise that resolves when the per-employee GPS
+  // fetch finishes — so EXPORTS can await complete data (never bake "Loading…").
+  const gpsByEmpRef = useRef({});
+  const gpsDoneRef  = useRef({ promise: Promise.resolve(), resolve: null });
 
   // Google Maps loader (shares the app-wide instance by id) — used to
   // reverse-geocode each check-in coordinate into a readable place.
@@ -205,11 +210,39 @@ export default function DailyRoutes({ onBack }) {
     const empId = it?.employeeId || it?.empId || '';
     const g = gpsByEmp[empId];
     if (g?.loading) return 'Loading…';
-    if (!(g && g.points > 0)) return 'GPS Route Not Available';
-    const fromPlace = checkInLocationOf(it);
-    const toPlace   = g?.to ? placeOfCoord(g.to.lat, g.to.lng) : '';
-    if (!toPlace || toPlace === fromPlace) return fromPlace || 'GPS Route Not Available';
-    return `${fromPlace} → ${toPlace}`;
+    if (!(g && g.points > 0)) return GPS_ROUTE_NOT_AVAILABLE;
+    const fromPlace = checkInLocationOf(it);                          // check-in place
+    const toPlace   = g?.to ? placeOfCoord(g.to.lat, g.to.lng) : ''; // check-out / route-end place
+    return routeString(fromPlace, toPlace);
+  };
+
+  // #517 — Fully-resolved route string for EXPORTS. Awaits reverse-geocoding so
+  // a PDF/Excel never bakes in "Loading…" or raw coordinates. Same
+  // Check-In place → Check-Out place logic the Travel report uses.
+  const resolveRouteForExport = async (it) => {
+    const empId = it?.employeeId || it?.empId || '';
+    const g = gpsByEmpRef.current[empId];
+    if (!(g && g.points > 0)) return GPS_ROUTE_NOT_AVAILABLE;
+    const fromLabel = await reverseGeocode(it?.checkInLat, it?.checkInLng, it?.checkInIsOffice);
+    const toLabel   = g?.to ? await reverseGeocode(g.to.lat, g.to.lng) : '';
+    return routeString(fromLabel, toLabel);
+  };
+
+  // Build empId → resolved route string for the current filtered rows, first
+  // awaiting the per-employee GPS fetch so every row has final data.
+  const buildRouteMap = async () => {
+    try { await gpsDoneRef.current.promise; } catch { /* proceed with what we have */ }
+    const out = {};
+    const q = filtered.slice();
+    const workers = Array.from({ length: 5 }, async () => {
+      while (q.length) {
+        const it = q.shift();
+        const empId = it?.employeeId || it?.empId || '';
+        out[empId] = await resolveRouteForExport(it);
+      }
+    });
+    await Promise.all(workers);
+    return out;
   };
 
   useEffect(() => {
@@ -277,7 +310,19 @@ export default function DailyRoutes({ onBack }) {
   useEffect(() => {
     let cancelled = false;
     setGpsByEmp({});
-    if (!items.length || !date) return;
+    gpsByEmpRef.current = {};
+    // Fresh "all GPS fetched" promise for this date — exports await it.
+    let _resolveDone;
+    gpsDoneRef.current = { promise: new Promise((res) => { _resolveDone = res; }), resolve: _resolveDone };
+    // Write an entry into BOTH the ref (for awaited exports) and state (for live).
+    const putGps = (empId, entry) => {
+      gpsByEmpRef.current = {
+        ...gpsByEmpRef.current,
+        [empId]: { ...(gpsByEmpRef.current[empId] || {}), ...entry },
+      };
+      setGpsByEmp((prev) => ({ ...prev, [empId]: { ...(prev[empId] || {}), ...entry } }));
+    };
+    if (!items.length || !date) { if (_resolveDone) _resolveDone(); return; }
     (async () => {
       const queue = items.slice();
       const workers = Array.from({ length: 4 }, async () => {
@@ -286,7 +331,7 @@ export default function DailyRoutes({ onBack }) {
           const empId = it?.employeeId || it?.empId || '';
           if (!empId) continue;
           // Mark this row as loading so the table can show a spinner.
-          setGpsByEmp(prev => ({ ...prev, [empId]: { ...(prev[empId] || {}), loading: true } }));
+          putGps(empId, { loading: true });
           try {
             const r = await apiFetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${encodeURIComponent(date)}`, {}, { retries: 2, baseDelayMs: 800 });
             const j = await r.json().catch(() => ({}));
@@ -316,17 +361,18 @@ export default function DailyRoutes({ onBack }) {
             // point if absent.
             const fromPt = j?.from || (norm.length ? norm[0] : null);
             const toPt   = j?.to   || (norm.length ? norm[norm.length - 1] : null);
-            setGpsByEmp(prev => ({ ...prev, [empId]: { km, points: norm.length, from: fromPt, to: toPt, loading: false } }));
+            putGps(empId, { km, points: norm.length, from: fromPt, to: toPt, loading: false });
             if (toPt) geocodeCoord(toPt.lat, toPt.lng);
           } catch {
             if (cancelled) return;
-            setGpsByEmp(prev => ({ ...prev, [empId]: { km: 0, points: 0, loading: false } }));
+            putGps(empId, { km: 0, points: 0, loading: false });
           }
         }
       });
       await Promise.all(workers);
+      if (!cancelled && gpsDoneRef.current.resolve) gpsDoneRef.current.resolve();
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (gpsDoneRef.current.resolve) gpsDoneRef.current.resolve(); };
   }, [items, date]);
 
   // Pick the best distance for a row — prefer the polyline-computed value
@@ -373,18 +419,22 @@ export default function DailyRoutes({ onBack }) {
   // other HRMS download.
   const downloadPdf = async () => {
     try {
+      const routeMap = await buildRouteMap(); // fully resolved — no "Loading…"
       const head = ['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Checked-in Location', 'Distance', 'GPS Route', 'Allowance'];
-      const body = filtered.map((it) => [
-        it.employeeId || '—',
-        it.name || it.employeeName || '—',
-        it.designation || '—',
-        fmtTime(it.checkIn),
-        fmtTime(it.checkOut),
-        checkInLocationOf(it),
-        effectiveKm(it).toFixed(2) + ' km',
-        gpsRouteOf(it),
-        it.hasAllowance ? 'Yes' : 'No',
-      ]);
+      const body = filtered.map((it) => {
+        const empId = it?.employeeId || it?.empId || '';
+        return [
+          it.employeeId || '—',
+          it.name || it.employeeName || '—',
+          it.designation || '—',
+          fmtTime(it.checkIn),
+          fmtTime(it.checkOut),
+          pdfSafe(checkInLocationOf(it)),
+          effectiveKm(it).toFixed(2) + ' km',
+          pdfSafe(routeMap[empId] || GPS_ROUTE_NOT_AVAILABLE),
+          it.hasAllowance ? 'Yes' : 'No',
+        ];
+      });
       const doc = await buildBrandedPdf({
         title:    'Daily Routes Report',
         subtitle: `Routes for ${fmtDateDMY(date)}  ·  ${filtered.length} employees${search ? ` · filtered: "${search}"` : ''}`,
@@ -410,8 +460,9 @@ export default function DailyRoutes({ onBack }) {
   };
 
   // Excel (XLSX) export — Summary sheet + Routes sheet so HR can pivot.
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     try {
+      const routeMap = await buildRouteMap(); // fully resolved place names
       const rs = filtered;
       const summary = [
         ['Tesco Structures — Daily Routes Report'],
@@ -436,7 +487,7 @@ export default function DailyRoutes({ onBack }) {
           fmtTime(it.checkOut),
           checkInLocationOf(it),
           Number(effectiveKm(it).toFixed(2)),
-          gpsRouteOf(it),
+          routeMap[it.employeeId || it.empId || ''] || GPS_ROUTE_NOT_AVAILABLE,
           it.hasAllowance ? 'Yes' : 'No',
           it.petrol?.distance ?? '',
           it.travel?.distance ?? '',

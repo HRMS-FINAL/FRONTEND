@@ -264,13 +264,18 @@ export default function Reports({ onBack }) {
         // permission / absent). No separate calculation, so a change in the
         // table (date range, etc.) moves the chart identically. Each column
         // in the table therefore reconciles to its bar total.
+        // #516 — the Present COLUMN/tile now includes late (present = on-time +
+        // late), but the CHART present bar must stay the disjoint ON-TIME count
+        // (r.presentOnTime) so a late day isn't drawn in both the Present bar
+        // AND the Late bar. Bars remain mutually exclusive; the table's Present
+        // total = this present bar + the late bar.
         const deptMap = {};
         (attendanceData.rows || []).forEach(r => {
           const dept = r.department || 'Unknown';
           if (!deptMap[dept]) {
             deptMap[dept] = { period: dept, present: 0, late: 0, permission: 0, absent: 0 };
           }
-          deptMap[dept].present    += Number(r.present    || 0);
+          deptMap[dept].present    += Number(r.presentOnTime ?? r.present ?? 0);
           deptMap[dept].late       += Number(r.late       || 0);
           deptMap[dept].permission += Number(r.permission || 0);
           deptMap[dept].absent     += Number(r.absent     || 0);

@@ -17,6 +17,7 @@ import * as XLSX from 'xlsx';
 import { API } from '../config/api';
 // #303 — branded report template.
 import { buildBrandedPdf, buildBrandedExcel } from '../utils/reportTemplate';
+import { reverseGeocode, routeString, pdfSafe, GPS_ROUTE_NOT_AVAILABLE } from '../utils/gpsRoute';
 // RouteMapModal opens the per-date GPS polyline + start/end pins. The
 // Travel Report "View Route" button mounts this so HR can drill into
 // any specific day without leaving the Live Tracking page.
@@ -687,13 +688,30 @@ export default function LiveTracking() {
 
   // Travel Report cell helpers.
   const checkInPlaceForRow = (r) => placeLabelOf(r?.checkInLat, r?.checkInLng, r?.checkInIsOffice);
+  // #517 — Same canonical route as the Daily Routes report:
+  // Check-In place → Check-Out (route-end) place. From is the actual CHECK-IN
+  // location (not the road-matched trace start), so the two reports agree.
   const travelDetailsForRow = (r) => {
-    const f = r?.from, t = r?.to;
-    if (!f && !t) return 'N/A';
-    const fromL = f ? placeLabelOf(f.lat, f.lng, false) : null;
-    const toL   = t ? placeLabelOf(t.lat, t.lng, false) : null;
-    if (fromL && toL) return fromL === toL ? fromL : `${fromL} → ${toL}`;
-    return fromL || toL || 'N/A';
+    const fromL = checkInPlaceForRow(r);
+    const toL   = r?.to ? placeLabelOf(r.to.lat, r.to.lng, false) : '';
+    return routeString(fromL, toL);
+  };
+
+  // Fully-resolved route + check-in place for EXPORTS — awaits reverse-geocoding
+  // so the PDF/Excel never contains raw coordinates or a half-resolved value.
+  const resolveTravelExportRow = async (r) => {
+    const checkIn = await reverseGeocode(r?.checkInLat, r?.checkInLng, r?.checkInIsOffice);
+    const toL     = r?.to ? await reverseGeocode(r.to.lat, r.to.lng) : '';
+    return { checkIn: checkIn || '—', route: routeString(checkIn, toL) };
+  };
+  const buildTravelExportMap = async (rows) => {
+    const out = new Map();
+    const q = rows.slice();
+    const workers = Array.from({ length: 5 }, async () => {
+      while (q.length) { const r = q.shift(); out.set(r, await resolveTravelExportRow(r)); }
+    });
+    await Promise.all(workers);
+    return out;
   };
 
   // Resolve the "checked in at" label for one row.
@@ -1268,6 +1286,7 @@ export default function LiveTracking() {
       // #507 — Use the enriched, already-geocoded rows so the PDF shows the
       // SAME Checked-In Place + Travel Details as the on-screen table.
       const rows = reportRows.length ? reportRows : await fetchFreshDailyReport();
+      const routeMap = await buildTravelExportMap(rows); // fully resolved places
 
       const emp = travelReport.emp || {};
       const empName = emp.name || search.trim() || 'All Employees';
@@ -1288,13 +1307,16 @@ export default function LiveTracking() {
           periodTo:     endDate,
         },
         head: ['Date', 'Employee Name', 'Checked-In Place', 'Travel Details', 'Distance Travelled'],
-        body: rows.map((d) => [
-          fmtDDMMYYYY(d.date),
-          empName,
-          checkInPlaceForRow(d),
-          travelDetailsForRow(d),
-          `${(Number(d.distanceKm) || 0).toFixed(2)} km`,
-        ]),
+        body: rows.map((d) => {
+          const rr = routeMap.get(d) || {};
+          return [
+            fmtDDMMYYYY(d.date),
+            empName,
+            pdfSafe(rr.checkIn || checkInPlaceForRow(d)),
+            pdfSafe(rr.route || travelDetailsForRow(d)),
+            `${(Number(d.distanceKm) || 0).toFixed(2)} km`,
+          ];
+        }),
         totals: [[
           { content: `Total: ${totalDays} days  ·  GPS routes: ${daysWith}`, colSpan: 4 },
           { content: `${totalKm.toFixed(2)} km`, styles: { halign: 'right' } },
@@ -1319,6 +1341,7 @@ export default function LiveTracking() {
     try {
       // #507 — enriched, already-geocoded rows so Excel matches the table.
       const rows = reportRows.length ? reportRows : await fetchFreshDailyReport();
+      const routeMap = await buildTravelExportMap(rows); // fully resolved places
 
       const emp = travelReport.emp || {};
       const empName = emp.name || search.trim() || 'All Employees';
@@ -1326,15 +1349,18 @@ export default function LiveTracking() {
       const daysWith = rows.filter((d) => d.hasRoute).length;
 
       // #303 / #507 — column order: Date | Employee Name | Checked-In Place |
-      // Travel Details | Distance Travelled.
+      // Travel Details | Distance Travelled.  (Excel keeps the → arrow.)
       const head = ['Date', 'Employee Name', 'Checked-In Place', 'Travel Details', 'Distance Travelled (km)'];
-      const body = rows.map((d) => [
-        fmtDDMMYYYY(d.date),
-        empName,
-        checkInPlaceForRow(d),
-        travelDetailsForRow(d),
-        Number((Number(d.distanceKm) || 0).toFixed(2)),
-      ]);
+      const body = rows.map((d) => {
+        const rr = routeMap.get(d) || {};
+        return [
+          fmtDDMMYYYY(d.date),
+          empName,
+          rr.checkIn || checkInPlaceForRow(d),
+          rr.route || travelDetailsForRow(d),
+          Number((Number(d.distanceKm) || 0).toFixed(2)),
+        ];
+      });
       const wb = buildBrandedExcel({
         title:    'Travel Report',
         subtitle: 'Per-date road distance + check-in place from Live Tracking',
