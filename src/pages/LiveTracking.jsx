@@ -598,6 +598,11 @@ export default function LiveTracking() {
   // geocode the same coordinate twice.
   const [placeCache, setPlaceCache] = useState({});
   const placeCacheRef = useRef({});
+  // #507 — Travel Report rows (per-date, enriched with the SAME check-in place
+  // source + road distance the Daily Routes report uses). Populated by an
+  // effect after an employee + date range is chosen.
+  const [reportRows, setReportRows] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
 
   // Live employees come from /api/live-tracking (HRMS proxy → mobile
   // backend's /api/attendance/admin/live-locations). The mobile app pushes
@@ -645,6 +650,51 @@ export default function LiveTracking() {
       });
     } catch { /* Maps not ready — will retry on next live refresh */ }
   }, [liveEmployees]);
+
+  // #507 — Reverse-geocode ANY coordinate into placeCache using the SAME key
+  // format (lat/lng to 5 dp) + the SAME 2-part shortening as the live geocoder
+  // above AND the Daily Routes report — so the Travel Report resolves the
+  // EXACT same place label for the same coordinate.
+  const geocodeCoord = (lat, lng) => {
+    if (lat == null || lng == null) return;
+    try {
+      const G = window.google && window.google.maps && window.google.maps.Geocoder;
+      if (typeof G !== 'function') return;
+      const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+      if (placeCacheRef.current[key] !== undefined) return; // resolved / in-flight
+      placeCacheRef.current[key] = '';
+      const geocoder = new G();
+      geocoder.geocode({ location: { lat: Number(lat), lng: Number(lng) } }, (results, status) => {
+        let label = '';
+        if (status === 'OK' && results && results[0]) {
+          const parts = String(results[0].formatted_address).split(',').map((s) => s.trim()).filter(Boolean);
+          label = parts.slice(0, 2).join(', ');
+        }
+        placeCacheRef.current[key] = label || `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+        setPlaceCache({ ...placeCacheRef.current });
+      });
+    } catch { /* maps not ready */ }
+  };
+
+  // Place label for a coordinate — matches the Daily Routes formatting:
+  // Office / geocoded place / coords / N/A.
+  const placeLabelOf = (lat, lng, isOffice) => {
+    if (isOffice) return 'Office';
+    if (lat == null || lng == null) return 'N/A';
+    const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    return placeCache[key] || `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+  };
+
+  // Travel Report cell helpers.
+  const checkInPlaceForRow = (r) => placeLabelOf(r?.checkInLat, r?.checkInLng, r?.checkInIsOffice);
+  const travelDetailsForRow = (r) => {
+    const f = r?.from, t = r?.to;
+    if (!f && !t) return 'N/A';
+    const fromL = f ? placeLabelOf(f.lat, f.lng, false) : null;
+    const toL   = t ? placeLabelOf(t.lat, t.lng, false) : null;
+    if (fromL && toL) return fromL === toL ? fromL : `${fromL} → ${toL}`;
+    return fromL || toL || 'N/A';
+  };
 
   // Resolve the "checked in at" label for one row.
   const checkInPlaceOf = (emp) => {
@@ -1144,7 +1194,7 @@ export default function LiveTracking() {
       try {
         const r = await fetch(`${API}/attendance/daily-route?employeeId=${encodeURIComponent(empId)}&date=${date}`);
         const d = await r.json().catch(() => ({}));
-        if (!d?.success) return { date, distanceKm: 0, hasRoute: false };
+        if (!d?.success) return { date, distanceKm: 0, hasRoute: false, checkInLat: null, checkInLng: null, checkInIsOffice: false, from: null, to: null };
         const pts = Array.isArray(d.polyline)        ? d.polyline :
                     Array.isArray(d.route)           ? d.route :
                     Array.isArray(d.points)          ? d.points :
@@ -1166,13 +1216,44 @@ export default function LiveTracking() {
         if (distanceKm === 0) {
           for (let i = 1; i < norm.length; i++) distanceKm += km(norm[i - 1], norm[i]);
         }
-        return { date, distanceKm, hasRoute: norm.length >= 2 };
+        return {
+          date, distanceKm, hasRoute: norm.length >= 2,
+          // #507 — check-in place source + route endpoints (same as Daily Routes).
+          checkInLat: (typeof d.checkInLat === 'number') ? d.checkInLat : null,
+          checkInLng: (typeof d.checkInLng === 'number') ? d.checkInLng : null,
+          checkInIsOffice: !!d.checkInIsOffice,
+          from: d.from || null,
+          to:   d.to || null,
+        };
       } catch {
-        return { date, distanceKm: 0, hasRoute: false };
+        return { date, distanceKm: 0, hasRoute: false, checkInLat: null, checkInLng: null, checkInIsOffice: false, from: null, to: null };
       }
     }));
     return perDay;
   };
+
+  // #507 — Load the enriched Travel Report rows (road distance + check-in place
+  // + from/to) whenever an employee + date range is active, then reverse-geocode
+  // the check-in and route-endpoint coordinates so the table/PDF/Excel all show
+  // the same place labels as the Daily Routes report.
+  useEffect(() => {
+    if (!reportActive) { setReportRows([]); return; }
+    let cancelled = false;
+    setReportLoading(true);
+    (async () => {
+      const rows = await fetchFreshDailyReport();
+      if (cancelled) return;
+      setReportRows(rows);
+      setReportLoading(false);
+      rows.forEach((r) => {
+        if (!r.checkInIsOffice && r.checkInLat != null) geocodeCoord(r.checkInLat, r.checkInLng);
+        if (r.from) geocodeCoord(r.from.lat, r.from.lng);
+        if (r.to)   geocodeCoord(r.to.lat, r.to.lng);
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportActive, selectedDate, endDate, search]);
 
   // Pro-format PDF — brand band, employee + date range header, one
   // table row per day in the picked range, footer with totals + page
@@ -1184,8 +1265,9 @@ export default function LiveTracking() {
       // The useMemo can lag behind historicalRoute's async fetch and
       // produce all-zero rows in the PDF even when the on-screen table
       // looks correct.
-      const fresh = await fetchFreshDailyReport();
-      const rows  = fresh.length ? fresh : dailyReport;
+      // #507 — Use the enriched, already-geocoded rows so the PDF shows the
+      // SAME Checked-In Place + Travel Details as the on-screen table.
+      const rows = reportRows.length ? reportRows : await fetchFreshDailyReport();
 
       const emp = travelReport.emp || {};
       const empName = emp.name || search.trim() || 'All Employees';
@@ -1193,10 +1275,11 @@ export default function LiveTracking() {
       const daysWith  = rows.filter((d) => d.hasRoute).length;
       const totalDays = rows.length;
 
-      // #303 — branded template.
+      // #303 / #507 — branded template, new column order:
+      // Date | Employee Name | Checked-In Place | Travel Details | Distance Travelled
       const doc = await buildBrandedPdf({
         title:    'Travel Report',
-        subtitle: 'Per-date GPS distance derived from Live Tracking pings',
+        subtitle: 'Per-date road distance + check-in place from Live Tracking',
         meta: {
           employeeName: empName,
           employeeId:   emp.employeeId,
@@ -1204,22 +1287,21 @@ export default function LiveTracking() {
           periodFrom:   selectedDate,
           periodTo:     endDate,
         },
-        head: ['Date', 'Employee', 'Distance (km)', 'GPS route'],
+        head: ['Date', 'Employee Name', 'Checked-In Place', 'Travel Details', 'Distance Travelled'],
         body: rows.map((d) => [
           fmtDDMMYYYY(d.date),
           empName,
-          Number(d.distanceKm || 0).toFixed(2),
-          d.hasRoute ? 'Yes' : 'No',
+          checkInPlaceForRow(d),
+          travelDetailsForRow(d),
+          `${(Number(d.distanceKm) || 0).toFixed(2)} km`,
         ]),
         totals: [[
-          { content: `Total: ${totalDays} days  ·  GPS routes: ${daysWith}`, colSpan: 2 },
-          { content: totalKm.toFixed(2), styles: { halign: 'right' } },
-          { content: 'km',               styles: { halign: 'center' } },
+          { content: `Total: ${totalDays} days  ·  GPS routes: ${daysWith}`, colSpan: 4 },
+          { content: `${totalKm.toFixed(2)} km`, styles: { halign: 'right' } },
         ]],
         columnStyles: {
-          0: { cellWidth: 90 },
-          2: { halign: 'right', cellWidth: 110 },
-          3: { halign: 'center', cellWidth: 80 },
+          0: { cellWidth: 80 },
+          4: { halign: 'right', cellWidth: 110 },
         },
       });
 
@@ -1235,28 +1317,27 @@ export default function LiveTracking() {
   // sheet for ad-hoc analysis.
   const downloadTravelReportExcel = async () => {
     try {
-      // #300 — Fresh per-date fetch (same as PDF) so the spreadsheet is
-      // never written from a stale dailyReport snapshot.
-      const fresh = await fetchFreshDailyReport();
-      const rows  = fresh.length ? fresh : dailyReport;
+      // #507 — enriched, already-geocoded rows so Excel matches the table.
+      const rows = reportRows.length ? reportRows : await fetchFreshDailyReport();
 
       const emp = travelReport.emp || {};
       const empName = emp.name || search.trim() || 'All Employees';
       const totalKm = rows.reduce((s, d) => s + (Number(d.distanceKm) || 0), 0);
       const daysWith = rows.filter((d) => d.hasRoute).length;
 
-      // #303 — branded template.
-      const head = ['Date', 'Employee', 'Employee ID', 'Distance travelled (km)', 'GPS route'];
+      // #303 / #507 — column order: Date | Employee Name | Checked-In Place |
+      // Travel Details | Distance Travelled.
+      const head = ['Date', 'Employee Name', 'Checked-In Place', 'Travel Details', 'Distance Travelled (km)'];
       const body = rows.map((d) => [
         fmtDDMMYYYY(d.date),
         empName,
-        emp.employeeId || '',
+        checkInPlaceForRow(d),
+        travelDetailsForRow(d),
         Number((Number(d.distanceKm) || 0).toFixed(2)),
-        d.hasRoute ? 'Yes' : 'No',
       ]);
       const wb = buildBrandedExcel({
         title:    'Travel Report',
-        subtitle: 'Per-date GPS distance derived from Live Tracking pings',
+        subtitle: 'Per-date road distance + check-in place from Live Tracking',
         meta: {
           employeeName: empName,
           employeeId:   emp.employeeId,
@@ -1698,24 +1779,24 @@ export default function LiveTracking() {
                     CSV removed per HR request — keep PDF + Excel only. */}
                 <button
                   onClick={downloadTravelReportPdf}
-                  disabled={dailyReport.length === 0}
+                  disabled={reportRows.length === 0}
                   style={{
                     padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                     border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#1D4ED8',
-                    cursor: dailyReport.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: dailyReport.length === 0 ? 0.5 : 1,
+                    cursor: reportRows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: reportRows.length === 0 ? 0.5 : 1,
                   }}
                 >
                   Download PDF
                 </button>
                 <button
                   onClick={downloadTravelReportExcel}
-                  disabled={dailyReport.length === 0}
+                  disabled={reportRows.length === 0}
                   style={{
                     padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                     border: '1px solid #BBF7D0', background: '#F0FDF4', color: '#15803D',
-                    cursor: dailyReport.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: dailyReport.length === 0 ? 0.5 : 1,
+                    cursor: reportRows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: reportRows.length === 0 ? 0.5 : 1,
                   }}
                 >
                   Download Excel
@@ -1732,9 +1813,9 @@ export default function LiveTracking() {
                 claim that day. HR wanted to see the trail dates first
                 and drill into each via the View Route button. */}
             <div style={{ padding: 14 }}>
-              {dailyReport.length === 0 ? (
+              {reportRows.length === 0 ? (
                 <div style={{ fontSize: 12, color: '#64748B', padding: '20px 8px', textAlign: 'center' }}>
-                  No date range selected.
+                  {reportLoading ? 'Loading travel report…' : 'No date range selected.'}
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
@@ -1742,13 +1823,15 @@ export default function LiveTracking() {
                     <thead>
                       <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
                         <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Date</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Employee</th>
-                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Distance travelled (km)</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Employee Name</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Checked-In Place</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0' }}>Travel Details</th>
+                        <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'right' }}>Distance Travelled</th>
                         <th style={{ padding: '8px 10px', borderBottom: '1px solid #E2E8F0', textAlign: 'center' }}>Route</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {dailyReport.map((d) => (
+                      {reportRows.map((d) => (
                         <tr key={d.date}>
                           <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{fmtDDMMYYYY(d.date)}</td>
                           <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>
@@ -1759,8 +1842,10 @@ export default function LiveTracking() {
                               </span>
                             )}
                           </td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{checkInPlaceForRow(d)}</td>
+                          <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9' }}>{travelDetailsForRow(d)}</td>
                           <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'right', fontWeight: d.hasRoute ? 700 : 400, color: d.hasRoute ? '#0F172A' : '#94A3B8' }}>
-                            {d.distanceKm.toFixed(2)}
+                            {(Number(d.distanceKm) || 0).toFixed(2)} km
                           </td>
                           <td style={{ padding: '8px 10px', borderBottom: '1px solid #F1F5F9', textAlign: 'center' }}>
                             <button

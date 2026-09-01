@@ -169,6 +169,49 @@ export default function DailyRoutes({ onBack }) {
     return placeCache[key] || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   };
 
+  // #508 — Reverse-geocode ANY coordinate into placeCache (same key format +
+  // 2-part shortening as the check-in geocoder above), used to resolve the GPS
+  // Route "To" place so it reads as a place name, not lat/lng.
+  const geocodeCoord = (lat, lng) => {
+    if (lat == null || lng == null) return;
+    try {
+      const G = window.google && window.google.maps && window.google.maps.Geocoder;
+      if (typeof G !== 'function') return;
+      const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+      if (placeCacheRef.current[key] !== undefined) return;
+      placeCacheRef.current[key] = '';
+      const geocoder = new G();
+      geocoder.geocode({ location: { lat: Number(lat), lng: Number(lng) } }, (results, status) => {
+        let label = '';
+        if (status === 'OK' && results && results[0]) {
+          const parts = String(results[0].formatted_address).split(',').map((s) => s.trim()).filter(Boolean);
+          label = parts.slice(0, 2).join(', ');
+        }
+        placeCacheRef.current[key] = label || `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+        setPlaceCache({ ...placeCacheRef.current });
+      });
+    } catch { /* maps not ready */ }
+  };
+  const placeOfCoord = (lat, lng) => {
+    if (lat == null || lng == null) return '';
+    const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    return placeCache[key] || `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+  };
+
+  // #508 — GPS Route "From Place → To Place": the check-in place → the road-
+  // matched route's end place, both reverse-geocoded to the SAME labels shown
+  // on the map. "GPS Route Not Available" when there's no usable GPS trace.
+  const gpsRouteOf = (it) => {
+    const empId = it?.employeeId || it?.empId || '';
+    const g = gpsByEmp[empId];
+    if (g?.loading) return 'Loading…';
+    if (!(g && g.points > 0)) return 'GPS Route Not Available';
+    const fromPlace = checkInLocationOf(it);
+    const toPlace   = g?.to ? placeOfCoord(g.to.lat, g.to.lng) : '';
+    if (!toPlace || toPlace === fromPlace) return fromPlace || 'GPS Route Not Available';
+    return `${fromPlace} → ${toPlace}`;
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -267,7 +310,14 @@ export default function DailyRoutes({ onBack }) {
             const localKm  = polylineKm(norm);
             const km       = serverKm > 0 ? serverKm : localKm;
             if (cancelled) return;
-            setGpsByEmp(prev => ({ ...prev, [empId]: { km, points: norm.length, loading: false } }));
+            // #508 — capture the route's start/end so the GPS Route column can
+            // show From Place → To Place. The single-date endpoint returns
+            // road-matched `from`/`to`; fall back to the first/last polyline
+            // point if absent.
+            const fromPt = j?.from || (norm.length ? norm[0] : null);
+            const toPt   = j?.to   || (norm.length ? norm[norm.length - 1] : null);
+            setGpsByEmp(prev => ({ ...prev, [empId]: { km, points: norm.length, from: fromPt, to: toPt, loading: false } }));
+            if (toPt) geocodeCoord(toPt.lat, toPt.lng);
           } catch {
             if (cancelled) return;
             setGpsByEmp(prev => ({ ...prev, [empId]: { km: 0, points: 0, loading: false } }));
@@ -323,7 +373,7 @@ export default function DailyRoutes({ onBack }) {
   // other HRMS download.
   const downloadPdf = async () => {
     try {
-      const head = ['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Checked-in Location', 'Distance', 'Source', 'Allowance'];
+      const head = ['Emp ID', 'Employee', 'Designation', 'Check-In', 'Check-Out', 'Checked-in Location', 'Distance', 'GPS Route', 'Allowance'];
       const body = filtered.map((it) => [
         it.employeeId || '—',
         it.name || it.employeeName || '—',
@@ -332,7 +382,7 @@ export default function DailyRoutes({ onBack }) {
         fmtTime(it.checkOut),
         checkInLocationOf(it),
         effectiveKm(it).toFixed(2) + ' km',
-        effectiveSource(it),
+        gpsRouteOf(it),
         it.hasAllowance ? 'Yes' : 'No',
       ]);
       const doc = await buildBrandedPdf({
@@ -375,7 +425,7 @@ export default function DailyRoutes({ onBack }) {
       const routes = [
         ['Date', 'Emp ID', 'Employee', 'Department', 'Check In', 'Check Out',
          'Checked-in Location',
-         'GPS Distance (km)', 'Distance Source', 'Filed Allowance',
+         'GPS Distance (km)', 'GPS Route', 'Filed Allowance',
          'Petrol Claimed (km)', 'Travel Claimed (km)'],
         ...rs.map((it) => [
           fmtDateDMY(date),
@@ -386,7 +436,7 @@ export default function DailyRoutes({ onBack }) {
           fmtTime(it.checkOut),
           checkInLocationOf(it),
           Number(effectiveKm(it).toFixed(2)),
-          effectiveSource(it),
+          gpsRouteOf(it),
           it.hasAllowance ? 'Yes' : 'No',
           it.petrol?.distance ?? '',
           it.travel?.distance ?? '',

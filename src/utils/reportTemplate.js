@@ -254,7 +254,7 @@ export async function buildBrandedPdf(opts) {
     body,
     totals,
     columnStyles,
-    orientation = 'portrait',
+    orientation = 'landscape',   // #507 — all HRMS reports export landscape by default
   } = opts;
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation });
