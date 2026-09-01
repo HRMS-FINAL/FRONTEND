@@ -1321,9 +1321,14 @@ export default function LiveTracking() {
           { content: `Total: ${totalDays} days  ·  GPS routes: ${daysWith}`, colSpan: 4 },
           { content: `${totalKm.toFixed(2)} km`, styles: { halign: 'right' } },
         ]],
+        // Bound every column except "Travel Details" (col 3) so it takes the
+        // remaining width and WRAPS long routes instead of running off the page.
         columnStyles: {
-          0: { cellWidth: 80 },
-          4: { halign: 'right', cellWidth: 110 },
+          0: { cellWidth: 70 },   // Date
+          1: { cellWidth: 95 },   // Employee Name
+          2: { cellWidth: 150 },  // Checked-In Place
+          3: { cellWidth: 'auto', overflow: 'linebreak' }, // Travel Details → wraps
+          4: { halign: 'right', cellWidth: 90 },           // Distance Travelled
         },
       });
 

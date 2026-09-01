@@ -445,10 +445,18 @@ export default function DailyRoutes({ onBack }) {
           { content: totalDistance.toFixed(2) + ' km', styles: { halign: 'right' } },
           { content: '', colSpan: 2 },
         ]],
+        // Bound the fixed columns so "GPS Route" (col 7) takes the remaining
+        // width and WRAPS long routes instead of running off the page.
         columnStyles: {
-          5: { cellWidth: 68 },                    // Checked-in Location
-          6: { halign: 'right', cellWidth: 52 },   // Distance
-          8: { halign: 'center', cellWidth: 48 },  // Allowance
+          0: { cellWidth: 48 },                    // Emp ID
+          1: { cellWidth: 90 },                    // Employee
+          2: { cellWidth: 88 },                    // Designation
+          3: { cellWidth: 52 },                    // Check-In
+          4: { cellWidth: 52 },                    // Check-Out
+          5: { cellWidth: 96 },                    // Checked-in Location
+          6: { halign: 'right', cellWidth: 46 },   // Distance
+          7: { cellWidth: 'auto', overflow: 'linebreak' }, // GPS Route → wraps
+          8: { halign: 'center', cellWidth: 44 },  // Allowance
         },
         orientation: 'landscape',
       });

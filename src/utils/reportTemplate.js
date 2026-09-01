@@ -110,6 +110,36 @@ function hex(h) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/**
+ * jsPDF's built-in Helvetica is limited to Latin-1 (WinAnsi). A single glyph
+ * outside that range (a "→" arrow, en/em dashes, curly quotes, or non-Latin
+ * script from geocoding) makes jsPDF mis-render the WHOLE string with ugly
+ * wide letter-spacing that also overflows the cell. We normalise the common
+ * offenders to ASCII and drop anything else still outside Latin-1, so every
+ * report renders in clean, professional text. Applied to ALL header + table
+ * text below, so callers never have to think about it.
+ */
+function asciiSafe(v) {
+  if (v == null) return v;
+  return String(v)
+    .replace(/→/g, '->')
+    .replace(/[–—]/g, '-')
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[•]/g, '-')
+    .replace(/[^\x00-\xFF]/g, ''); // strip any remaining non-Latin-1 glyph
+}
+
+/** Sanitise one autoTable cell — a plain value or an { content, styles } object. */
+function safeCell(cell) {
+  if (cell && typeof cell === 'object' && 'content' in cell) {
+    return { ...cell, content: asciiSafe(cell.content) };
+  }
+  return asciiSafe(cell);
+}
+const safeRow  = (row)  => (Array.isArray(row) ? row.map(safeCell) : row);
+const safeRows = (rows) => (Array.isArray(rows) ? rows.map(safeRow) : rows);
+
 // Header geometry (pt). The table starts at HEADER_BOTTOM on every page and
 // autoTable's margin.top matches it, so table content can NEVER overlap the
 // header — the bug that made the old green-band meta strip collide with the
@@ -155,7 +185,7 @@ function drawHeader(doc, opts) {
   doc.setTextColor(...hex(BRAND.text));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.text(title || 'Report', textX, HEADER_TOP + 14);
+  doc.text(asciiSafe(title || 'Report'), textX, HEADER_TOP + 14);
 
   // Optional subtitle line.
   let lineY = HEADER_TOP + 30;
@@ -163,7 +193,7 @@ function drawHeader(doc, opts) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(...hex(BRAND.textMute));
-    doc.text(String(subtitle), textX, lineY);
+    doc.text(asciiSafe(String(subtitle)), textX, lineY);
     lineY += 14;
   }
 
@@ -172,7 +202,7 @@ function drawHeader(doc, opts) {
   if (meta?.periodFrom || meta?.periodTo) {
     const from = meta.periodFrom ? pdfDateLabel(meta.periodFrom) : '';
     const to   = meta.periodTo   ? pdfDateLabel(meta.periodTo)   : '';
-    if (from && to)      parts.push(`Period: ${from} → ${to}`);
+    if (from && to)      parts.push(`Period: ${from} to ${to}`);
     else if (from)       parts.push(`Date: ${from}`);
     else if (to)         parts.push(`Date: ${to}`);
   } else if (meta?.date) {
@@ -190,7 +220,7 @@ function drawHeader(doc, opts) {
   // Wrap the meta line to the width available right of the logo so a long
   // employee name / period never runs off the page or gets clipped.
   const metaMaxW = (pageW - M) - textX;
-  const metaLines = doc.splitTextToSize(parts.join('   ·   '), metaMaxW);
+  const metaLines = doc.splitTextToSize(asciiSafe(parts.join('   ·   ')), metaMaxW);
   metaLines.forEach((ln, i) => doc.text(ln, textX, lineY + i * 11));
 
   // Green rule under the header — the brand accent, replacing the old band.
@@ -265,11 +295,17 @@ export async function buildBrandedPdf(opts) {
   // header explicitly so the title appears even when the table is empty).
   drawHeader(doc, { title, subtitle, meta, logo });
 
+  // Sanitise every cell so no non-Latin-1 glyph (arrows, dashes, curly quotes,
+  // non-Latin script) reaches jsPDF and garbles the text / overflows the cell.
+  const safeHead   = Array.isArray(head) ? head.map(asciiSafe) : head;
+  const safeBody   = safeRows(body);
+  const safeTotals = safeRows(totals);
+
   autoTable(doc, {
     startY: HEADER_BOTTOM,
-    head:   [head],
-    body,
-    foot:   totals && totals.length ? totals : undefined,
+    head:   [safeHead],
+    body:   safeBody,
+    foot:   safeTotals && safeTotals.length ? safeTotals : undefined,
     theme:  'striped',
     // linebreak = long cell values WRAP instead of being clipped, so no
     // column ever cuts data off; valign top keeps wrapped rows tidy.
