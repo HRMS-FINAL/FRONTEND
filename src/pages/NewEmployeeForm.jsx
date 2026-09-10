@@ -354,35 +354,35 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
                 <div className="form-grid">
                   <div className="form-group">
                     <label className="form-label" htmlFor="firstName"><span className="required">*</span> First Name</label>
-                    <input 
-                      type="text" id="firstName" className={`form-input ${errors.firstName ? 'error' : ''}`} 
-                      placeholder="Enter first name" value={form.firstName} onChange={handleInputChange} 
+                    <input
+                      type="text" id="firstName" name="new-firstName" autoComplete="off" className={`form-input ${errors.firstName ? 'error' : ''}`}
+                      placeholder="Enter first name" value={form.firstName} onChange={handleInputChange}
                     />
                     {errors.firstName && <span className="error-text"><AlertCircle size={12} /> {errors.firstName}</span>}
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="lastName"><span className="required">*</span> Last Name</label>
-                    <input 
-                      type="text" id="lastName" className={`form-input ${errors.lastName ? 'error' : ''}`} 
-                      placeholder="Enter last name" value={form.lastName} onChange={handleInputChange} 
+                    <input
+                      type="text" id="lastName" name="new-lastName" autoComplete="off" className={`form-input ${errors.lastName ? 'error' : ''}`}
+                      placeholder="Enter last name" value={form.lastName} onChange={handleInputChange}
                     />
                     {errors.lastName && <span className="error-text"><AlertCircle size={12} /> {errors.lastName}</span>}
                   </div>
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="username"><span className="required">*</span> Username</label>
-                    <input 
-                      type="text" id="username" className={`form-input ${errors.username ? 'error' : ''}`} 
-                      placeholder="Enter username" value={form.username} onChange={handleInputChange} 
+                    <input
+                      type="text" id="username" name="new-username" autoComplete="off" className={`form-input ${errors.username ? 'error' : ''}`}
+                      placeholder="Enter username" value={form.username} onChange={handleInputChange}
                     />
                     {errors.username && <span className="error-text"><AlertCircle size={12} /> {errors.username}</span>}
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="password"><span className="required">*</span> Password</label>
                     <div className="form-input-container">
-                      <input 
-                        type={showPassword ? "text" : "password"} id="password" className={`form-input ${errors.password ? 'error' : ''}`} 
-                        placeholder="Enter password" value={form.password} onChange={handleInputChange} 
+                      <input
+                        type={showPassword ? "text" : "password"} id="password" name="new-password" autoComplete="new-password" className={`form-input ${errors.password ? 'error' : ''}`}
+                        placeholder="Enter password" value={form.password} onChange={handleInputChange}
                       />
                       <div className="password-toggle" onClick={() => setShowPassword(!showPassword)}>
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -393,17 +393,17 @@ export default function NewEmployeeForm({ onBack, onSubmit, setActiveView, emplo
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="email"><span className="required">*</span> Email</label>
-                    <input 
-                      type="email" id="email" className={`form-input ${errors.email ? 'error' : ''}`} 
-                      placeholder="Enter email address" value={form.email} onChange={handleInputChange} 
+                    <input
+                      type="email" id="email" name="new-email" autoComplete="off" className={`form-input ${errors.email ? 'error' : ''}`}
+                      placeholder="Enter email address" value={form.email} onChange={handleInputChange}
                     />
                     {errors.email && <span className="error-text"><AlertCircle size={12} /> {errors.email}</span>}
                   </div>
                   <div className="form-group">
                     <label className="form-label" htmlFor="phone"><span className="required">*</span> Phone</label>
-                    <input 
-                      type="tel" id="phone" className={`form-input ${errors.phone ? 'error' : ''}`} 
-                      placeholder="Enter phone number" value={form.phone} onChange={handleInputChange} 
+                    <input
+                      type="tel" id="phone" name="new-phone" autoComplete="off" className={`form-input ${errors.phone ? 'error' : ''}`}
+                      placeholder="Enter phone number" value={form.phone} onChange={handleInputChange}
                     />
                     {errors.phone && <span className="error-text"><AlertCircle size={12} /> {errors.phone}</span>}
                   </div>
