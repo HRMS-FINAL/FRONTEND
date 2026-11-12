@@ -1407,7 +1407,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       </div>
                       <div className="ne-field">
                         <label className="ne-label">Pay Period</label>
-                        <input className="ne-input" type="text" defaultValue="April 2024" />
+                        <input className="ne-input" type="text" value={monthLabel} readOnly title="Pay period follows the month selected on the Payroll page" />
                       </div>
                     </div>
                   </div>
