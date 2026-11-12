@@ -29,7 +29,8 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         logoDataUrlRef.current = c.toDataURL('image/png');
       } catch { /* canvas unsupported — payslip simply omits the logo */ }
     };
-    img.src = logo;
+    // Official Tesco Structures logo for the payslip header (public/tescostr.png).
+    img.src = '/tescostr.png';
   }, []);
   const [showSlip, setShowSlip] = useState(null);
   const [showEditSlip, setShowEditSlip] = useState(null);
@@ -189,131 +190,206 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     return { ctc, basic, hra, conveyance, special, incentive, gross, epf, pt, tds, totalDed, net };
   };
 
+  // ₹ amount → Indian-system words (e.g. 32400 → "Thirty Two Thousand Four
+  // Hundred"). Used for the "In Words" line on the payslip.
+  const amountToWords = (value) => {
+    let num = Math.round(Number(value) || 0);
+    if (num === 0) return 'Zero';
+    const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+      'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const two = (n) => (n < 20 ? a[n] : (b[Math.floor(n / 10)] + (n % 10 ? ' ' + a[n % 10] : '')));
+    const three = (n) => {
+      const h = Math.floor(n / 100), r = n % 100;
+      return (h ? a[h] + ' Hundred' + (r ? ' ' : '') : '') + (r ? two(r) : '');
+    };
+    let words = '';
+    const crore = Math.floor(num / 10000000); num %= 10000000;
+    const lakh = Math.floor(num / 100000); num %= 100000;
+    const thou = Math.floor(num / 1000); num %= 1000;
+    if (crore) words += three(crore) + ' Crore ';
+    if (lakh)  words += two(lakh) + ' Lakh ';
+    if (thou)  words += two(thou) + ' Thousand ';
+    if (num)   words += three(num);
+    return words.trim();
+  };
+
   /**
-   * Build a one-page Tesco Structures payslip PDF for one employee and
-   * return the jsPDF instance. Caller decides whether to .save() (download)
-   * or .output('blob') (preview).
+   * Build a one-page Tesco Structures LLP payslip PDF for one employee — an
+   * exact replica of the official ERM payslip: black header band with the
+   * Tesco Structures logo + green chevron, company name + address, green
+   * PAY SLIP band, bordered info grid, Earnings (Basic + DA, HRA) / Rate /
+   * Amount + Deductions (PF, Professional Tax) table, green NET PAY band,
+   * amount in words, and a green footer band. Caller decides whether to
+   * .save() (download) or .output('blob') (preview).
    */
   const buildPayslipPdf = (emp) => {
-    const p = computePayslip(emp);
+    const p = computePayslip(emp);          // kept for the mobile-push payload
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
     const M = 40;
-    let y = 50;
+    const contentW = pageW - 2 * M;
 
-    // ── Header ──
-    // #498 — Tesco HRM logo at the top-left. Company text is pushed to the
-    // right of the logo so nothing overlaps.
-    let headTextX = M;
+    const GREEN = [122, 192, 67];   // Tesco Structures lime green (payslip bands)
+    const BLACK = [17, 17, 17];
+    const INK   = [30, 41, 59];
+    const BORDER = [0, 0, 0];   // black box/table borders
+    // No thousands separators — matches the official payslip exactly (16200.00).
+    const inr = (n) => (Number(n) || 0).toFixed(2);
+
+    // Official payslip salary model (matches the ERM payslip exactly):
+    // gross split 50/50 into Basic + DA and HRA; PF + Professional Tax are the
+    // only deductions (0 unless set on the employee record); net = gross - ded.
+    const gross   = Number(emp.salary) || 0;
+    const basicDA = Math.round(gross / 2);
+    const hra     = gross - basicDA;
+    const pf      = Number(emp.pf ?? emp.providentFund ?? emp.epf ?? 0) || 0;
+    const profTax = Number(emp.professionalTax ?? emp.profTax ?? 0) || 0;
+    const totalDed = pf + profTax;
+    const net      = gross - totalDed;
+
+    // ── Header band: black card with the Tesco logo + a green chevron ──
+    const hbY = 30, hbH = 60;
+    doc.setFillColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.roundedRect(M, hbY, contentW, hbH, 4, 4, 'F');
+    // Green chevron block on the right (angled left edge → arrow pointing right).
+    const gx = pageW - M - 150, slope = 26;
+    doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+    doc.triangle(gx + slope, hbY + 2, pageW - M - 3, hbY + 2, pageW - M - 3, hbY + hbH - 2, 'F');
+    doc.triangle(gx + slope, hbY + 2, pageW - M - 3, hbY + hbH - 2, gx, hbY + hbH - 2, 'F');
+    // Logo on a white chip so the dark-on-transparent lockup stays readable.
     const lg = logoDataUrlRef.current;
     if (lg) {
       try {
-        const props = doc.getImageProperties(lg);
-        const lh = 34;
-        const lw = props?.width ? (props.width / props.height) * lh : 96;
-        doc.addImage(lg, 'PNG', M, y - 24, lw, lh);
-        headTextX = M + lw + 14;
-      } catch { /* logo failed — keep text at the margin */ }
+        const pr = doc.getImageProperties(lg);
+        const lh = 32;
+        const lw = pr?.width ? (pr.width / pr.height) * lh : 150;
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(M + 10, hbY + (hbH - lh) / 2 - 6, lw + 18, lh + 12, 4, 4, 'F');
+        doc.addImage(lg, 'PNG', M + 19, hbY + (hbH - lh) / 2, lw, lh);
+      } catch { /* logo omitted if it fails to load */ }
     }
+
+    // ── Company name + address (centred) ──
+    let y = hbY + hbH + 24;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(30, 41, 59);
-    doc.text('TESCO STRUCTURES', headTextX, y);
+    doc.setFontSize(15);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text('TESCO STRUCTURES LLP', pageW / 2, y, { align: 'center' });
+    y += 14;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Chennai, Tamilnadu', headTextX, y + 14);
+    doc.setFontSize(8.5);
+    doc.setTextColor(90, 100, 115);
+    doc.text('37, 15th St, Gandhi Nagar, Ashok Nagar, Chennai - 600 083', pageW / 2, y, { align: 'center' });
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text('Payslip For the Month', pageW - M, y, { align: 'right' });
+    // ── PAY SLIP band (green) ──
+    y += 16;
+    doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+    doc.rect(M, y, contentW, 22, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.setTextColor(30, 41, 59);
-    doc.text(monthLabel, pageW - M, y + 16, { align: 'right' });
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`PAY SLIP - ${String(monthLabel).toUpperCase()}`, pageW / 2, y + 15, { align: 'center' });
+    y += 22;
 
-    y += 36;
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(1);
-    doc.line(M, y, pageW - M, y);
-    y += 18;
-
-    // ── Employee summary ──
-    const summary = [
-      ['Employee Name',  emp.name || '—'],
-      ['Designation',    emp.designation || emp.role || '—'],
-      ['Employee ID',    emp.employeeId || ('EMP-100' + (emp.id || ''))],
-      ['Date of Joining',emp.joiningDate || '—'],
-      ['Pay Period',     monthLabel],
-      ['Pay Date',       new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')],
-    ];
-    doc.setFontSize(10);
-    summary.forEach((row, i) => {
-      const rowY = y + i * 14;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text(row[0], M, rowY);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(': ' + String(row[1]), M + 110, rowY);
-    });
-
-    // ── Net pay box (right) ──
-    const boxX = pageW - M - 220;
-    const boxY = y - 4;
-    doc.setFillColor(240, 253, 244);
-    doc.rect(boxX, boxY, 220, 64, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(22, 101, 52);
-    doc.text(`Rs. ${p.net.toLocaleString('en-IN')}`, boxX + 12, boxY + 28);
-    doc.setFontSize(10);
-    doc.setTextColor(21, 128, 61);
-    doc.text('Employee Net Pay', boxX + 12, boxY + 48);
-
-    y += summary.length * 14 + 18;
-
-    // ── Earnings / Deductions table ──
+    // ── Employee info grid (4 cols x 3 rows, bordered) ──
+    const paidDays = emp.paidDays ?? emp.paid_days ?? '-';
+    const balAdv   = emp.balanceAdvance ?? emp.balAdvance ?? emp.advanceBalance;
     autoTable(doc, {
       startY: y,
       margin: { left: M, right: M },
-      head: [['Earnings', 'Amount (Rs.)', 'Deductions', 'Amount (Rs.)']],
+      theme: 'grid',
+      styles: { fontSize: 9.5, cellPadding: 6, lineColor: BORDER, lineWidth: 0.5, textColor: INK },
+      columnStyles: {
+        0: { cellWidth: contentW * 0.19, fontStyle: 'bold', fillColor: [237, 245, 233] },
+        1: { cellWidth: contentW * 0.31 },
+        2: { cellWidth: contentW * 0.19, fontStyle: 'bold', fillColor: [237, 245, 233] },
+        3: { cellWidth: contentW * 0.31 },
+      },
       body: [
-        ['Basic',                p.basic.toLocaleString('en-IN'),       'EPF Contribution',  p.epf.toLocaleString('en-IN')],
-        ['House Rent Allowance', p.hra.toLocaleString('en-IN'),         'Professional Tax',  p.pt.toLocaleString('en-IN')],
-        ['Conveyance Allowance', p.conveyance.toLocaleString('en-IN'),  'TDS',               p.tds.toLocaleString('en-IN')],
-        ['Special Allowance',    p.special.toLocaleString('en-IN'),     '',                  ''],
-        ['Performance Incentive',p.incentive.toLocaleString('en-IN'),   '',                  ''],
-        [
-          { content: 'Gross Earnings',       styles: { fontStyle: 'bold' } },
-          { content: p.gross.toLocaleString('en-IN'),   styles: { fontStyle: 'bold' } },
-          { content: 'Total Deductions',     styles: { fontStyle: 'bold' } },
-          { content: p.totalDed.toLocaleString('en-IN'),styles: { fontStyle: 'bold' } },
-        ],
+        ['Employee ID', emp.employeeId || '-', 'Employee Name', emp.name || '-'],
+        ['Designation', emp.designation || emp.role || '-', 'Department', emp.department || emp.dept || '-'],
+        ['Paid Days', String(paidDays), 'Bal. Advance', balAdv == null ? '0.00' : inr(balAdv)],
       ],
-      styles:      { fontSize: 10, cellPadding: 6 },
-      headStyles:  { fillColor: [248, 250, 252], textColor: 30, fontStyle: 'bold' },
-      theme:       'grid',
     });
+    y = doc.lastAutoTable.finalY + 12;
 
-    let finalY = (doc.lastAutoTable?.finalY ?? y + 200) + 18;
+    // ── Earnings / Deductions table (ONLY the official line items) ──
+    const earnings   = [['Basic + DA', basicDA], ['HRA', hra]];
+    const deductions = [['PF', pf], ['Professional Tax', profTax]];
+    const rows = [];
+    const nRows = Math.max(earnings.length, deductions.length);
+    for (let i = 0; i < nRows; i++) {
+      const e = earnings[i], d = deductions[i];
+      rows.push([
+        e ? e[0] : '', e ? inr(e[1]) : '', e ? inr(e[1]) : '',
+        d ? d[0] : '', d ? inr(d[1]) : '',
+      ]);
+    }
+    // Airy fixed-height earnings block (empty rows, like the official payslip).
+    for (let i = 0; i < 3; i++) rows.push(['', '', '', '', '']);
+    rows.push([
+      { content: 'Total', styles: { fontStyle: 'bold' } },
+      { content: inr(gross), styles: { fontStyle: 'bold' } },
+      { content: inr(gross), styles: { fontStyle: 'bold' } },
+      { content: 'Total', styles: { fontStyle: 'bold' } },
+      { content: inr(totalDed), styles: { fontStyle: 'bold' } },
+    ]);
+    autoTable(doc, {
+      startY: y,
+      margin: { left: M, right: M },
+      theme: 'grid',
+      head: [['Earnings', 'Rate (Rs.)', 'Amount (Rs.)', 'Deductions', 'Amount (Rs.)']],
+      body: rows,
+      styles: { fontSize: 9.5, cellPadding: 6, lineColor: BORDER, lineWidth: 0.5, textColor: INK },
+      headStyles: { fillColor: BLACK, textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 4: { halign: 'right' } },
+    });
+    y = doc.lastAutoTable.finalY;
 
-    // ── Net payable footer ──
-    doc.setFillColor(248, 250, 252);
-    doc.rect(M, finalY, pageW - 2 * M, 44, 'F');
+    // ── NET PAY band (green) ──
+    doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+    doc.rect(M, y, contentW, 26, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text('TOTAL NET PAYABLE', M + 12, finalY + 20);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Gross Earnings - Total Deductions', M + 12, finalY + 34);
+    doc.setTextColor(255, 255, 255);
+    doc.text('NET PAY', M + 10, y + 17);
+    doc.text(`Rs. ${inr(net)}`, pageW - M - 10, y + 17, { align: 'right' });
+    y += 26;
 
+    // ── Amount in words (bordered) ──
+    doc.setDrawColor(BORDER[0], BORDER[1], BORDER[2]);
+    doc.setLineWidth(0.5);
+    doc.rect(M, y, contentW, 24);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(22, 101, 52);
-    doc.text(`Rs. ${p.net.toLocaleString('en-IN')}`, pageW - M - 12, finalY + 27, { align: 'right' });
+    doc.setFontSize(9);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text('In Words:', M + 10, y + 15);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Rupees ${amountToWords(net)} Only`, M + 62, y + 15);
+    y += 24 + 18;
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 130, 145);
+    doc.text('This is a computer-generated payslip; no signature is required.', pageW / 2, y, { align: 'center' });
+
+    // ── Footer: full-width green band at the very bottom, two lines each side,
+    //    vertically centred so nothing crowds the band edges. ──
+    const fbH = 46;
+    const fTop = pageH - fbH;
+    const l1 = fTop + fbH / 2 - 4;   // first line baseline
+    const l2 = fTop + fbH / 2 + 9;   // second line baseline
+    doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+    doc.rect(0, fTop, pageW, fbH, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(255, 255, 255);
+    doc.text('www.tescostructures.com   |   tescostructures@gmail.com', M, l1);
+    doc.text('+91 90033 28225   |   +91 90033 28229', M, l2);
+    doc.text('37, 15th St, Gandhi Nagar, Ashok Nagar,', pageW - M, l1, { align: 'right' });
+    doc.text('Chennai, Tamil Nadu - 600 083', pageW - M, l2, { align: 'right' });
 
     return { doc, computed: p };
   };
