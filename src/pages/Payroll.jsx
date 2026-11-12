@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronRight, DollarSign, CreditCard, TrendingUp, Zap,
-  Download, Printer, Send, Search, Filter, X, FileText, Upload
+  Download, Printer, Send, Search, Filter, X, FileText, Upload, Trash2
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
+import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -12,7 +13,10 @@ import { API } from '../config/api';
 
 export default function Payroll({ onBack, employees = [], updateEmployeeSalary }) {
   const { showNotification } = useNotification();
+  const { user, isAdmin } = useAuth();
   const confirm = useConfirm();
+  // Only HR / Admin may delete an uploaded report.
+  const canManageReports = isAdmin || ['admin', 'hr'].includes(String(user?.role || '').toLowerCase());
 
   // #498 — Preload the Tesco HRM logo as a PNG data-URL so the synchronous
   // payslip PDF builder can embed it via doc.addImage without an async load.
@@ -560,8 +564,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
    * also download it from the app.
    */
   const downloadPayslip = async (emp) => {
-    // Gate: no payslip without the month's uploaded report.
-    if (!(await requireReport())) return;
+    // Gate: no payslip unless the month's report is uploaded AND this employee
+    // is in it.
+    if (!(await canIssuePayslip(emp))) return;
     let computed;
     // Build + save the PDF first — local action, never blocked by network.
     try {
@@ -699,12 +704,81 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     return null;
   };
 
+  // Guard for issuing a payslip to one employee. Requires (1) the month's
+  // report to be uploaded AND (2) this employee to actually be present in that
+  // report (has a payable). Employees shown as "Not in report" are blocked.
+  const canIssuePayslip = async (emp) => {
+    if (!(await requireReport())) return false;
+    if (payableFor(emp) == null) {
+      await confirm({
+        title: 'Employee not in the uploaded report',
+        message: `${emp.name} is not included in the attendance/payroll report for ${monthLabel}, so a payslip can't be generated or downloaded for them. Upload a report that includes ${emp.name} first.`,
+        confirmLabel: 'OK',
+        cancelLabel: 'Close',
+      });
+      return false;
+    }
+    return true;
+  };
+
+  // Delete the uploaded report for the selected month (HR/Admin only). Removes
+  // the month's generated payslips and re-locks the month until a new upload.
+  const deleteReport = async () => {
+    if (!canManageReports) return;
+    const ok = await confirm({
+      title: 'Delete report for this month?',
+      message:
+        `Month: ${monthLabel}\n\n` +
+        `This removes the uploaded report and the payslips generated from it for ` +
+        `${monthLabel}, and locks the month until a new report is uploaded. ` +
+        `Employee records and other months' payslip history are NOT affected.`,
+      confirmLabel: 'Delete report',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
+    if (!ok) return;
+    setImportBusy(true);
+    try {
+      const r = await fetch(`${API}/payroll/delete-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: payMonth, year: payYear }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) {
+        showNotification(data?.message || 'Could not delete the report', 'error');
+        return;
+      }
+      // Re-lock the month locally and refresh.
+      setUploadedMonths(prev => { const n = new Set(prev); n.delete(monthKey); return n; });
+      setMonthHasReport(false);
+      setMonthPayslips([]);
+      setGeneratedPayrolls([]);
+      showNotification(`Report for ${monthLabel} deleted (${data.deleted || 0} payslip${data.deleted === 1 ? '' : 's'} removed). Month is locked until a new report is uploaded.`, 'success');
+    } catch (err) {
+      showNotification('Delete failed: ' + (err?.message || 'network error'), 'error');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   // Search filter
-  const filteredEmployees = employees.filter(emp => 
-    emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (emp.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (emp.dept || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // An employee is terminated when their employment status says so (or the
+  // record is explicitly inactive with a Terminated status). Terminated staff
+  // are still shown — so their payroll history/payslips are preserved — but
+  // flagged clearly and never treated as active for new payroll.
+  const isTerminated = (emp) =>
+    String(emp.status || '').toLowerCase() === 'terminated' ||
+    (emp.isActive === false && String(emp.status || '').toLowerCase().includes('terminat'));
+
+  const filteredEmployees = employees
+    .filter(emp =>
+      emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (emp.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (emp.dept || '').toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    // Active first, terminated pushed to the bottom (order otherwise preserved).
+    .sort((a, b) => (isTerminated(a) ? 1 : 0) - (isTerminated(b) ? 1 : 0));
 
 
   return (
@@ -804,6 +878,16 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
             <Upload size={14} /> Upload Report
             <input type="file" style={{ display: 'none' }} accept=".csv,.xlsx" onChange={handleFileUpload} />
           </label>
+          {canManageReports && monthHasReport && (
+            <button
+              onClick={deleteReport}
+              disabled={importBusy}
+              title={`Delete the uploaded report for ${monthLabel}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: importBusy ? 'not-allowed' : 'pointer', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', opacity: importBusy ? 0.6 : 1 }}
+            >
+              <Trash2 size={14} /> Delete Report
+            </button>
+          )}
           <select
             className="ne-btn-secondary"
             value={`${payYear}-${String(payMonth).padStart(2,'0')}`}
@@ -855,15 +939,18 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
               // uploaded report for this month; "Report Not Uploaded" until then.
               const monthlySalary = Number(emp.salary) || 0;
               const payable = payableFor(emp);
+              const terminated = isTerminated(emp);
 
               return (
-                <tr key={emp.id}>
+                <tr key={emp.id} style={terminated ? { background: '#fef2f2', opacity: 0.85 } : undefined}>
                   <td>
                     <div className="emp-table-user">
-                      <div className="emp-table-avatar" style={{ background: emp.color + '20', color: emp.color }}>{emp.initials}</div>
+                      <div className="emp-table-avatar" style={{ background: (terminated ? '#9ca3af' : emp.color) + '20', color: terminated ? '#6b7280' : emp.color }}>{emp.initials}</div>
                       <div>
                         <div className="emp-table-name">{emp.name}</div>
-
+                        {terminated && (
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: '#b91c1c', letterSpacing: 0.3 }}>Terminated employee</div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -879,7 +966,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                     )}
                   </td>
                   <td>
-                    {generatedPayrolls.includes(emp.id) ? (
+                    {terminated ? (
+                      <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 800, letterSpacing: 0.4, color: '#fff', background: '#dc2626', padding: '3px 10px', borderRadius: 999 }}>TERMINATED</span>
+                    ) : generatedPayrolls.includes(emp.id) ? (
                       <span className="dash-emp-status present">Generated</span>
                     ) : (
                       <span className="dash-emp-status absent">Pending</span>
@@ -900,14 +989,17 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       <button
                         className="emp-table-btn"
                         title="Preview payslip"
-                        onClick={async () => { if (await requireReport()) setShowSlip(emp); }}
+                        onClick={async () => { if (await canIssuePayslip(emp)) setShowSlip(emp); }}
                       >
                         <FileText size={14} />
                       </button>
                       <button
                         className="ne-btn-primary"
-                        style={{ padding: '4px 10px', height: '28px', fontSize: '12px' }}
+                        disabled={terminated}
+                        title={terminated ? 'Employee is terminated — new payroll is disabled. History is preserved.' : 'Create payroll'}
+                        style={{ padding: '4px 10px', height: '28px', fontSize: '12px', opacity: terminated ? 0.45 : 1, cursor: terminated ? 'not-allowed' : 'pointer' }}
                         onClick={async () => {
+                          if (terminated) return;
                           if (!(await requireReport())) return;
                           setCreateEmpId(emp.employeeId || 'EMP-10' + emp.id);
                           setShowProcessPanel(true);
