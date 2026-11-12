@@ -339,6 +339,20 @@ export default function LeavePermissionRequest({ onBack }) {
   // the card counts can NEVER disagree, on any click / load / refresh. The
   // previous tab-swap timer + memo + asymmetric heading condition are all gone.
   const showPermissionTab = activeTab === 'permission-requests';
+  // Best-available timestamp for a request, so both tabs sort consistently:
+  // prefer when it was filed (createdAt / requestedAt), then the leave/
+  // permission date itself. Returns ms since epoch (0 if nothing parses).
+  const requestTime = (r) => {
+    const cands = [r.createdAt, r.requestedAt, r.appliedOn, r.updatedAt,
+                   r.startDate, r.permissionDate, r.date, r.endDate];
+    for (const c of cands) {
+      if (!c) continue;
+      const t = new Date(c).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
   const displayRecords = requests.filter((item) => {
     if (rowIsPermission(item) !== showPermissionTab) return false;   // exact tab match
     if (!isPending(item)) return false;
@@ -354,7 +368,10 @@ export default function LeavePermissionRequest({ onBack }) {
       if (!haystack.includes(q)) return false;
     }
     return true;
-  });
+  })
+    // Chronological order, latest requests first (applies to both the Leave
+    // and Permission approval tabs).
+    .sort((a, b) => requestTime(b) - requestTime(a));
 
   const filterTabs = [];   // secondary leave/permission selector removed per HR request
 
