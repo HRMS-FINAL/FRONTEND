@@ -85,6 +85,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   // holds generated (non-pending) payslips for it.
   const [uploadedMonths, setUploadedMonths] = useState(() => new Set());
   const [monthHasReport, setMonthHasReport] = useState(false);
+  // Generated payslips for the selected month (source for the "Payable Amount"
+  // column — the salary calculated from the HR-uploaded report).
+  const [monthPayslips, setMonthPayslips] = useState([]);
   const monthKey = `${payYear}-${String(payMonth).padStart(2, '0')}`;
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +106,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         // does NOT count as an upload.
         const hasProcessed = items.some(p => String(p.status || '').toLowerCase() !== 'pending');
         setMonthHasReport(hasProcessed || uploadedMonths.has(`${payYear}-${String(payMonth).padStart(2, '0')}`));
+        // Keep only GENERATED payslips (not bare pending requests) for the
+        // Payable Amount lookup.
+        setMonthPayslips(items.filter(p => String(p.status || '').toLowerCase() !== 'pending'));
       } catch { /* network / cold-start — non-fatal */ }
     };
     load();
@@ -595,7 +601,103 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     }
   };
 
+  // Manually map an unmatched import row to an HRMS employee. Recomputes the
+  // row's payslip numbers (mirrors the backend's per-type logic) and flips it
+  // to matched so it can be pushed. Passing an empty id reverts to unmatched.
+  const assignEmployee = (rowIndex, empIdStr) => {
+    if (!importReview) return;
+    const rows = importReview.rows.slice();
+    const row = { ...rows[rowIndex] };
+    const emp = employees.find(e => String(e.id) === String(empIdStr));
+    if (!emp) {
+      row.status = 'unmatched';
+      row.employeeId = '';
+      delete row.push; delete row.earnings; delete row.deductions; delete row.net;
+      row.flags = [];
+      rows[rowIndex] = row;
+      setImportReview({ ...importReview, rows });
+      setImportInclude(prev => { const n = new Set(prev); n.delete(rowIndex); return n; });
+      return;
+    }
+    const pf = Number(emp.pf ?? emp.providentFund ?? 0) || 0;
+    const pt = Number(emp.professionalTax ?? emp.profTax ?? 0) || 0;
+    const raw = row.raw || {};
+    const inr = (n) => (Number(n) || 0).toLocaleString('en-IN');
+    let earnings, net, flags = [];
+    if (row.reportType === 'labour') {
+      const wages = Math.round((Number(raw.workingDays) || 0) * (Number(raw.perDay) || 0));
+      const ot = Number(raw.otAmount) || 0;
+      net = wages + ot - pf - pt;
+      earnings = { basicDA: wages, hra: ot };
+      const reportTotal = Number(raw.totalAmount) || 0;
+      if (Number(raw.perDay) <= 0) flags.push('Per Day Salary is 0 in the report — wages compute to 0.');
+      if (reportTotal > 0 && Math.abs(reportTotal - (wages + ot)) > 1)
+        flags.push(`Report Total ₹${inr(reportTotal)} ≠ (days×rate + OT) ₹${inr(wages + ot)} — review.`);
+    } else {
+      const gross = Number(emp.salary) || 0;
+      const basic = Math.round(gross / 2);
+      const hra = gross - basic;
+      net = gross - pf - pt;
+      earnings = { basicDA: basic, hra };
+      const reportSalary = Number(raw.salaryAmount) || 0;
+      if (gross <= 0) flags.push('No salary on employee record — earnings are 0.');
+      if (reportSalary > 0 && Math.abs(reportSalary - net) > 1)
+        flags.push(`Report Salary Amount ₹${inr(reportSalary)} ≠ structure net ₹${inr(net)} — review.`);
+    }
+    row.status = 'matched';
+    row.assignedManually = true;
+    row.employeeId = emp.employeeId || '';
+    row.department = emp.department || emp.dept || '';
+    row.designation = row.designation || emp.designation || emp.role || '';
+    row.earnings = earnings;
+    row.deductions = { pf, pt };
+    row.net = net;
+    row.flags = flags;
+    row.push = {
+      employeeId: emp.employeeId || undefined,
+      userId: String(emp.id || '') || undefined,
+      email: emp.email || undefined,
+      earnings:   { basicSalary: earnings.basicDA, hraAllowance: earnings.hra, performanceBonus: 0, otherEarnings: 0 },
+      deductions: { incomeTax: 0, providentFund: pf, healthInsurance: 0, lopDeduction: 0, otherDeductions: pt },
+    };
+    rows[rowIndex] = row;
+    setImportReview({ ...importReview, rows });
+    setImportInclude(prev => { const n = new Set(prev); n.add(rowIndex); return n; });
+  };
+
   const eligibleEmployees = employees.filter(checkEligibility);
+
+  // Payable Amount lookup — net pay from the generated payslip for the selected
+  // month, keyed by every identifier we might match an employee on.
+  const sumVals = (o) => (o ? Object.values(o).reduce((a, b) => a + (Number(b) || 0), 0) : 0);
+  const payableIndex = (() => {
+    const byId = {}, byEmpId = {}, byEmail = {}, byName = {};
+    (monthPayslips || []).forEach(p => {
+      const net = p.netPay != null ? Number(p.netPay) : (sumVals(p.earnings) - sumVals(p.deductions));
+      const u = p.user || {};
+      const uid = String(u._id || p.userId || '');
+      const eid = String(u.employeeId || p.employeeId || '').toLowerCase();
+      const em  = String(u.email || p.email || '').toLowerCase();
+      const nm  = String(u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || p.name || '').toLowerCase().trim();
+      if (uid) byId[uid] = net;
+      if (eid) byEmpId[eid] = net;
+      if (em)  byEmail[em] = net;
+      if (nm)  byName[nm] = net;
+    });
+    return { byId, byEmpId, byEmail, byName };
+  })();
+  const payableFor = (emp) => {
+    const i = payableIndex;
+    const uid = String(emp.id || '');
+    const eid = String(emp.employeeId || '').toLowerCase();
+    const em  = String(emp.email || '').toLowerCase();
+    const nm  = String(emp.name || '').toLowerCase().trim();
+    if (uid && i.byId[uid] != null) return i.byId[uid];
+    if (eid && i.byEmpId[eid] != null) return i.byEmpId[eid];
+    if (em && i.byEmail[em] != null) return i.byEmail[em];
+    if (nm && i.byName[nm] != null) return i.byName[nm];
+    return null;
+  };
 
   // Search filter
   const filteredEmployees = employees.filter(emp => 
@@ -740,18 +842,20 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
             <tr>
               <th>Employee</th>
               <th>Pay Period</th>
-              <th>Gross Salary</th>
+              <th>Monthly Salary</th>
+              <th>Payable Amount</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {filteredEmployees.map(emp => {
-              const isEligible = checkEligibility(emp);
-              const ctc = emp.salary || 50000;
-              const incentive = isEligible ? 5000 : 0;
-              const grossSalary = ctc + incentive;
-              
+              // Monthly Salary = the employee's original saved salary (master
+              // record), shown as-is. Payable Amount = net pay from the HR-
+              // uploaded report for this month; "Report Not Uploaded" until then.
+              const monthlySalary = Number(emp.salary) || 0;
+              const payable = payableFor(emp);
+
               return (
                 <tr key={emp.id}>
                   <td>
@@ -764,7 +868,16 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                     </div>
                   </td>
                   <td><div className="emp-table-dept">{monthLabel}</div></td>
-                  <td><div className="emp-table-dept">₹{grossSalary.toLocaleString()}.00</div></td>
+                  <td><div className="emp-table-dept">₹{monthlySalary.toLocaleString()}.00</div></td>
+                  <td>
+                    {payable != null ? (
+                      <div className="emp-table-dept" style={{ fontWeight: 700, color: '#166534' }}>₹{Number(payable).toLocaleString()}.00</div>
+                    ) : (
+                      <div className="emp-table-dept" style={{ fontSize: 11.5, fontWeight: 600, color: monthHasReport ? '#64748b' : '#9a3412' }}>
+                        {monthHasReport ? 'Not in report' : 'Report Not Uploaded'}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     {generatedPayrolls.includes(emp.id) ? (
                       <span className="dash-emp-status present">Generated</span>
@@ -819,6 +932,12 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         const isLabour = rev.reportType === 'labour';
         const money = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
         const selectedCount = (rev.rows || []).filter((row, i) => row.status === 'matched' && importInclude.has(i)).length;
+        // Live counts (recomputed after manual assignments, not the static server summary).
+        const liveMatched   = (rev.rows || []).filter(r => r.status === 'matched').length;
+        const liveUnmatched = (rev.rows || []).filter(r => r.status === 'unmatched').length;
+        const liveFlagged   = (rev.rows || []).filter(r => r.status === 'matched' && r.flags && r.flags.length).length;
+        // Employees offered in the "assign" picker, sorted by name.
+        const empOptions = [...employees].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
         const toggle = (i) => {
           setImportInclude(prev => {
             const next = new Set(prev);
@@ -852,10 +971,10 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
               {/* summary chips */}
               <div style={{ display: 'flex', gap: 10, padding: '12px 22px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9' }}>
                 {[
-                  ['Rows', rev.summary.total, '#334155', '#f1f5f9'],
-                  ['Matched', rev.summary.matched, '#166534', '#dcfce7'],
-                  ['Unmatched', rev.summary.unmatched, '#9a3412', '#ffedd5'],
-                  ['Flagged', rev.summary.flagged, '#92400e', '#fef3c7'],
+                  ['Rows', rev.rows.length, '#334155', '#f1f5f9'],
+                  ['Matched', liveMatched, '#166534', '#dcfce7'],
+                  ['Unmatched', liveUnmatched, '#9a3412', '#ffedd5'],
+                  ['Flagged', liveFlagged, '#92400e', '#fef3c7'],
                 ].map(([label, val, fg, bg]) => (
                   <div key={label} style={{ padding: '6px 12px', borderRadius: 8, background: bg, color: fg, fontSize: 12, fontWeight: 600 }}>
                     {label}: {val}
@@ -910,11 +1029,24 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                           <td style={{ padding: '9px 6px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{matched ? money(row.net) : '—'}</td>
                           <td style={{ padding: '9px 6px' }}>
                             {!matched ? (
-                              <span title="No matching employee in HRMS — not pushed" style={{ fontSize: 11, fontWeight: 700, color: '#9a3412' }}>UNMATCHED</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span title="No matching employee in HRMS — pick one to include" style={{ fontSize: 10, fontWeight: 700, color: '#9a3412' }}>UNMATCHED</span>
+                                <select
+                                  defaultValue=""
+                                  onChange={(e) => assignEmployee(i, e.target.value)}
+                                  style={{ fontSize: 11, padding: '3px 4px', borderRadius: 6, border: '1px solid #fdba74', maxWidth: 150 }}
+                                  title="Assign this row to an employee"
+                                >
+                                  <option value="">Assign employee…</option>
+                                  {empOptions.map(e => (
+                                    <option key={e.id} value={e.id}>{e.name}{e.employeeId ? ` (${e.employeeId})` : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
                             ) : flagged ? (
-                              <span title={row.flags.join('\n')} style={{ fontSize: 11, fontWeight: 700, color: '#b45309', cursor: 'help' }}>⚠ FLAGGED</span>
+                              <span title={row.flags.join('\n')} style={{ fontSize: 11, fontWeight: 700, color: '#b45309', cursor: 'help' }}>⚠ FLAGGED{row.assignedManually ? ' ·assigned' : ''}</span>
                             ) : (
-                              <span style={{ fontSize: 11, fontWeight: 700, color: '#166534' }}>OK</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#166534' }}>OK{row.assignedManually ? ' ·assigned' : ''}</span>
                             )}
                           </td>
                           <td style={{ padding: '9px 6px' }}>
@@ -929,7 +1061,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                     })}
                   </tbody>
                 </table>
-                {rev.summary.flagged > 0 && (
+                {liveFlagged > 0 && (
                   <div style={{ margin: '12px 0 16px', padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>⚠ Flags for HR review</div>
                     {(rev.rows || []).filter(r => r.status === 'matched' && r.flags && r.flags.length).map((r, k) => (
