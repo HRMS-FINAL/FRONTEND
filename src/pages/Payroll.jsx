@@ -567,15 +567,13 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     // Gate: no payslip unless the month's report is uploaded AND this employee
     // is in it.
     if (!(await canIssuePayslip(emp))) return;
-    let computed;
-    // Build + save the PDF first — local action, never blocked by network.
+    // Prefer the committed report payslip so the PDF matches the Payable
+    // Amount (e.g. ₹12,250 from the labour report) — NOT the salary structure.
+    const committed = findCommittedPayslip(emp);
     try {
-      const built = buildPayslipPdf(emp);
-      computed = built.computed;
+      const doc = committed ? buildPdfFromPayslip(emp, committed) : buildPayslipPdf(emp).doc;
       const safeName = String(emp.name || 'employee').replace(/[^\w]+/g, '_');
-      built.doc.save(`Payslip_${safeName}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
-      // Mark Generated immediately so HR sees status flip even if the
-      // mobile push fails (e.g., backend offline).
+      doc.save(`Payslip_${safeName}_${monthLabel.replace(/\s+/g, '_')}.pdf`);
       if (!generatedPayrolls.includes(emp.id)) {
         setGeneratedPayrolls(prev => [...prev, emp.id]);
       }
@@ -584,25 +582,30 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
       return;
     }
 
-    // Then fire-and-forget push to mobile so the employee sees it in the app.
-    try {
-      await sendPayslipToEmployee(emp, {
-        earnings: {
-          basicSalary:      computed.basic,   // Basic + DA
-          hraAllowance:     computed.hra,
-          performanceBonus: 0,
-          otherEarnings:    0,
-        },
-        deductions: {
-          incomeTax:       0,                 // no TDS on this payslip
-          providentFund:   computed.pf,       // PF
-          healthInsurance: 0,
-          lopDeduction:    0,
-          otherDeductions: computed.pt,       // Professional Tax
-        },
-      });
-    } catch {
-      /* sendPayslipToEmployee already toasts on failure */
+    // Only push when there is NO committed payslip yet (manual fallback). When a
+    // report-based payslip already exists in the app we must NOT overwrite it
+    // with salary-structure numbers.
+    if (!committed) {
+      try {
+        const computed = computePayslip(emp);
+        await sendPayslipToEmployee(emp, {
+          earnings: {
+            basicSalary:      computed.basic,
+            hraAllowance:     computed.hra,
+            performanceBonus: 0,
+            otherEarnings:    0,
+          },
+          deductions: {
+            incomeTax:       0,
+            providentFund:   computed.pf,
+            healthInsurance: 0,
+            lopDeduction:    0,
+            otherDeductions: computed.pt,
+          },
+        });
+      } catch {
+        /* sendPayslipToEmployee already toasts on failure */
+      }
     }
   };
 
@@ -702,6 +705,49 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     if (em && i.byEmail[em] != null) return i.byEmail[em];
     if (nm && i.byName[nm] != null) return i.byName[nm];
     return null;
+  };
+
+  // The actual generated payslip row (from the uploaded report) for an
+  // employee this month — so the downloaded PDF uses the REPORT numbers, not
+  // the salary structure.
+  const findCommittedPayslip = (emp) => {
+    const uid = String(emp.id || '');
+    const eid = String(emp.employeeId || '').toLowerCase();
+    const em  = String(emp.email || '').toLowerCase();
+    const nm  = String(emp.name || '').toLowerCase().trim();
+    return (monthPayslips || []).find(p => {
+      const u = p.user || {};
+      const puid = String(u._id || p.userId || '');
+      const peid = String(u.employeeId || p.employeeId || '').toLowerCase();
+      const pem  = String(u.email || p.email || '').toLowerCase();
+      const pnm  = String(u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || p.name || '').toLowerCase().trim();
+      return (uid && puid === uid) || (eid && peid === eid) || (em && pem === em) || (nm && pnm === nm);
+    }) || null;
+  };
+
+  // Build a payslip PDF from a stored/committed payslip record (report-based),
+  // so the PDF matches the Payable Amount shown in the table.
+  const buildPdfFromPayslip = (emp, p) => {
+    const e = p.earnings || {}, d = p.deductions || {};
+    const basicDA = Number(e.basicSalary) || 0;
+    const hra     = Number(e.hraAllowance) || 0;
+    const pf      = Number(d.providentFund) || 0;
+    const pt      = Number(d.otherDeductions) || 0;   // Professional Tax
+    const gross   = basicDA + hra;
+    const totalDed = pf + pt;
+    const net     = p.netPay != null ? Number(p.netPay) : (gross - totalDed);
+    const daysInPayMonth = new Date(payYear, payMonth, 0).getDate();
+    return renderPayslip({
+      employeeId:  emp.employeeId,
+      name:        emp.name,
+      designation: emp.designation || emp.role,
+      department:  emp.department || emp.dept,
+      paidDays:    emp.paidDays ?? emp.paid_days ?? daysInPayMonth,
+      balAdvance:  emp.balanceAdvance ?? emp.balAdvance ?? emp.advanceBalance,
+      earningsRows:   [['Basic + DA', basicDA], ['HRA', hra]],
+      deductionsRows: [['PF', pf], ['Professional Tax', pt]],
+      gross, totalDed, net,
+    });
   };
 
   // Guard for issuing a payslip to one employee. Requires (1) the month's
@@ -1183,16 +1229,22 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
       })()}
 
       {showSlip && (() => {
-        // Official model: Earnings = Basic + DA (50%) + HRA (50%); Deductions =
-        // PF + Professional Tax. No Conveyance / Special / Incentive / TDS.
-        const s = computePayslip(showSlip);
-        const basicSalary = s.basic;          // Basic + DA
-        const hra = s.hra;
-        const grossEarnings = s.gross;
-        const epf = s.pf;                      // PF
-        const pt = s.pt;                       // Professional Tax
-        const totalDeductions = s.totalDed;
-        const netPayable = s.net;
+        // Prefer the committed report payslip (so the preview matches the
+        // Payable Amount, e.g. ₹12,250), falling back to the salary structure.
+        const _cp = findCommittedPayslip(showSlip);
+        let basicSalary, hra, epf, pt;
+        if (_cp) {
+          basicSalary = Number(_cp.earnings?.basicSalary) || 0;   // Basic + DA / wages
+          hra         = Number(_cp.earnings?.hraAllowance) || 0;  // HRA / OT
+          epf         = Number(_cp.deductions?.providentFund) || 0;
+          pt          = Number(_cp.deductions?.otherDeductions) || 0;
+        } else {
+          const s = computePayslip(showSlip);
+          basicSalary = s.basic; hra = s.hra; epf = s.pf; pt = s.pt;
+        }
+        const grossEarnings   = basicSalary + hra;
+        const totalDeductions = epf + pt;
+        const netPayable      = _cp && _cp.netPay != null ? Number(_cp.netPay) : (grossEarnings - totalDeductions);
 
         return (
           <div className="ne-modal-overlay" style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
