@@ -141,7 +141,7 @@ export const NotificationProvider = ({ children }) => {
                 onClick={() => closeDialog(false)}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  color: '#94a3b8', padding: 4,
+                  color: '#64748b', padding: 4,
                 }}
                 aria-label="Close"
               >

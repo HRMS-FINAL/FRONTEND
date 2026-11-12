@@ -96,7 +96,7 @@ export default function ComplainRegister() {
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-main)', width: '250px' }}>
-              <Search size={16} color="#94a3b8" style={{ flexShrink: 0 }} />
+              <Search size={16} color="#64748b" style={{ flexShrink: 0 }} />
               <input
                 type="text"
                 placeholder="Search feedback..."
