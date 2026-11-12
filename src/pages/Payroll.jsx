@@ -7,7 +7,6 @@ import { useNotification } from '../context/NotificationContext';
 import { useConfirm } from '../components/ConfirmDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import logo from '../assets/logo-hrm.png';
 
 import { API } from '../config/api';
 
@@ -61,6 +60,12 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   }, []);
   const [showSlip, setShowSlip] = useState(null);
   const [showEditSlip, setShowEditSlip] = useState(null);
+  // Imported-report review state. `importReview` holds the parsed preview plus
+  // a Set of included row indexes; HR confirms before anything is pushed.
+  const [importReview, setImportReview] = useState(null); // { ...preview, fileName }
+  const [importInclude, setImportInclude] = useState(() => new Set());
+  const [importBusy, setImportBusy] = useState(false);
+  const pendingFileRef = useRef(null); // retained file for manual-type retry
   const [searchQuery, setSearchQuery] = useState('');
   const [showProcessPanel, setShowProcessPanel] = useState(false);
   const [createEmpId, setCreateEmpId] = useState('');
@@ -96,64 +101,97 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
 
   // Upload an attendance report → backend pulls actual attendance for the
   // chosen month/year and pushes a payslip per employee into the mobile DB.
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    // Confirm pop-up (Jun 2026 HR brief). Generating payslips writes one
-    // row per employee into the mobile DB — easy to fire accidentally.
-    // The confirm dialog reminds HR exactly which month/file is about
-    // to be processed before anything hits the server.
-    const ok = await confirm({
-      title: 'Generate payslips from this report?',
-      message:
-        `Month: ${monthLabel}\n` +
-        `File:  ${file.name}\n\n` +
-        `This will read attendance for the month and push one payslip per ` +
-        `employee to the ERM apps. Already-generated rows for the same month ` +
-        `will be overwritten.`,
-      confirmLabel: 'Generate payslips',
-    });
-    if (!ok) {
-      e.target.value = '';
-      return;
-    }
-    showNotification(`Uploading ${file.name} for ${monthLabel} — generating payslips...`, 'info');
+  // Upload → PARSE (no push). The backend auto-detects Employee vs Labour from
+  // the header row, matches each line to an employee, computes the per-type
+  // payslip numbers, and returns a preview. HR reviews it in a modal and only
+  // then commits. `forceType` lets HR override detection on an unknown layout.
+  const parseReportFile = async (file, forceType) => {
+    setImportBusy(true);
+    showNotification(`Reading ${file.name} for ${monthLabel}…`, 'info');
     try {
       const fd = new FormData();
       fd.append('file',  file);
       fd.append('month', String(payMonth));
       fd.append('year',  String(payYear));
-      // Also pass month/year on the query string — works even if multer isn't
-      // installed on the backend (in which case multipart fields aren't parsed).
+      if (forceType) fd.append('type', forceType);
       const r = await fetch(
-        `${API}/payroll/upload-attendance?month=${payMonth}&year=${payYear}`,
+        `${API}/payroll/parse-report?month=${payMonth}&year=${payYear}${forceType ? `&type=${forceType}` : ''}`,
         { method: 'POST', body: fd }
       );
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) {
-        showNotification(data?.message || 'Payslip generation failed', 'error');
+        if (data?.unknownFormat) {
+          // Offer a manual type choice, then retry with the same file.
+          pendingFileRef.current = file;
+          const pick = await confirm({
+            title: 'Could not recognise this report',
+            message: (data.message || '') + '\n\nIs this an Employee report or a Labour report?',
+            confirmLabel: 'Employee report',
+            cancelLabel:  'Labour report',
+          });
+          const chosen = pick ? 'employee' : 'labour';
+          return parseReportFile(file, chosen);
+        }
+        showNotification(data?.message || 'Could not read the report', 'error');
         return;
       }
-      // Mark generated rows green in the table. We match liberally because
-      // local mock employees use different ID schemes ("EMP-1001" vs "1").
-      const okEmpIds = (data.results || []).filter(x => x.ok).map(x => String(x.employeeId || ''));
-      const okNames  = (data.results || []).filter(x => x.ok).map(x => String(x.name || '').toLowerCase());
-      const localIds = employees
-        .filter(e =>
-          okEmpIds.includes(String(e.employeeId || '')) ||
-          okEmpIds.includes('EMP-100' + e.id) ||
-          okNames.includes(String(e.name || '').toLowerCase())
-        )
-        .map(e => e.id);
-      // If we still didn't manage to match anyone (e.g. mock employees), at
-      // least flip every visible row so HR sees a status change.
-      const fallbackIds = localIds.length ? localIds : employees.map(e => e.id);
-      setGeneratedPayrolls(prev => Array.from(new Set([...prev, ...fallbackIds])));
-      showNotification(`Payslips generated for ${data.generated}/${data.total} employees and pushed to mobile.`, 'success');
+      // Pre-select every matched row for pushing (unmatched can't be pushed).
+      const include = new Set();
+      (data.rows || []).forEach((row, i) => { if (row.status === 'matched') include.add(i); });
+      setImportInclude(include);
+      setImportReview({ ...data, fileName: file.name });
     } catch (err) {
       showNotification('Upload failed: ' + (err?.message || 'network error'), 'error');
     } finally {
-      e.target.value = ''; // allow re-uploading the same file
+      setImportBusy(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await parseReportFile(file);
+    e.target.value = ''; // allow re-uploading the same file
+  };
+
+  // Commit the reviewed rows — push the selected payslips to the ERM apps.
+  const commitImport = async () => {
+    if (!importReview) return;
+    const rowsToPush = (importReview.rows || [])
+      .map((row, i) => ({ row, i }))
+      .filter(({ row, i }) => row.status === 'matched' && importInclude.has(i))
+      .map(({ row }) => ({ ...row.push, name: row.name }));
+    if (!rowsToPush.length) {
+      showNotification('No matched rows are selected to push.', 'error');
+      return;
+    }
+    setImportBusy(true);
+    showNotification(`Pushing ${rowsToPush.length} payslip(s) for ${monthLabel}…`, 'info');
+    try {
+      const r = await fetch(`${API}/payroll/commit-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: payMonth, year: payYear, reportType: importReview.reportType, rows: rowsToPush }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) {
+        showNotification(data?.message || 'Could not push payslips', 'error');
+        return;
+      }
+      // Flip matching local rows to "Generated".
+      const okNames = (data.results || []).filter(x => x.ok).map(x => String(x.name || '').toLowerCase());
+      const okEmpIds = (data.results || []).filter(x => x.ok).map(x => String(x.employeeId || ''));
+      const localIds = employees
+        .filter(e => okEmpIds.includes(String(e.employeeId || '')) || okNames.includes(String(e.name || '').toLowerCase()))
+        .map(e => e.id);
+      if (localIds.length) setGeneratedPayrolls(prev => Array.from(new Set([...prev, ...localIds])));
+      showNotification(`Pushed ${data.generated}/${data.total} payslip(s) to the ERM apps.`, 'success');
+      setImportReview(null);
+      setImportInclude(new Set());
+    } catch (err) {
+      showNotification('Push failed: ' + (err?.message || 'network error'), 'error');
+    } finally {
+      setImportBusy(false);
     }
   };
 
@@ -253,8 +291,18 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
    * amount in words, and a green footer band. Caller decides whether to
    * .save() (download) or .output('blob') (preview).
    */
-  const buildPayslipPdf = (emp) => {
-    const p = computePayslip(emp);          // kept for the mobile-push payload
+  /**
+   * Low-level payslip renderer — draws the exact Tesco Structures layout from
+   * EXPLICIT values so both the per-employee flow (buildPayslipPdf) and the
+   * imported-report review produce byte-identical PDFs. `earningsRows` /
+   * `deductionsRows` are arrays of [label, amount]; `gross` is Total Earnings,
+   * `totalDed` is Total Deductions, `net` is the Net Pay.
+   */
+  const renderPayslip = ({
+    employeeId, name, designation, department,
+    paidDays, balAdvance,
+    earningsRows, deductionsRows, gross, totalDed, net,
+  }) => {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
@@ -267,17 +315,6 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     const BORDER = [0, 0, 0];   // black box/table borders
     // No thousands separators — matches the official payslip exactly (16200.00).
     const inr = (n) => (Number(n) || 0).toFixed(2);
-
-    // Official payslip salary model (matches the ERM payslip exactly):
-    // gross split 50/50 into Basic + DA and HRA; PF + Professional Tax are the
-    // only deductions (0 unless set on the employee record); net = gross - ded.
-    const gross   = Number(emp.salary) || 0;
-    const basicDA = Math.round(gross / 2);
-    const hra     = gross - basicDA;
-    const pf      = Number(emp.pf ?? emp.providentFund ?? emp.epf ?? 0) || 0;
-    const profTax = Number(emp.professionalTax ?? emp.profTax ?? 0) || 0;
-    const totalDed = pf + profTax;
-    const net      = gross - totalDed;
 
     // ── Header band (black) with the Tesco Structures logo + green arrow. The
     //    logo asset (tescologo.png) is dark-on-light, so it sits on a white card
@@ -326,8 +363,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     y += 22;
 
     // ── Employee info grid (4 cols x 3 rows, bordered) ──
-    const paidDays = emp.paidDays ?? emp.paid_days ?? '-';
-    const balAdv   = emp.balanceAdvance ?? emp.balAdvance ?? emp.advanceBalance;
+    const balAdv = balAdvance;
     autoTable(doc, {
       startY: y,
       margin: { left: M, right: M },
@@ -340,16 +376,16 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         3: { cellWidth: contentW * 0.31 },
       },
       body: [
-        ['Employee ID', emp.employeeId || '-', 'Employee Name', emp.name || '-'],
-        ['Designation', emp.designation || emp.role || '-', 'Department', emp.department || emp.dept || '-'],
-        ['Paid Days', String(paidDays), 'Bal. Advance', balAdv == null ? '0.00' : inr(balAdv)],
+        ['Employee ID', employeeId || '-', 'Employee Name', name || '-'],
+        ['Designation', designation || '-', 'Department', department || '-'],
+        ['Paid Days', String(paidDays ?? '-'), 'Bal. Advance', balAdv == null || balAdv === '' ? '0.00' : inr(balAdv)],
       ],
     });
     y = doc.lastAutoTable.finalY + 12;
 
     // ── Earnings / Deductions table (ONLY the official line items) ──
-    const earnings   = [['Basic + DA', basicDA], ['HRA', hra]];
-    const deductions = [['PF', pf], ['Professional Tax', profTax]];
+    const earnings   = earningsRows;
+    const deductions = deductionsRows;
     const rows = [];
     const nRows = Math.max(earnings.length, deductions.length);
     for (let i = 0; i < nRows; i++) {
@@ -425,7 +461,49 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     doc.text('37, 15th St, Gandhi Nagar, Ashok Nagar,', pageW - M, l1, { align: 'right' });
     doc.text('Chennai, Tamil Nadu - 600 083', pageW - M, l2, { align: 'right' });
 
+    return doc;
+  };
+
+  /**
+   * Per-employee payslip (table "Payslip" button). Uses the employee's salary
+   * structure: Basic + DA (50%), HRA (rest), PF + Professional Tax.
+   */
+  const buildPayslipPdf = (emp) => {
+    const p = computePayslip(emp);          // kept for the mobile-push payload
+    const doc = renderPayslip({
+      employeeId:  emp.employeeId,
+      name:        emp.name,
+      designation: emp.designation || emp.role,
+      department:  emp.department || emp.dept,
+      paidDays:    emp.paidDays ?? emp.paid_days ?? '-',
+      balAdvance:  emp.balanceAdvance ?? emp.balAdvance ?? emp.advanceBalance,
+      earningsRows:   [['Basic + DA', p.basic], ['HRA', p.hra]],
+      deductionsRows: [['PF', p.pf], ['Professional Tax', p.pt]],
+      gross: p.gross, totalDed: p.totalDed, net: p.net,
+    });
     return { doc, computed: p };
+  };
+
+  /**
+   * Payslip for a parsed import row (Employee OR Labour). The row already
+   * carries the exact earnings/deductions that get pushed, so the PDF, the
+   * review table and the stored record all agree. For labour, `earnings.basicDA`
+   * holds the wages and `earnings.hra` holds the OT amount (same table labels).
+   */
+  const buildImportPayslipPdf = (row) => {
+    const gross = (Number(row.earnings?.basicDA) || 0) + (Number(row.earnings?.hra) || 0);
+    const totalDed = (Number(row.deductions?.pf) || 0) + (Number(row.deductions?.pt) || 0);
+    return renderPayslip({
+      employeeId:  row.employeeId,
+      name:        row.name,
+      designation: row.designation,
+      department:  row.department,
+      paidDays:    row.paidDays,
+      balAdvance:  row.balAdvance,
+      earningsRows:   [['Basic + DA', row.earnings?.basicDA || 0], ['HRA', row.earnings?.hra || 0]],
+      deductionsRows: [['PF', row.deductions?.pf || 0], ['Professional Tax', row.deductions?.pt || 0]],
+      gross, totalDed, net: Number(row.net) || (gross - totalDed),
+    });
   };
 
   /**
@@ -688,6 +766,153 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         </table>
       </div>
 
+      {/* ── Imported-report review modal ─────────────────────────────────
+          HR reviews matched / unmatched / flagged rows parsed from the
+          uploaded Employee or Labour report before any payslip is pushed. */}
+      {importReview && (() => {
+        const rev = importReview;
+        const isLabour = rev.reportType === 'labour';
+        const money = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
+        const selectedCount = (rev.rows || []).filter((row, i) => row.status === 'matched' && importInclude.has(i)).length;
+        const toggle = (i) => {
+          setImportInclude(prev => {
+            const next = new Set(prev);
+            next.has(i) ? next.delete(i) : next.add(i);
+            return next;
+          });
+        };
+        const allMatchedIdx = (rev.rows || []).map((r, i) => (r.status === 'matched' ? i : -1)).filter(i => i >= 0);
+        const allSelected = allMatchedIdx.length > 0 && allMatchedIdx.every(i => importInclude.has(i));
+        const toggleAll = () => setImportInclude(allSelected ? new Set() : new Set(allMatchedIdx));
+        return (
+          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
+               onClick={(e) => { if (e.target === e.currentTarget && !importBusy) setImportReview(null); }}>
+            <div style={{ background: '#fff', borderRadius: 14, width: 'min(1040px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+              {/* header */}
+              <div style={{ padding: '18px 22px', borderBottom: '1px solid #eef0f3', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0f172a' }}>Review payroll import</h2>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: .4, padding: '3px 10px', borderRadius: 999, color: '#fff', background: isLabour ? '#0ea5e9' : '#7ac043' }}>
+                      {isLabour ? 'LABOUR REPORT' : 'EMPLOYEE REPORT'}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 5, fontSize: 12, color: '#64748b' }}>
+                    {rev.fileName} · {monthLabel}
+                  </div>
+                </div>
+                <button onClick={() => !importBusy && setImportReview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+              </div>
+
+              {/* summary chips */}
+              <div style={{ display: 'flex', gap: 10, padding: '12px 22px', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9' }}>
+                {[
+                  ['Rows', rev.summary.total, '#334155', '#f1f5f9'],
+                  ['Matched', rev.summary.matched, '#166534', '#dcfce7'],
+                  ['Unmatched', rev.summary.unmatched, '#9a3412', '#ffedd5'],
+                  ['Flagged', rev.summary.flagged, '#92400e', '#fef3c7'],
+                ].map(([label, val, fg, bg]) => (
+                  <div key={label} style={{ padding: '6px 12px', borderRadius: 8, background: bg, color: fg, fontSize: 12, fontWeight: 600 }}>
+                    {label}: {val}
+                  </div>
+                ))}
+              </div>
+
+              {/* table */}
+              <div style={{ overflow: 'auto', padding: '0 22px', flex: 1 }}>
+                <table className="emp-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: '#475569' }}>
+                      <th style={{ padding: '10px 6px' }}><input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all matched" /></th>
+                      <th style={{ padding: '10px 6px' }}>Name</th>
+                      <th style={{ padding: '10px 6px' }}>Emp ID</th>
+                      <th style={{ padding: '10px 6px' }}>Designation</th>
+                      <th style={{ padding: '10px 6px' }}>Paid Days</th>
+                      {isLabour ? (
+                        <>
+                          <th style={{ padding: '10px 6px', textAlign: 'right' }}>Wages</th>
+                          <th style={{ padding: '10px 6px', textAlign: 'right' }}>OT</th>
+                        </>
+                      ) : (
+                        <>
+                          <th style={{ padding: '10px 6px', textAlign: 'right' }}>Basic+DA</th>
+                          <th style={{ padding: '10px 6px', textAlign: 'right' }}>HRA</th>
+                        </>
+                      )}
+                      <th style={{ padding: '10px 6px', textAlign: 'right' }}>Deductions</th>
+                      <th style={{ padding: '10px 6px', textAlign: 'right' }}>Net Pay</th>
+                      <th style={{ padding: '10px 6px' }}>Status</th>
+                      <th style={{ padding: '10px 6px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(rev.rows || []).map((row, i) => {
+                      const matched = row.status === 'matched';
+                      const flagged = matched && row.flags && row.flags.length;
+                      const bg = !matched ? '#fff7ed' : flagged ? '#fffbeb' : 'transparent';
+                      return (
+                        <tr key={i} style={{ background: bg, borderTop: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '9px 6px' }}>
+                            <input type="checkbox" disabled={!matched} checked={matched && importInclude.has(i)} onChange={() => toggle(i)} />
+                          </td>
+                          <td style={{ padding: '9px 6px', fontWeight: 600, color: '#0f172a' }}>{row.name || '—'}</td>
+                          <td style={{ padding: '9px 6px', color: '#475569' }}>{row.employeeId || '—'}</td>
+                          <td style={{ padding: '9px 6px', color: '#475569' }}>{row.designation || '—'}</td>
+                          <td style={{ padding: '9px 6px' }}>{row.paidDays ?? '—'}</td>
+                          <td style={{ padding: '9px 6px', textAlign: 'right' }}>{matched ? money(row.earnings?.basicDA) : '—'}</td>
+                          <td style={{ padding: '9px 6px', textAlign: 'right' }}>{matched ? money(row.earnings?.hra) : '—'}</td>
+                          <td style={{ padding: '9px 6px', textAlign: 'right' }}>{matched ? money((row.deductions?.pf || 0) + (row.deductions?.pt || 0)) : '—'}</td>
+                          <td style={{ padding: '9px 6px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{matched ? money(row.net) : '—'}</td>
+                          <td style={{ padding: '9px 6px' }}>
+                            {!matched ? (
+                              <span title="No matching employee in HRMS — not pushed" style={{ fontSize: 11, fontWeight: 700, color: '#9a3412' }}>UNMATCHED</span>
+                            ) : flagged ? (
+                              <span title={row.flags.join('\n')} style={{ fontSize: 11, fontWeight: 700, color: '#b45309', cursor: 'help' }}>⚠ FLAGGED</span>
+                            ) : (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#166534' }}>OK</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '9px 6px' }}>
+                            {matched && (
+                              <button className="emp-table-btn" title="Preview / download this payslip" onClick={() => { try { buildImportPayslipPdf(row).save(`Payslip_${String(row.name || 'employee').replace(/[^\w]+/g, '_')}_${monthLabel.replace(/\s+/g, '_')}.pdf`); } catch (err) { showNotification('PDF failed: ' + err.message, 'error'); } }}>
+                                <Download size={13} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {rev.summary.flagged > 0 && (
+                  <div style={{ margin: '12px 0 16px', padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>⚠ Flags for HR review</div>
+                    {(rev.rows || []).filter(r => r.status === 'matched' && r.flags && r.flags.length).map((r, k) => (
+                      <div key={k} style={{ fontSize: 11.5, color: '#78350f', marginBottom: 3 }}>
+                        <b>{r.name}:</b> {r.flags.join(' ')}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* footer */}
+              <div style={{ padding: '14px 22px', borderTop: '1px solid #eef0f3', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  {selectedCount} selected · unmatched rows are skipped. Flagged rows push with the salary-structure values; adjust the master record if the report is correct.
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="ne-btn-secondary" disabled={importBusy} onClick={() => setImportReview(null)} style={{ padding: '9px 16px', borderRadius: 8, fontWeight: 600, fontSize: 13 }}>Cancel</button>
+                  <button className="ne-btn-primary" disabled={importBusy || selectedCount === 0} onClick={commitImport} style={{ padding: '9px 18px', borderRadius: 8, fontWeight: 700, fontSize: 13, opacity: (importBusy || selectedCount === 0) ? .6 : 1 }}>
+                    {importBusy ? 'Pushing…' : `Confirm & push ${selectedCount} payslip${selectedCount === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showSlip && (() => {
         // Official model: Earnings = Basic + DA (50%) + HRA (50%); Deductions =
         // PF + Professional Tax. No Conveyance / Special / Incentive / TDS.
@@ -722,12 +947,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                   
                   {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #E2E8F0', paddingBottom: '16px', marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                      <img src={logo} alt="Logo" style={{ height: '28px', maxWidth: '120px', objectFit: 'contain' }} />
-                      <div>
-                        <h1 style={{ margin: 0, fontSize: '20px', color: '#1E293B', fontWeight: 800 }}>TESCO STRUCTURES</h1>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Chennai, Tamilnadu</p>
-                      </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <img src="/tescologo.png" alt="Tesco Structures" style={{ height: '46px', maxWidth: '260px', objectFit: 'contain' }} />
+                      <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Chennai, Tamilnadu</p>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Payslip For the Month</p>
