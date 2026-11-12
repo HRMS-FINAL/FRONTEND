@@ -18,6 +18,12 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   // #498 — Preload the Tesco HRM logo as a PNG data-URL so the synchronous
   // payslip PDF builder can embed it via doc.addImage without an async load.
   const logoDataUrlRef = useRef('');
+  // Refs for the Edit Payslip panel's persisted fields (PF / Professional Tax
+  // amounts + PF A/C Number + UAN).
+  const editPfRef   = useRef(null);
+  const editPtRef   = useRef(null);
+  const editPfAcRef = useRef(null);
+  const editUanRef  = useRef(null);
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
@@ -25,7 +31,28 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         const c = document.createElement('canvas');
         c.width  = img.naturalWidth  || img.width;
         c.height = img.naturalHeight || img.height;
-        c.getContext('2d').drawImage(img, 0, 0);
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        // The logo is dark-on-white but the payslip header is BLACK, so recolour
+        // it to a WHITE lockup on a transparent background (keeping the green
+        // arrow). Lets it sit directly on the black band like the official
+        // payslip — no white card needed.
+        //   near-white background → transparent
+        //   green pixels (arrow)  → kept
+        //   everything else (text) → white
+        try {
+          const im = ctx.getImageData(0, 0, c.width, c.height);
+          const d = im.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3];
+            if (a < 8) continue;
+            const isGreen   = g > 110 && g - r > 25 && g - b > 25;
+            const isWhiteBg = r > 232 && g > 232 && b > 232;
+            if (isWhiteBg)      { d[i + 3] = 0; }                     // drop background
+            else if (!isGreen)  { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; } // text → white
+          }
+          ctx.putImageData(im, 0, 0);
+        } catch { /* same-origin only — fall back to the raw logo if blocked */ }
         logoDataUrlRef.current = c.toDataURL('image/png');
       } catch { /* canvas unsupported — payslip simply omits the logo */ }
     };
@@ -265,17 +292,14 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + 3, pageW - M - 3, hbY + hbH - 3, 'F');
     doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + hbH - 3, gx, hbY + hbH - 3, 'F');
 
-    // Logo on a white card (left).
+    // White-recoloured logo placed DIRECTLY on the black band (left) — no card.
     const lg = logoDataUrlRef.current;
     if (lg) {
       try {
         const pr = doc.getImageProperties(lg);
-        const lh = 44;                                   // logo height
-        const lw = pr?.width ? (pr.width / pr.height) * lh : 170;
-        const cardX = M + 14, cardY = hbY + 12, cardPad = 12;
-        doc.setFillColor(255, 255, 255);
-        doc.roundedRect(cardX, cardY, lw + cardPad * 2, hbH - 24, 4, 4, 'F');
-        doc.addImage(lg, 'PNG', cardX + cardPad, cardY + (hbH - 24 - lh) / 2, lw, lh);
+        const lh = 56;                                   // logo height
+        const lw = pr?.width ? (pr.width / pr.height) * lh : 210;
+        doc.addImage(lg, 'PNG', M + 22, hbY + (hbH - lh) / 2, lw, lh);
       } catch { /* logo omitted if it fails to load */ }
     }
 
@@ -288,7 +312,7 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     y += 14;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
-    doc.setTextColor(90, 100, 115);
+    doc.setTextColor(0, 0, 0);   // black address line
     doc.text('37, 15th St, Gandhi Nagar, Ashok Nagar, Chennai - 600 083', pageW / 2, y, { align: 'center' });
 
     // ── PAY SLIP band (green) ──
@@ -739,8 +763,8 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
 
                   {/* PF/UAN Row */}
                   <div style={{ borderTop: '1px dashed #CBD5E1', borderBottom: '1px dashed #CBD5E1', padding: '16px 0', marginBottom: '24px', display: 'flex', gap: '48px', fontSize: '14px', color: '#475569', flexWrap: 'wrap' }}>
-                    <div>PF A/C Number <span style={{ margin: '0 16px' }}>:</span> <strong>AA/AAA/9999999/99G/9899999</strong></div>
-                    <div>UAN <span style={{ margin: '0 16px' }}>:</span> <strong>111111111111</strong></div>
+                    <div>PF A/C Number <span style={{ margin: '0 16px' }}>:</span> <strong>{showSlip.pfAccountNumber || showSlip.pfNumber || '—'}</strong></div>
+                    <div>UAN <span style={{ margin: '0 16px' }}>:</span> <strong>{showSlip.uan || '—'}</strong></div>
                   </div>
 
                   {/* Salary Table */}
@@ -845,17 +869,14 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
       {/* ── Edit Payslip Slide-over Panel ── */}
       {showEditSlip && (() => {
         const emp = showEditSlip;
-        const ctc = emp.salary || 50000;
-        const basicSalary = Math.round(ctc * 0.50);
-        const hra = Math.round(basicSalary * 0.40);
-        const specialAllowance = ctc - basicSalary - hra;
-        const incentive = checkEligibility(emp) ? 5000 : 0;
-        const grossEarnings = ctc + incentive;
-        const epf = Math.round(basicSalary * 0.12);
-        const pt = 200;
-        const tds = Math.round(grossEarnings * 0.10);
-        const totalDeductions = epf + pt + tds;
-        const netPayable = grossEarnings - totalDeductions;
+        // Official model: Basic + DA = 50% of salary, HRA = the other 50%.
+        const s = computePayslip(emp);
+        const basicSalary = s.basic;   // Basic + DA
+        const hra = s.hra;
+        const epf = s.pf;              // PF amount (0 until PF is enabled)
+        const pt = s.pt;               // Professional Tax
+        const totalDeductions = s.totalDed;
+        const netPayable = s.net;
 
         return (
           <div className="ne-modal-overlay" style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
@@ -918,20 +939,37 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                   <div style={{ background: '#FFF', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                       <div className="ne-field">
-                        <label className="ne-label">EPF</label>
-                        <input className="ne-input" type="number" defaultValue={epf} />
+                        <label className="ne-label">PF</label>
+                        <input ref={editPfRef} className="ne-input" type="number" defaultValue={epf} />
                       </div>
                       <div className="ne-field">
                         <label className="ne-label">Professional Tax</label>
-                        <input className="ne-input" type="number" defaultValue={pt} />
+                        <input ref={editPtRef} className="ne-input" type="number" defaultValue={pt} />
                       </div>
                     </div>
                   </div>
-                  
+
+                  <h3 style={{ fontSize: '14px', fontWeight: 700, margin: '0 0 12px 0' }}>PF / UAN Details</h3>
+                  <div style={{ background: '#FFF', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
+                      PF is not in use yet — leave blank. When PF is enabled, enter the employee's PF account number and UAN here and they'll appear on the payslip.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="ne-field">
+                        <label className="ne-label">PF A/C Number</label>
+                        <input ref={editPfAcRef} className="ne-input" type="text" defaultValue={emp.pfAccountNumber || emp.pfNumber || ''} placeholder="e.g. KA/BNG/0000000/000/0000000" />
+                      </div>
+                      <div className="ne-field">
+                        <label className="ne-label">UAN</label>
+                        <input ref={editUanRef} className="ne-input" type="text" defaultValue={emp.uan || ''} placeholder="12-digit UAN" />
+                      </div>
+                    </div>
+                  </div>
+
                   <div style={{ background: '#F8FAFC', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '14px', fontWeight: 600 }}>Net Pay</span>
                     <div style={{ width: '200px' }}>
-                      <input className="ne-input" type="number" defaultValue={netPayable} style={{ fontWeight: 800, color: 'var(--primary)', textAlign: 'right' }} />
+                      <input className="ne-input" type="number" defaultValue={netPayable} readOnly style={{ fontWeight: 800, color: 'var(--primary)', textAlign: 'right' }} />
                     </div>
                   </div>
                 </div>
@@ -939,8 +977,27 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
 
               <div className="ne-modal-footer">
                 <button className="ne-btn-secondary" onClick={() => setShowEditSlip(null)}>Cancel</button>
-                <button className="ne-btn-primary" onClick={() => {
-                  showNotification(`Payslip for ${emp.name} updated successfully!`, "success");
+                <button className="ne-btn-primary" onClick={async () => {
+                  const body = {
+                    pf:              Number(editPfRef.current?.value) || 0,
+                    professionalTax: Number(editPtRef.current?.value) || 0,
+                    pfAccountNumber: (editPfAcRef.current?.value || '').trim(),
+                    uan:             (editUanRef.current?.value || '').trim(),
+                  };
+                  try {
+                    const res = await fetch(`${API}/employees/${emp.id}`, {
+                      method:  'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body:    JSON.stringify(body),
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    // Reflect immediately so the payslip picks up the new values.
+                    Object.assign(emp, body);
+                    showNotification(`Payslip details for ${emp.name} saved.`, 'success');
+                  } catch (err) {
+                    showNotification('Could not save: ' + (err?.message || 'server error'), 'error');
+                    return;
+                  }
                   setShowEditSlip(null);
                 }}>
                   <FileText size={16} /> Save Changes
