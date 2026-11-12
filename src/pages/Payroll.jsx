@@ -29,8 +29,8 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         logoDataUrlRef.current = c.toDataURL('image/png');
       } catch { /* canvas unsupported — payslip simply omits the logo */ }
     };
-    // Official Tesco Structures logo for the payslip header (public/tescostr.png).
-    img.src = '/tescostr.png';
+    // Official Tesco Structures logo for the payslip header (public/tescologo.png).
+    img.src = '/tescologo.png';
   }, []);
   const [showSlip, setShowSlip] = useState(null);
   const [showEditSlip, setShowEditSlip] = useState(null);
@@ -170,24 +170,27 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   };
 
   /**
-   * Compute the standard salary breakdown for one employee for {payMonth/payYear}.
-   * Mirrors the formula the backend uses so the downloaded PDF matches what
-   * the mobile app shows.
+   * Official Tesco Structures salary breakdown for one employee.
+   *
+   * Earnings  = Basic + DA (50% of gross) + HRA (the remaining 50%)
+   * Deductions = PF + Professional Tax (read from the employee record; 0 if unset)
+   * Net Pay   = Total Earnings - Total Deductions
+   *
+   * NO Conveyance / Special / Performance Incentive / TDS — the payslip mirrors
+   * the original ERM payslip exactly. Values are fetched dynamically from the
+   * employee's salary; nothing is hardcoded.
    */
   const computePayslip = (emp) => {
-    const ctc       = Number(emp.salary) || 50000;
-    const basic     = Math.round(ctc * 0.50);
-    const hra       = Math.round(basic * 0.40);
-    const conveyance = 6000;
-    const special    = Math.max(0, ctc - basic - hra - conveyance);
-    const incentive  = checkEligibility(emp) ? 5000 : 0;
-    const gross      = basic + hra + conveyance + special + incentive;
-    const epf        = Math.round(basic * 0.12);
-    const pt         = 200;
-    const tds        = Math.round(gross * 0.10);
-    const totalDed   = epf + pt + tds;
-    const net        = gross - totalDed;
-    return { ctc, basic, hra, conveyance, special, incentive, gross, epf, pt, tds, totalDed, net };
+    const gross   = Number(emp.salary) || 0;
+    const basic   = Math.round(gross / 2);        // Basic + DA
+    const hra     = gross - basic;                // HRA (keeps basic + hra === gross)
+    const pf      = Number(emp.pf ?? emp.providentFund ?? emp.epf ?? 0) || 0;
+    const pt      = Number(emp.professionalTax ?? emp.profTax ?? emp.pt ?? 0) || 0;
+    const totalDed = pf + pt;
+    const net      = gross - totalDed;
+    // `basic` is Basic + DA; `pt` is Professional Tax. `ctc`/`gross` are Total
+    // Earnings. No other components exist on the payslip.
+    return { ctc: gross, gross, basic, hra, pf, pt, totalDed, net };
   };
 
   // ₹ amount → Indian-system words (e.g. 32400 → "Thirty Two Thousand Four
@@ -249,25 +252,30 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     const totalDed = pf + profTax;
     const net      = gross - totalDed;
 
-    // ── Header band: black card with the Tesco logo + a green chevron ──
-    const hbY = 30, hbH = 60;
-    doc.setFillColor(BLACK[0], BLACK[1], BLACK[2]);
+    // ── Header band (black) with the Tesco Structures logo + green arrow. The
+    //    logo asset (tescologo.png) is dark-on-light, so it sits on a white card
+    //    inside the black band to stay readable. ──
+    const hbY = 28, hbH = 84;
+    doc.setFillColor(0, 0, 0);
     doc.roundedRect(M, hbY, contentW, hbH, 4, 4, 'F');
-    // Green chevron block on the right (angled left edge → arrow pointing right).
-    const gx = pageW - M - 150, slope = 26;
+
+    // Green arrow block on the right (parallelogram → arrow pointing right).
+    const gx = pageW - M - 180, slope = 44;
     doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
-    doc.triangle(gx + slope, hbY + 2, pageW - M - 3, hbY + 2, pageW - M - 3, hbY + hbH - 2, 'F');
-    doc.triangle(gx + slope, hbY + 2, pageW - M - 3, hbY + hbH - 2, gx, hbY + hbH - 2, 'F');
-    // Logo on a white chip so the dark-on-transparent lockup stays readable.
+    doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + 3, pageW - M - 3, hbY + hbH - 3, 'F');
+    doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + hbH - 3, gx, hbY + hbH - 3, 'F');
+
+    // Logo on a white card (left).
     const lg = logoDataUrlRef.current;
     if (lg) {
       try {
         const pr = doc.getImageProperties(lg);
-        const lh = 32;
-        const lw = pr?.width ? (pr.width / pr.height) * lh : 150;
+        const lh = 44;                                   // logo height
+        const lw = pr?.width ? (pr.width / pr.height) * lh : 170;
+        const cardX = M + 14, cardY = hbY + 12, cardPad = 12;
         doc.setFillColor(255, 255, 255);
-        doc.roundedRect(M + 10, hbY + (hbH - lh) / 2 - 6, lw + 18, lh + 12, 4, 4, 'F');
-        doc.addImage(lg, 'PNG', M + 19, hbY + (hbH - lh) / 2, lw, lh);
+        doc.roundedRect(cardX, cardY, lw + cardPad * 2, hbH - 24, 4, 4, 'F');
+        doc.addImage(lg, 'PNG', cardX + cardPad, cardY + (hbH - 24 - lh) / 2, lw, lh);
       } catch { /* logo omitted if it fails to load */ }
     }
 
@@ -375,13 +383,15 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     doc.setTextColor(120, 130, 145);
     doc.text('This is a computer-generated payslip; no signature is required.', pageW / 2, y, { align: 'center' });
 
-    // ── Footer: full-width green band at the very bottom, two lines each side,
-    //    vertically centred so nothing crowds the band edges. ──
+    // ── Footer: full-width BLACK band with a green top rule (like the official
+    //    payslip), two lines each side, vertically centred. ──
     const fbH = 46;
     const fTop = pageH - fbH;
     const l1 = fTop + fbH / 2 - 4;   // first line baseline
     const l2 = fTop + fbH / 2 + 9;   // second line baseline
     doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
+    doc.rect(0, fTop - 3, pageW, 3, 'F');   // green accent rule on top
+    doc.setFillColor(0, 0, 0);
     doc.rect(0, fTop, pageW, fbH, 'F');
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -421,17 +431,17 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     try {
       await sendPayslipToEmployee(emp, {
         earnings: {
-          basicSalary:      computed.basic,
+          basicSalary:      computed.basic,   // Basic + DA
           hraAllowance:     computed.hra,
-          performanceBonus: computed.incentive,
-          otherEarnings:    computed.conveyance + computed.special,
+          performanceBonus: 0,
+          otherEarnings:    0,
         },
         deductions: {
-          incomeTax:       computed.tds,
-          providentFund:   computed.epf,
+          incomeTax:       0,                 // no TDS on this payslip
+          providentFund:   computed.pf,       // PF
           healthInsurance: 0,
           lopDeduction:    0,
-          otherDeductions: computed.pt,
+          otherDeductions: computed.pt,       // Professional Tax
         },
       });
     } catch {
@@ -655,19 +665,16 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
       </div>
 
       {showSlip && (() => {
-        const ctc = showSlip.salary || 50000;
-        const basicSalary = Math.round(ctc * 0.50);
-        const hra = Math.round(basicSalary * 0.40);
-        const conveyance = 6000;
-        const specialAllowance = ctc - basicSalary - hra - conveyance > 0 ? ctc - basicSalary - hra - conveyance : 0;
-        const incentive = checkEligibility(showSlip) ? 5000 : 0;
-        const grossEarnings = basicSalary + hra + conveyance + specialAllowance + incentive;
-        
-        const epf = Math.round(basicSalary * 0.12);
-        const pt = 200;
-        const tds = Math.round(grossEarnings * 0.10); // 10% flat for example
-        const totalDeductions = epf + pt + tds;
-        const netPayable = grossEarnings - totalDeductions;
+        // Official model: Earnings = Basic + DA (50%) + HRA (50%); Deductions =
+        // PF + Professional Tax. No Conveyance / Special / Incentive / TDS.
+        const s = computePayslip(showSlip);
+        const basicSalary = s.basic;          // Basic + DA
+        const hra = s.hra;
+        const grossEarnings = s.gross;
+        const epf = s.pf;                      // PF
+        const pt = s.pt;                       // Professional Tax
+        const totalDeductions = s.totalDed;
+        const netPayable = s.net;
 
         return (
           <div className="ne-modal-overlay" style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
@@ -747,22 +754,11 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                         </div>
                         <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '13px', color: '#334155' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>Basic</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{basicSalary.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(basicSalary*12).toLocaleString()}.00</div>
+                            <div>Basic + DA</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{basicSalary.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(basicSalary*12).toLocaleString()}.00</div>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>House Rent Allowance</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{hra.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(hra*12).toLocaleString()}.00</div>
+                            <div>HRA</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{hra.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(hra*12).toLocaleString()}.00</div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>Conveyance Allowance</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{conveyance.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(conveyance*12).toLocaleString()}.00</div>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>Special Allowance</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{specialAllowance.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(specialAllowance*12).toLocaleString()}.00</div>
-                          </div>
-                          {incentive > 0 && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                              <div>Performance Incentive</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{incentive.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{incentive.toLocaleString()}.00</div>
-                            </div>
-                          )}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr', padding: '16px', background: '#F8FAFC', fontWeight: 700, fontSize: '14px', color: '#1E293B', borderTop: '1px solid #E2E8F0', marginTop: 'auto' }}>
                           <div>Gross Earnings</div><div style={{ textAlign: 'right' }}>₹{grossEarnings.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}></div>
@@ -776,13 +772,10 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                         </div>
                         <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '13px', color: '#334155' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>EPF Contribution</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{epf.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(epf*12).toLocaleString()}.00</div>
+                            <div>PF</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{epf.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(epf*12).toLocaleString()}.00</div>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
                             <div>Professional Tax</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{pt.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(pt*12).toLocaleString()}.00</div>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr' }}>
-                            <div>TDS</div><div style={{ textAlign: 'right', fontWeight: 600 }}>₹{tds.toLocaleString()}.00</div><div style={{ textAlign: 'right' }}>₹{(tds*12).toLocaleString()}.00</div>
                           </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr 2fr', padding: '16px', background: '#F8FAFC', fontWeight: 700, fontSize: '14px', color: '#1E293B', borderTop: '1px solid #E2E8F0', marginTop: 'auto' }}>
@@ -826,17 +819,17 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                 <button className="ne-btn-primary" onClick={async () => {
                   const ok = await sendPayslipToEmployee(showSlip, {
                     earnings: {
-                      basicSalary:      basicSalary,
+                      basicSalary:      basicSalary,   // Basic + DA
                       hraAllowance:     hra,
-                      performanceBonus: incentive,
-                      otherEarnings:    conveyance + specialAllowance,
+                      performanceBonus: 0,
+                      otherEarnings:    0,
                     },
                     deductions: {
-                      incomeTax:       tds,
-                      providentFund:   epf,
+                      incomeTax:       0,              // no TDS
+                      providentFund:   epf,            // PF
                       healthInsurance: 0,
                       lopDeduction:    0,
-                      otherDeductions: pt,
+                      otherDeductions: pt,             // Professional Tax
                     },
                   });
                   if (ok && !generatedPayrolls.includes(showSlip.id)) {
