@@ -79,6 +79,13 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
   // Pending payslip requests filed from ERM Mobile / ERM Web. Refreshed
   // every 30 s so HR sees them as soon as the employee taps "Request".
   const [pendingRequests, setPendingRequests] = useState([]);
+  // Upload gate: payslips can't be generated / downloaded for a month until the
+  // attendance/payroll report for that month has been uploaded. A month counts
+  // as "reported" if HR uploaded a report this session OR the mobile DB already
+  // holds generated (non-pending) payslips for it.
+  const [uploadedMonths, setUploadedMonths] = useState(() => new Set());
+  const [monthHasReport, setMonthHasReport] = useState(false);
+  const monthKey = `${payYear}-${String(payMonth).padStart(2, '0')}`;
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -91,13 +98,35 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         // the actual payslip via "Upload Report" or "Send to Employee",
         // the row flips to `processed` and disappears from this list.
         setPendingRequests(items.filter(p => String(p.status || '').toLowerCase() === 'pending'));
+        // Any generated (non-pending) payslip means a report was already
+        // processed for this month → unlock. Pending = a mere request, which
+        // does NOT count as an upload.
+        const hasProcessed = items.some(p => String(p.status || '').toLowerCase() !== 'pending');
+        setMonthHasReport(hasProcessed || uploadedMonths.has(`${payYear}-${String(payMonth).padStart(2, '0')}`));
       } catch { /* network / cold-start — non-fatal */ }
     };
     load();
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
   }, [payMonth, payYear]);
+  // Reflect a fresh upload immediately (the list poll may lag behind).
+  useEffect(() => {
+    if (uploadedMonths.has(monthKey)) setMonthHasReport(true);
+  }, [uploadedMonths, monthKey]);
   const monthLabel = new Date(payYear, payMonth - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  // Gate: payslip generation / download is blocked until the month's report is
+  // uploaded. Returns true when allowed; otherwise shows the restricted dialog.
+  const requireReport = async () => {
+    if (monthHasReport) return true;
+    await confirm({
+      title: 'Payslip Generation Restricted',
+      message: `Please upload the attendance/payroll report for ${monthLabel} before generating or downloading payslips.`,
+      confirmLabel: 'Upload report',
+      cancelLabel: 'Close',
+    });
+    return false;
+  };
 
   // Upload an attendance report → backend pulls actual attendance for the
   // chosen month/year and pushes a payslip per employee into the mobile DB.
@@ -135,6 +164,9 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
         showNotification(data?.message || 'Could not read the report', 'error');
         return;
       }
+      // A successful read unlocks payslip generation / download for this month.
+      setUploadedMonths(prev => new Set(prev).add(monthKey));
+      setMonthHasReport(true);
       // Pre-select every matched row for pushing (unmatched can't be pushed).
       const include = new Set();
       (data.rows || []).forEach((row, i) => { if (row.status === 'matched') include.add(i); });
@@ -316,32 +348,39 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
     // No thousands separators — matches the official payslip exactly (16200.00).
     const inr = (n) => (Number(n) || 0).toFixed(2);
 
-    // ── Header band (black) with the Tesco Structures logo + green arrow. The
-    //    logo asset (tescologo.png) is dark-on-light, so it sits on a white card
-    //    inside the black band to stay readable. ──
-    const hbY = 28, hbH = 84;
+    // ── Header: FULL-BLEED black banner (no padding, no rounded corners) with
+    //    the Tesco Structures logo on the left and the green angular shapes on
+    //    the right — a medium-green block with a diagonal seam plus a brighter
+    //    green triangular connector, matching the official banner exactly. ──
+    const GREEN_BRIGHT = [143, 208, 74];   // connector wedge (lighter)
+    const HH = 100;                        // banner height
     doc.setFillColor(0, 0, 0);
-    doc.roundedRect(M, hbY, contentW, hbH, 4, 4, 'F');
+    doc.rect(0, 0, pageW, HH, 'F');        // full-width black, flush to the edges
 
-    // Green arrow block on the right (parallelogram → arrow pointing right).
-    const gx = pageW - M - 180, slope = 44;
+    // Main medium-green block (right), left edge slanted (wider at the top).
+    const medTopX = pageW - 223, medBotX = pageW - 143;
     doc.setFillColor(GREEN[0], GREEN[1], GREEN[2]);
-    doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + 3, pageW - M - 3, hbY + hbH - 3, 'F');
-    doc.triangle(gx + slope, hbY + 3, pageW - M - 3, hbY + hbH - 3, gx, hbY + hbH - 3, 'F');
+    doc.triangle(medTopX, 0, pageW, 0, pageW, HH, 'F');
+    doc.triangle(medTopX, 0, pageW, HH, medBotX, HH, 'F');
+    // Bright green triangular connector at the seam (pokes left into the black).
+    const brightLeftX = pageW - 257;
+    doc.setFillColor(GREEN_BRIGHT[0], GREEN_BRIGHT[1], GREEN_BRIGHT[2]);
+    doc.triangle(brightLeftX, 0, medBotX, 0, medBotX, HH, 'F');
 
-    // White-recoloured logo placed DIRECTLY on the black band (left) — no card.
+    // Tesco Structures logo (recoloured white-on-transparent, green arrow kept),
+    // left, at its original proportions, vertically centred in the banner.
     const lg = logoDataUrlRef.current;
     if (lg) {
       try {
         const pr = doc.getImageProperties(lg);
-        const lh = 56;                                   // logo height
-        const lw = pr?.width ? (pr.width / pr.height) * lh : 210;
-        doc.addImage(lg, 'PNG', M + 22, hbY + (hbH - lh) / 2, lw, lh);
+        const lh = 58;                                   // logo height
+        const lw = pr?.width ? (pr.width / pr.height) * lh : 216;
+        doc.addImage(lg, 'PNG', 34, (HH - lh) / 2, lw, lh);
       } catch { /* logo omitted if it fails to load */ }
     }
 
     // ── Company name + address (centred) ──
-    let y = hbY + hbH + 24;
+    let y = HH + 24;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(15);
     doc.setTextColor(INK[0], INK[1], INK[2]);
@@ -470,12 +509,15 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
    */
   const buildPayslipPdf = (emp) => {
     const p = computePayslip(emp);          // kept for the mobile-push payload
+    // No attendance is attached to this per-employee flow, so default Paid Days
+    // to the number of calendar days in the selected pay month.
+    const daysInPayMonth = new Date(payYear, payMonth, 0).getDate();
     const doc = renderPayslip({
       employeeId:  emp.employeeId,
       name:        emp.name,
       designation: emp.designation || emp.role,
       department:  emp.department || emp.dept,
-      paidDays:    emp.paidDays ?? emp.paid_days ?? '-',
+      paidDays:    emp.paidDays ?? emp.paid_days ?? daysInPayMonth,
       balAdvance:  emp.balanceAdvance ?? emp.balAdvance ?? emp.advanceBalance,
       earningsRows:   [['Basic + DA', p.basic], ['HRA', p.hra]],
       deductionsRows: [['PF', p.pf], ['Professional Tax', p.pt]],
@@ -512,6 +554,8 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
    * also download it from the app.
    */
   const downloadPayslip = async (emp) => {
+    // Gate: no payslip without the month's uploaded report.
+    if (!(await requireReport())) return;
     let computed;
     // Build + save the PDF first — local action, never blocked by network.
     try {
@@ -743,14 +787,15 @@ export default function Payroll({ onBack, employees = [], updateEmployeeSalary }
                       <button
                         className="emp-table-btn"
                         title="Preview payslip"
-                        onClick={() => setShowSlip(emp)}
+                        onClick={async () => { if (await requireReport()) setShowSlip(emp); }}
                       >
                         <FileText size={14} />
                       </button>
-                      <button 
-                        className="ne-btn-primary" 
-                        style={{ padding: '4px 10px', height: '28px', fontSize: '12px' }} 
-                        onClick={() => {
+                      <button
+                        className="ne-btn-primary"
+                        style={{ padding: '4px 10px', height: '28px', fontSize: '12px' }}
+                        onClick={async () => {
+                          if (!(await requireReport())) return;
                           setCreateEmpId(emp.employeeId || 'EMP-10' + emp.id);
                           setShowProcessPanel(true);
                         }}
